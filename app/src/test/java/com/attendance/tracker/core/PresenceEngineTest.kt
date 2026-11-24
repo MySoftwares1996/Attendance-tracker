@@ -1,6 +1,7 @@
 package com.attendance.tracker.core
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -72,6 +73,60 @@ class PresenceEngineTest {
         assertNotNull(tr)
         assertEquals(Presence.OUTSIDE, tr!!.to)
         assertEquals("Main Gate", tr.gate?.name)
+        // Leaving is timed at the last moment seen at the gate, not when GPS confirmed it.
+        assertEquals(0L, tr.atMs)
+        assertTrue(tr.timedByGate)
+    }
+
+    @Test fun entryIsTimedAtFirstGateSighting() {
+        val e = PresenceEngine(Presence.OUTSIDE)
+        var t = 0L
+        e.process(at(500.0, 8f, t), office, cfg, t)                       // on the road
+        t += 15_000; e.process(LocationSample(gate.lat, gate.lng, 8f, t), office, cfg, t)  // reach gate @15s
+        val gateT = t
+        t += 15_000; e.process(LocationSample(gate.lat, gate.lng, 8f, t), office, cfg, t)  // still at gate
+        var tr: PresenceEngine.Transition? = null
+        for (i in 1..3) {
+            t += 15_000
+            val r = e.process(at(0.0, 8f, t), office, cfg, t) as PresenceEngine.Result.Accepted
+            tr = r.transition ?: tr
+        }
+        assertEquals(Presence.INSIDE, tr!!.to)
+        assertEquals(gateT, tr.atMs)
+        assertEquals("Main Gate", tr.gate?.name)
+    }
+
+    @Test fun gapBeforeTransitionIsReported() {
+        val e = PresenceEngine(Presence.INSIDE)
+        e.process(at(0.0, 8f, 0), office, cfg, 0)
+        // Phone was silent for 40 minutes, next readings are outside.
+        var t = 40 * 60_000L
+        var tr: PresenceEngine.Transition? = null
+        for (i in 1..3) {
+            val r = e.process(at(400.0, 8f, t), office, cfg, t) as PresenceEngine.Result.Accepted
+            tr = r.transition ?: tr
+            t += 10_000
+        }
+        assertEquals(Presence.OUTSIDE, tr!!.to)
+        assertEquals(40 * 60L, tr.gapBeforeSec)
+        assertFalse(tr.timedByGate)
+    }
+
+    @Test fun everyInAndOutIsDetected() {
+        // Simulate a day: in, out for lunch, in, out → exactly 4 alternating punches.
+        val e = PresenceEngine(Presence.OUTSIDE)
+        val punches = mutableListOf<Presence>()
+        var t = 0L
+        fun walk(dist: Double, n: Int) = repeat(n) {
+            t += 10_000
+            (e.process(at(dist, 8f, t), office, cfg, t) as? PresenceEngine.Result.Accepted)?.transition?.let { punches += it.to }
+        }
+        walk(600.0, 3); walk(300.0, 2); walk(150.0, 2); walk(20.0, 5)     // arrive
+        walk(20.0, 20)                                                        // work
+        walk(150.0, 2); walk(400.0, 5)                                        // leave for lunch
+        walk(150.0, 2); walk(20.0, 5)                                         // come back
+        walk(150.0, 2); walk(900.0, 5)                                        // go home
+        assertEquals(listOf(Presence.INSIDE, Presence.OUTSIDE, Presence.INSIDE, Presence.OUTSIDE), punches)
     }
 
     @Test fun noOfficeConfiguredIsRejected() {

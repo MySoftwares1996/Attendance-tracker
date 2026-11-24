@@ -32,6 +32,8 @@ data class DaySummary(
     val firstInMs: Long? = null,
     val lastOutMs: Long? = null,
     val secondsByStatus: Map<String, Long> = emptyMap(),
+    /** Every IN / OUT punch of the day, in order. */
+    val punches: List<com.attendance.tracker.data.AttendanceEvent> = emptyList(),
 )
 
 data class LiveState(
@@ -94,15 +96,17 @@ object AttendanceController {
                 )
                 res.transition?.let { t ->
                     settings.presence = t.to
-                    val gateTxt = t.gate?.let { " via ${it.name}" } ?: ""
+                    val gateTxt = t.gate?.let { if (t.timedByGate) " via ${it.name} (gate time)" else " via ${it.name}" } ?: ""
+                    val gapTxt = if (t.gapBeforeSec >= GAP_NOTE_SEC)
+                        " · detected after ${t.gapBeforeSec / 60} min without location, time approximate" else ""
                     when (t.to) {
                         Presence.INSIDE -> {
-                            val first = if (t.from == Presence.UNKNOWN) " (first detection)" else ""
-                            db.insertEvent(t.atMs, EventType.CHECK_IN, "Entered ${s.office?.name}$gateTxt$first",
+                            val first = if (t.from == Presence.UNKNOWN) " (already inside when tracking started)" else ""
+                            db.insertEvent(t.atMs, EventType.CHECK_IN, "Entered ${s.office?.name}$gateTxt$first$gapTxt",
                                 sample.lat, sample.lng, sample.accuracyM)
                         }
                         Presence.OUTSIDE -> if (t.from == Presence.INSIDE) {
-                            db.insertEvent(t.atMs, EventType.CHECK_OUT, "Left ${s.office?.name}$gateTxt",
+                            db.insertEvent(t.atMs, EventType.CHECK_OUT, "Left ${s.office?.name}$gateTxt$gapTxt",
                                 sample.lat, sample.lng, sample.accuracyM)
                         }
                         Presence.UNKNOWN -> Unit
@@ -133,7 +137,29 @@ object AttendanceController {
     fun pauseAccounting() {
         tick()
         lastTickMs = 0L
+        settings.lastHeartbeatMs = 0L
     }
+
+    /** True while the engine is confirming a possible punch (service polls faster). */
+    val pendingChange: Boolean get() = engine.hasPendingChange
+
+    /**
+     * Called by the tracking service every tick. If the phone stopped the app during
+     * the working day, the gap is written to the log so it is never silently lost.
+     */
+    @Synchronized
+    fun recordHeartbeat(nowMs: Long, resumed: Boolean) {
+        val prev = settings.lastHeartbeatMs
+        if (prev > 0 && nowMs - prev > HEARTBEAT_GAP_MS && (highAccuracyWanted(prev) || highAccuracyWanted(nowMs))) {
+            val f = { ms: Long -> LocalDateTime.ofInstant(Instant.ofEpochMilli(ms), zone()).let { "%02d:%02d".format(it.hour, it.minute) } }
+            db.insertEvent(nowMs, EventType.TRACKING,
+                "No tracking from ${f(prev)} to ${f(nowMs)}" + if (resumed) " — phone stopped the app; restarted automatically" else " — phone was asleep")
+        }
+        settings.lastHeartbeatMs = nowMs
+    }
+
+    private const val GAP_NOTE_SEC = 10 * 60L
+    private const val HEARTBEAT_GAP_MS = 10 * 60_000L
 
     /** First office entry on [date]. */
     private fun firstCheckIn(date: LocalDate): LocalDateTime? {
@@ -211,6 +237,7 @@ object AttendanceController {
             firstInMs = ev.firstOrNull { it.type == EventType.CHECK_IN }?.timeMs,
             lastOutMs = ev.lastOrNull { it.type == EventType.CHECK_OUT }?.timeMs,
             secondsByStatus = db.durations(day.toString()),
+            punches = ev.filter { it.type == EventType.CHECK_IN || it.type == EventType.CHECK_OUT },
         )
     }
 
@@ -248,10 +275,11 @@ object AttendanceController {
         refresh(nowMs)
     }
 
-    /** Office/geofence changed: forget the old inside/outside decision. */
+    /** Office/geofence changed: forget the old inside/outside decision and re-arm geofences. */
     fun onOfficeChanged() {
         engine.reset(Presence.UNKNOWN)
         settings.presence = Presence.UNKNOWN
+        com.attendance.tracker.service.GeofenceManager.register(app)
         refresh()
     }
 

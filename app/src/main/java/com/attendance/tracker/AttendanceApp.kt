@@ -16,6 +16,8 @@ class AttendanceApp : Application() {
             NotificationChannel(CHANNEL_ALERTS, "Attendance alerts", NotificationManager.IMPORTANCE_HIGH)
         )
         AttendanceController.init(this)
+        // Self-healing: every 15 min make sure tracking and geofences are alive.
+        com.attendance.tracker.service.WatchdogWorker.schedule(this)
     }
 
     companion object {

@@ -126,6 +126,11 @@ fun PermissionsScreen(status: PermissionStatus, onChanged: () -> Unit, onContinu
     }
     fun askBattery() = openSafely(PermissionsManager.batteryIntent(ctx), Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
     fun askUnused() = openSafely(PermissionsManager.unusedAppIntent(ctx), PermissionsManager.appSettingsIntent(ctx))
+    fun askAutostart() {
+        PermissionsManager.openAutostartSettings(ctx)
+        PermissionsManager.setAutostartConfirmed(ctx)
+        onChanged()
+    }
 
     data class Step(val icon: Painter, val title: String, val why: String, val hint: String?, val done: Boolean, val required: Boolean, val action: () -> Unit)
 
@@ -152,7 +157,12 @@ fun PermissionsScreen(status: PermissionStatus, onChanged: () -> Unit, onContinu
             "Prevents Android from removing access if the app isn't opened for a while.",
             "Turn OFF “Pause app activity if unused”",
             status.keepPermissionsWhenUnused, false, ::askUnused),
-    )
+    ) + if (status.autostartNeeded) listOf(
+        Step(painterResource(R.drawable.ic_system_update), "Allow Autostart",
+            "Your phone (${android.os.Build.MANUFACTURER}) blocks background apps unless Autostart is on.",
+            "Find Attendance Tracker and switch Autostart ON",
+            status.autostartConfirmed, false, ::askAutostart),
+    ) else emptyList()
     val nextIndex = steps.indexOfFirst { !it.done && (it.required || steps.filter { s -> s.required }.all { s -> s.done }) }
     // Background location can only be requested after precise location is granted.
     val bgBlocked = !status.preciseLocation
@@ -165,9 +175,9 @@ fun PermissionsScreen(status: PermissionStatus, onChanged: () -> Unit, onContinu
             Spacer(Modifier.height(28.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ProgressRing(
-                    status.doneCount.toFloat() / PermissionsManager.TOTAL_STEPS, c.accent, c.accentSoft,
+                    status.doneCount.toFloat() / status.totalSteps, c.accent, c.accentSoft,
                     Modifier.size(64.dp), stroke = 7.dp,
-                ) { Text("${status.doneCount}/${PermissionsManager.TOTAL_STEPS}", style = MaterialTheme.typography.labelLarge, color = c.accent) }
+                ) { Text("${status.doneCount}/${status.totalSteps}", style = MaterialTheme.typography.labelLarge, color = c.accent) }
                 Spacer(Modifier.width(16.dp))
                 Column {
                     Text("Let's get you set up", style = MaterialTheme.typography.headlineSmall, color = c.textPrimary)

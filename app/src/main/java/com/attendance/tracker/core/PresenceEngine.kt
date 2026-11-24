@@ -13,7 +13,11 @@ package com.attendance.tracker.core
  *  3. State only flips after [AccuracyConfig.confirmSamples] consecutive
  *     confident fixes agree (hysteresis against GPS jitter).
  *  4. The transition time is the time of the FIRST fix of the confirming
- *     run, and it is attributed to the most recently visited gate.
+ *     run, refined by the gate: arriving = first moment seen at the gate,
+ *     leaving = last moment seen at the gate. The punch records which gate.
+ *  5. If there was a gap in readings before the transition (phone asleep,
+ *     app killed), the transition reports it so the punch is not presented
+ *     as more precise than it is.
  */
 class PresenceEngine(initial: Presence = Presence.UNKNOWN) {
 
@@ -29,7 +33,16 @@ class PresenceEngine(initial: Presence = Presence.UNKNOWN) {
 
     enum class Zone { INSIDE, OUTSIDE, AMBIGUOUS }
 
-    data class Transition(val from: Presence, val to: Presence, val atMs: Long, val gate: Gate?)
+    data class Transition(
+        val from: Presence,
+        val to: Presence,
+        val atMs: Long,
+        val gate: Gate?,
+        /** Seconds without any accepted reading just before the change (0 = continuous). */
+        val gapBeforeSec: Long = 0,
+        /** True when [atMs] came from the gate crossing rather than the first confirming fix. */
+        val timedByGate: Boolean = false,
+    )
 
     var presence: Presence = initial
         private set
@@ -41,6 +54,11 @@ class PresenceEngine(initial: Presence = Presence.UNKNOWN) {
     private var consecutiveJumpRejects = 0
     private var lastGate: Gate? = null
     private var lastGateMs = 0L
+    private var gateVisitStartMs = 0L
+    private var candidatePrevMs = 0L
+
+    /** True while a possible in/out change is waiting for confirmation (poll faster). */
+    val hasPendingChange: Boolean get() = candidate != null
 
     fun reset(p: Presence) {
         presence = p
@@ -73,13 +91,17 @@ class PresenceEngine(initial: Presence = Presence.UNKNOWN) {
             }
         }
         consecutiveJumpRejects = 0
+        val prevAcceptedMs = lastAccepted?.timeMs ?: s.timeMs
         lastAccepted = s
 
         val gate = office.gates
             .map { it to GeoMath.distanceM(s.lat, s.lng, it.lat, it.lng) }
             .filter { (g, d) -> d <= g.radiusM + s.accuracyM }
             .minByOrNull { it.second }?.first
-        if (gate != null) { lastGate = gate; lastGateMs = s.timeMs }
+        if (gate != null) {
+            if (gate.id != lastGate?.id || s.timeMs - lastGateMs > GATE_VISIT_BREAK_MS) gateVisitStartMs = s.timeMs
+            lastGate = gate; lastGateMs = s.timeMs
+        }
 
         val d = GeoMath.distanceM(s.lat, s.lng, office.lat, office.lng)
         val zone = when {
@@ -102,10 +124,27 @@ class PresenceEngine(initial: Presence = Presence.UNKNOWN) {
                     candidateCount++
                 } else {
                     candidate = zonePresence; candidateCount = 1; candidateSinceMs = s.timeMs
+                    candidatePrevMs = prevAcceptedMs
                 }
                 if (candidateCount >= cfg.confirmSamples.coerceAtLeast(1)) {
                     val usedGate = lastGate?.takeIf { s.timeMs - lastGateMs <= GATE_WINDOW_MS }
-                    transition = Transition(presence, zonePresence, candidateSinceMs, usedGate)
+                    var at = candidateSinceMs
+                    var byGate = false
+                    if (usedGate != null) {
+                        if (zonePresence == Presence.INSIDE) {
+                            // Arrived: the moment you first reached the gate.
+                            if (gateVisitStartMs <= candidateSinceMs && candidateSinceMs - gateVisitStartMs <= GATE_TIME_WINDOW_MS) {
+                                at = gateVisitStartMs; byGate = true
+                            }
+                        } else {
+                            // Left: the last moment you were at the gate.
+                            if (lastGateMs <= candidateSinceMs && candidateSinceMs - lastGateMs <= GATE_TIME_WINDOW_MS) {
+                                at = lastGateMs; byGate = true
+                            }
+                        }
+                    }
+                    val gap = ((candidateSinceMs - candidatePrevMs) / 1000).coerceAtLeast(0)
+                    transition = Transition(presence, zonePresence, at, usedGate, gap, byGate)
                     presence = zonePresence
                     candidate = null; candidateCount = 0
                     lastGate = null
@@ -120,5 +159,9 @@ class PresenceEngine(initial: Presence = Presence.UNKNOWN) {
         const val MAX_SPEED_MPS = 60.0
         /** A gate visit within this window before a transition is attributed to it. */
         const val GATE_WINDOW_MS = 10 * 60 * 1000L
+        /** Gate time refines the punch only if the crossing was this recent. */
+        const val GATE_TIME_WINDOW_MS = 3 * 60 * 1000L
+        /** Away from a gate this long = a new visit. */
+        const val GATE_VISIT_BREAK_MS = 2 * 60 * 1000L
     }
 }

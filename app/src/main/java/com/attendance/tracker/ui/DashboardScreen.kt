@@ -69,6 +69,7 @@ import com.attendance.tracker.core.StatusResolver
 import com.attendance.tracker.core.WorkSchedule
 import com.attendance.tracker.core.WorkStatus
 import com.attendance.tracker.service.TrackingService
+import com.attendance.tracker.permissions.PermissionsManager
 import kotlinx.coroutines.delay
 import java.time.Duration
 import java.time.LocalDateTime
@@ -159,6 +160,19 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
             tint = c.accent, bg = c.accentSoft,
         ) { onOpenSetup() }
 
+        Notices(
+            show = PermissionsManager.autostartNeeded() && !PermissionsManager.autostartConfirmed(ctx) && permTick >= 0,
+            icon = painterResource(R.drawable.ic_system_update),
+            text = "Turn on Autostart so your phone never stops auto-punch", action = "Open",
+            tint = c.warning, bg = c.warningSoft,
+        ) {
+            PermissionsManager.openAutostartSettings(ctx)
+            PermissionsManager.setAutostartConfirmed(ctx)
+            permTick++
+        }
+
+        HealthLine(st.trackingOn, st.lastAcceptedMs, st.lastFix?.timeMs, now)
+
         UpdateBanner()
 
         // ---------- tracking button ----------
@@ -191,6 +205,9 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
         LunchCard(st.lunch.active, st.lunch.startedAtMs, now, sc, st.plan) { msg ->
             Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
         }
+
+        // ---------- punches ----------
+        PunchesCard(st.today.punches, now)
 
         // ---------- today stats ----------
         SectionTitle("Today", Modifier.padding(top = 4.dp))
@@ -272,6 +289,81 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
         }
 
         Spacer(Modifier.height(NavBarClearance))
+    }
+}
+
+/** Live proof that auto-punch is working: when the last location reading arrived. */
+@Composable
+private fun HealthLine(tracking: Boolean, lastAcceptedMs: Long?, lastFixMs: Long?, nowMs: Long) {
+    val c = Soft.colors
+    val last = listOfNotNull(lastAcceptedMs, lastFixMs).maxOrNull()
+    val age = last?.let { ((nowMs - it) / 1000).coerceAtLeast(0) }
+    val (text, color) = when {
+        !tracking -> "Auto-punch is paused" to c.danger
+        age == null -> "Auto-punch on · waiting for first GPS reading" to c.warning
+        age < 120 -> "Auto-punch active · location checked ${if (age < 60) "${age}s" else "${age / 60}m"} ago" to c.success
+        age < 600 -> "Auto-punch active · last reading ${age / 60}m ago" to c.warning
+        else -> "No location for ${age / 60} min — check GPS / battery settings" to c.danger
+    }
+    Row(
+        Modifier.fillMaxWidth().clip(Soft.pillShape).background(color.copy(alpha = 0.12f)).padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        PulseDot(color, tracking && (age ?: 999) < 120, 7.dp)
+        Spacer(Modifier.width(4.dp))
+        Text(text, style = MaterialTheme.typography.labelMedium, color = c.textPrimary)
+    }
+}
+
+/** Every automatic IN / OUT of the day with gate and time spent inside. */
+@Composable
+private fun PunchesCard(punches: List<com.attendance.tracker.data.AttendanceEvent>, nowMs: Long) {
+    val c = Soft.colors
+    SoftCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) {
+                CardHeader(painterResource(R.drawable.ic_gate), "Punches today", "Recorded automatically at the gate")
+            }
+            Pill("${punches.size}", c.accent, c.accentSoft)
+        }
+        Spacer(Modifier.height(12.dp))
+        if (punches.isEmpty()) {
+            Text(
+                "No punches yet. Your first IN is recorded as soon as you enter the office.",
+                style = MaterialTheme.typography.bodyMedium, color = c.textSecondary,
+            )
+        }
+        punches.forEachIndexed { i, e ->
+            val isIn = e.type == com.attendance.tracker.data.EventType.CHECK_IN
+            val gate = Regex("via (.+?)( \\(|$| ·)").find(e.detail)?.groupValues?.get(1)
+            val approx = e.detail.contains("approximate")
+            Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (isIn) "IN" else "OUT",
+                    Modifier.width(52.dp).clip(Soft.pillShape).background(if (isIn) c.successSoft else c.dangerSoft)
+                        .padding(vertical = 5.dp),
+                    color = if (isIn) c.success else c.danger, style = MaterialTheme.typography.labelMedium,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text((if (approx) "~" else "") + fmtTime(e.timeMs), style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+                    Text(
+                        (gate ?: "Office boundary") + (e.accuracyM?.let { " · ±${it.toInt()} m" } ?: "") + if (approx) " · approximate" else "",
+                        style = MaterialTheme.typography.bodySmall, color = c.textSecondary,
+                    )
+                }
+                if (isIn) {
+                    val outMs = punches.getOrNull(i + 1)?.timeMs
+                    val dur = ((outMs ?: nowMs) - e.timeMs) / 1000
+                    Text(
+                        if (outMs == null) "inside ${fmtDuration(dur)}" else fmtDuration(dur),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (outMs == null) c.success else c.textSecondary,
+                    )
+                }
+            }
+        }
     }
 }
 

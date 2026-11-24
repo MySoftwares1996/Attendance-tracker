@@ -106,6 +106,10 @@ class SettingsRepository(context: Context) {
         get() = prefs.getBoolean("userPaused", false)
         set(v) = prefs.edit().putBoolean("userPaused", v).apply()
 
+    var lastHeartbeatMs: Long
+        get() = prefs.getLong("heartbeat", 0L)
+        set(v) = prefs.edit().putLong("heartbeat", v).apply()
+
     var onboarded: Boolean
         get() = prefs.getBoolean("onboarded", false)
         set(v) = prefs.edit().putBoolean("onboarded", v).apply()

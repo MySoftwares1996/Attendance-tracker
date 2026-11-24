@@ -28,16 +28,57 @@ data class PermissionStatus(
     val notifications: Boolean,
     val batteryUnrestricted: Boolean,
     val keepPermissionsWhenUnused: Boolean,
+    /** Only on phones whose makers block background apps (Xiaomi, Oppo, Vivo…). */
+    val autostartNeeded: Boolean = false,
+    /** Android can't report this setting, so we record that the user visited it. */
+    val autostartConfirmed: Boolean = true,
 ) {
     /** Without these, attendance cannot be tracked in the background. */
     val requiredOk: Boolean get() = preciseLocation && backgroundLocation && locationServicesOn && batteryUnrestricted
-    val allOk: Boolean get() = requiredOk && notifications && keepPermissionsWhenUnused
+    val allOk: Boolean get() = requiredOk && notifications && keepPermissionsWhenUnused && (!autostartNeeded || autostartConfirmed)
+    val totalSteps: Int get() = if (autostartNeeded) 7 else 6
     val doneCount: Int get() = listOf(preciseLocation, backgroundLocation, locationServicesOn, notifications,
-        batteryUnrestricted, keepPermissionsWhenUnused).count { it }
+        batteryUnrestricted, keepPermissionsWhenUnused).count { it } + if (autostartNeeded && autostartConfirmed) 1 else 0
 }
 
 object PermissionsManager {
-    const val TOTAL_STEPS = 6
+    private val AUTOSTART_MAKERS = setOf("xiaomi", "redmi", "poco", "oppo", "realme", "vivo", "iqoo", "huawei", "honor", "oneplus", "asus", "letv", "meizu", "tecno", "infinix", "itel")
+
+    fun autostartNeeded(): Boolean =
+        Build.MANUFACTURER.lowercase() in AUTOSTART_MAKERS || Build.BRAND.lowercase() in AUTOSTART_MAKERS
+
+    fun autostartConfirmed(ctx: Context) =
+        ctx.getSharedPreferences("perm", Context.MODE_PRIVATE).getBoolean("autostartConfirmed", false)
+
+    fun setAutostartConfirmed(ctx: Context) =
+        ctx.getSharedPreferences("perm", Context.MODE_PRIVATE).edit().putBoolean("autostartConfirmed", true).apply()
+
+    /** Opens the phone maker's "Autostart" / background-launch screen. */
+    fun openAutostartSettings(ctx: Context): Boolean {
+        val candidates = listOf(
+            "com.miui.securitycenter" to "com.miui.permcenter.autostart.AutoStartManagementActivity",
+            "com.coloros.safecenter" to "com.coloros.safecenter.permission.startup.StartupAppListActivity",
+            "com.coloros.safecenter" to "com.coloros.safecenter.startupapp.StartupAppListActivity",
+            "com.oplus.safecenter" to "com.oplus.safecenter.permission.startup.StartupAppListActivity",
+            "com.oppo.safe" to "com.oppo.safe.permission.startup.StartupAppListActivity",
+            "com.vivo.permissionmanager" to "com.vivo.permissionmanager.activity.BgStartUpManagerActivity",
+            "com.iqoo.secure" to "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity",
+            "com.huawei.systemmanager" to "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity",
+            "com.huawei.systemmanager" to "com.huawei.systemmanager.optimize.process.ProtectActivity",
+            "com.hihonor.systemmanager" to "com.hihonor.systemmanager.startupmgr.ui.StartupNormalAppListActivity",
+            "com.oneplus.security" to "com.oneplus.security.chainlaunch.view.ChainLaunchAppListActivity",
+            "com.asus.mobilemanager" to "com.asus.mobilemanager.entry.FunctionActivity",
+            "com.letv.android.letvsafe" to "com.letv.android.letvsafe.AutobootManageActivity",
+            "com.transsion.phonemaster" to "com.cyin.himgr.autostart.AutoStartActivity",
+        )
+        for ((pkg, cls) in candidates) {
+            val ok = runCatching {
+                ctx.startActivity(Intent().setClassName(pkg, cls).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }.isSuccess
+            if (ok) return true
+        }
+        return runCatching { ctx.startActivity(appSettingsIntent(ctx)) }.isSuccess
+    }
 
     private fun granted(ctx: Context, p: String) =
         ContextCompat.checkSelfPermission(ctx, p) == PackageManager.PERMISSION_GRANTED
@@ -85,6 +126,8 @@ object PermissionsManager {
         notifications = notificationsOn(ctx),
         batteryUnrestricted = batteryUnrestricted(ctx),
         keepPermissionsWhenUnused = keepPermissionsWhenUnused(ctx),
+        autostartNeeded = autostartNeeded(),
+        autostartConfirmed = autostartConfirmed(ctx),
     )
 
     /** Quick synchronous check used by the background service. */

@@ -165,7 +165,10 @@ fun SettingsScreen() {
         )
         if (old == null || old.lat != office.lat || old.lng != office.lng || old.radiusM != office.radiusM) {
             AttendanceController.onOfficeChanged()
-        } else AttendanceController.refresh()
+        } else {
+            AttendanceController.refresh()
+            com.attendance.tracker.service.GeofenceManager.register(ctx) // gates may have changed
+        }
         val st = AttendanceController.settings
         if (!st.trackingEnabled && !st.userPaused && AttendanceController.hasFineLocation(ctx)) {
             runCatching { com.attendance.tracker.service.TrackingService.start(ctx) }
