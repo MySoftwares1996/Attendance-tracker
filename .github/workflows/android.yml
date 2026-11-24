@@ -58,10 +58,14 @@ jobs:
           mkdir -p dist
           cp app/build/outputs/apk/release/app-release.apk dist/AttendanceTracker.apk
 
+      # Non-fatal: the account's Actions artifact storage quota may be full.
+      # The OTA release below (GitHub Releases) is the main delivery channel.
       - uses: actions/upload-artifact@v5
+        continue-on-error: true
         with:
           name: AttendanceTracker-apk
           path: dist/AttendanceTracker.apk
+          retention-days: 7
 
       # OTA release: on pushes to the default branch, or a manual run with "release" ticked.
       - name: Publish OTA release
