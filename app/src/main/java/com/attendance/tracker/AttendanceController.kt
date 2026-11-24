@@ -599,8 +599,8 @@ object AttendanceController {
     }
 
     fun timelineEvents(ev: List<com.attendance.tracker.data.AttendanceEvent>): List<com.attendance.tracker.core.DayTimeline.Event> =
-        ev.mapNotNull {
-            val k = when (it.type) {
+        ev.mapNotNull { e ->
+            val k = when (e.type) {
                 EventType.CHECK_IN -> com.attendance.tracker.core.DayTimeline.Ev.IN
                 EventType.CHECK_OUT -> com.attendance.tracker.core.DayTimeline.Ev.OUT
                 EventType.LUNCH_START -> com.attendance.tracker.core.DayTimeline.Ev.LUNCH_START
@@ -609,7 +609,7 @@ object AttendanceController {
                 EventType.DUTY_END -> com.attendance.tracker.core.DayTimeline.Ev.DUTY_END
                 else -> null
             }
-            k?.let { com.attendance.tracker.core.DayTimeline.Event(it.timeMs, k) }
+            k?.let { kind -> com.attendance.tracker.core.DayTimeline.Event(e.timeMs, kind) }
         }
 
     fun shareIntent(text: String): Intent = Intent.createChooser(
