@@ -143,6 +143,30 @@ fun SettingsScreen() {
         if (inWizard) { wizardStep-- } else { page = Page.SUMMARY }
     }
 
+    // A location shared from Google Maps: ask what it is for, then open that page.
+    val incoming = UiChrome.sharedLink
+    if (incoming != null && UiChrome.sharedTarget == null) {
+        AlertDialog(
+            onDismissRequest = { UiChrome.sharedLink = null },
+            title = { Text("Use this location for") },
+            text = { Text("Location shared from Google Maps.", color = c.textSecondary) },
+            confirmButton = {
+                TextButton(onClick = {
+                    UiChrome.sharedTarget = "office"
+                    if (inWizard) wizardStep = 0 else page = Page.OFFICE
+                }) { Text("Office") }
+            },
+            dismissButton = {
+                TextButton(enabled = settings.office != null, onClick = {
+                    UiChrome.sharedTarget = "gate"
+                    if (inWizard) wizardStep = 1 else page = Page.GATES
+                }) { Text("Gate") }
+            },
+            shape = RoundedCornerShape(28.dp), containerColor = c.card,
+        )
+    }
+    LaunchedEffect(incoming) { if (incoming == null) UiChrome.sharedTarget = null }
+
     // Map pages are full screen: hide the bottom tabs and draw under the status bar.
     val fullScreen = shown == Page.OFFICE || shown == Page.GATES
     LaunchedEffect(fullScreen) { UiChrome.fullScreen = fullScreen }
@@ -361,6 +385,10 @@ private fun OfficeStep(
     val o = s.office
     val corners = remember { mutableStateListOf<LatLng>().apply { addAll(o?.polygon ?: emptyList()) } }
     var name by remember { mutableStateOf(o?.name ?: "My Office") }
+    var linkOpen by remember { mutableStateOf(false) }
+    var focus by remember { mutableStateOf<LatLng?>(null) }
+    var focusSeq by remember { mutableIntStateOf(0) }
+    val shared = UiChrome.sharedLink.takeIf { UiChrome.sharedTarget == "office" }
 
     fun saveArea() {
         if (corners.size < 3) return
@@ -371,6 +399,7 @@ private fun OfficeStep(
     MapScaffold(
         title = "Draw your office",
         stepLabel = stepLabel, showBack = showBack, onBack = onBack,
+        onPasteLink = { linkOpen = true },
         primaryLabel = if (wizard) "Next" else "Done",
         primaryEnabled = s.office != null,
         onPrimary = onNext,
@@ -381,6 +410,7 @@ private fun OfficeStep(
                 gates = o?.gates ?: emptyList(),
                 editableCorners = true,
                 fullScreen = true,
+                focus = focus, focusSeq = focusSeq,
                 onTap = { p -> corners.add(p); saveArea() },
                 onCornerMoved = { i, p -> if (i in corners.indices) { corners[i] = p; saveArea() } },
             )
@@ -403,11 +433,26 @@ private fun OfficeStep(
                 SmallChip("Clear") { corners.clear() }
             }
         }
-        Text("Press and hold a corner to move it.", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+        Text(
+            if (focus != null && corners.isEmpty()) "Found it! Now tap each corner of the compound around the pin."
+            else "Press and hold a corner to move it.",
+            style = MaterialTheme.typography.bodySmall, color = if (focus != null && corners.isEmpty()) c.accent else c.textSecondary,
+        )
         SoftField("Office name", name, keyboard = KeyboardType.Text) {
             name = it
             current().office?.let { off -> persist(ctx, current().copy(office = off.copy(name = it.ifBlank { "Office" }))) }
         }
+    }
+    if (linkOpen || shared != null) {
+        MapLinkDialog(
+            title = "Find your office",
+            initialText = shared,
+            onFound = { p ->
+                focus = p; focusSeq++; linkOpen = false; UiChrome.sharedLink = null
+                Toast.makeText(ctx, "Location found \u2014 now tap the corners", Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { linkOpen = false; UiChrome.sharedLink = null },
+        )
     }
 }
 
@@ -415,6 +460,7 @@ private fun OfficeStep(
 @Composable
 private fun MapScaffold(
     title: String, stepLabel: String?, showBack: Boolean, onBack: () -> Unit,
+    onPasteLink: (() -> Unit)? = null,
     primaryLabel: String, primaryEnabled: Boolean, onPrimary: () -> Unit,
     map: @Composable () -> Unit,
     panel: @Composable ColumnScope.() -> Unit,
@@ -439,6 +485,16 @@ private fun MapScaffold(
             ) {
                 if (stepLabel != null) Text(stepLabel, style = MaterialTheme.typography.labelSmall, color = c.accent)
                 Text(title, style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
+            }
+        }
+        if (onPasteLink != null) {
+            Row(
+                Modifier.align(Alignment.TopStart).statusBarsPadding().padding(start = 12.dp, top = 72.dp)
+                    .shadow(10.dp, Soft.pillShape).clip(Soft.pillShape).background(c.accent)
+                    .pressScale(onPasteLink).padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("\uD83D\uDD17  Paste Google Maps link", style = MaterialTheme.typography.labelLarge, color = Color.White)
             }
         }
         Column(
@@ -483,6 +539,10 @@ private fun GatesStep(
     val c = Soft.colors
     val o = s.office
     var renaming by remember { mutableStateOf<Gate?>(null) }
+    var linkOpen by remember { mutableStateOf(false) }
+    var focus by remember { mutableStateOf<LatLng?>(null) }
+    var focusSeq by remember { mutableIntStateOf(0) }
+    val shared = UiChrome.sharedLink.takeIf { UiChrome.sharedTarget == "gate" }
 
     fun addGate(lat: Double, lng: Double) {
         val off = current().office ?: return
@@ -503,6 +563,7 @@ private fun GatesStep(
     MapScaffold(
         title = "Mark your gates",
         stepLabel = stepLabel, showBack = showBack, onBack = onBack,
+        onPasteLink = { linkOpen = true },
         primaryLabel = if (wizard) (if (o.gates.isEmpty()) "Skip for now" else "Next") else "Done",
         primaryEnabled = true,
         onPrimary = onNext,
@@ -513,6 +574,7 @@ private fun GatesStep(
                 gates = o.gates,
                 editableCorners = false,
                 fullScreen = true,
+                focus = focus, focusSeq = focusSeq,
                 onTap = { p -> addGate(p.lat, p.lng) },
             )
         },
@@ -540,6 +602,18 @@ private fun GatesStep(
             "Add gate where I'm standing",
             { capture("gate") { lat, lng, _ -> addGate(lat, lng) } },
             icon = rememberVectorPainter(Icons.Filled.LocationOn), enabled = !busy,
+        )
+    }
+
+    if (linkOpen || shared != null) {
+        MapLinkDialog(
+            title = "Gate from Google Maps",
+            initialText = shared,
+            onFound = { p ->
+                focus = p; focusSeq++; linkOpen = false; UiChrome.sharedLink = null
+                addGate(p.lat, p.lng)
+            },
+            onDismiss = { linkOpen = false; UiChrome.sharedLink = null },
         )
     }
 

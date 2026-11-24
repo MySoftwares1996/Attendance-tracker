@@ -78,6 +78,9 @@ fun OfficeMap(
     gates: List<Gate>,
     editableCorners: Boolean,
     fullScreen: Boolean = false,
+    /** When [focusSeq] changes, the map flies to [focus] and shows a pin there. */
+    focus: LatLng? = null,
+    focusSeq: Int = 0,
     onTap: (LatLng) -> Unit,
     onCornerMoved: (Int, LatLng) -> Unit = { _, _ -> },
 ) {
@@ -146,6 +149,11 @@ fun OfficeMap(
             recenter++
         }
     }
+    LaunchedEffect(focusSeq) {
+        val f = focus ?: return@LaunchedEffect
+        if (focusSeq == 0) return@LaunchedEffect
+        map.controller.animateTo(f.gp(), 19.0, 900L)
+    }
     LaunchedEffect(recenter) {
         if (recenter == 0) return@LaunchedEffect
         val here = myLoc.myLocation
@@ -197,6 +205,14 @@ fun OfficeMap(
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                         icon = gateIcon
                         title = g.name
+                        setOnMarkerClickListener { mk, _ -> mk.showInfoWindow(); true }
+                    })
+                }
+                focus?.let { f ->
+                    m.overlays.add(Marker(m).apply {
+                        position = f.gp()
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                        title = "Location from link"
                         setOnMarkerClickListener { mk, _ -> mk.showInfoWindow(); true }
                     })
                 }

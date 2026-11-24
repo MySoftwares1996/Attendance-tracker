@@ -59,6 +59,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        handleShare(intent)
         setContent {
             AttendanceTheme {
                 val ctx = LocalContext.current
@@ -112,6 +113,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        handleShare(intent)
+    }
+
+    /** Google Maps → Share → Attendance Tracker. */
+    private fun handleShare(intent: android.content.Intent?) {
+        if (intent?.action != android.content.Intent.ACTION_SEND) return
+        val text = intent.getStringExtra(android.content.Intent.EXTRA_TEXT) ?: return
+        UiChrome.sharedTarget = null
+        UiChrome.sharedLink = text
+    }
+
     override fun onResume() {
         super.onResume()
         AttendanceController.refresh()
@@ -122,6 +136,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun MainContent() {
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    // A shared Google Maps location opens Setup.
+    LaunchedEffect(UiChrome.sharedLink) { if (UiChrome.sharedLink != null) tab = 2 }
     Box(Modifier.fillMaxSize().background(Soft.colors.background)) {
         AnimatedContent(
             targetState = tab,
@@ -153,6 +169,10 @@ private fun MainContent() {
 /** Lets a screen go full screen (hides the bottom tabs, draws under the status bar). */
 object UiChrome {
     var fullScreen by mutableStateOf(false)
+    /** Text shared into the app from Google Maps (Share → Attendance Tracker). */
+    var sharedLink by mutableStateOf<String?>(null)
+    /** "office" or "gate" once the user picked what the shared location is for. */
+    var sharedTarget by mutableStateOf<String?>(null)
 }
 
 /** Space reserved at the bottom of every screen so content clears the floating bar. */
