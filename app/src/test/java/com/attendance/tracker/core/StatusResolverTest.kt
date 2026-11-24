@@ -24,7 +24,7 @@ class StatusResolverTest {
         StatusResolver.resolve(now, nowMs, plan(now, s, firstIn, lunchSec), s, p, lunch)
 
     // ---------------- fixed hours ----------------
-    private val fixed = WorkSchedule(startMin = 9 * 60, endMin = 18 * 60)
+    private val fixed = WorkSchedule(startMin = 9 * 60, endMin = 18 * 60, flexible = false)
 
     @Test fun fixedBasicStatuses() {
         assertEquals(WorkStatus.IN_OFFICE, status(at(10), fixed, Presence.INSIDE, at(9)))
@@ -46,7 +46,7 @@ class StatusResolverTest {
     }
 
     @Test fun nightShiftBelongsToPreviousDay() {
-        val n = WorkSchedule(startMin = 22 * 60, endMin = 6 * 60, workDays = setOf(DayOfWeek.MONDAY))
+        val n = WorkSchedule(startMin = 22 * 60, endMin = 6 * 60, workDays = setOf(DayOfWeek.MONDAY), flexible = false)
         assertEquals(WorkStatus.IN_OFFICE, status(at(23), n, Presence.INSIDE, at(22)))
         val tue3 = at(3).plusDays(1)
         val p = DayPlanner.plan(tue3, n, { d -> if (d == monday) at(22) else null }, { 0 })

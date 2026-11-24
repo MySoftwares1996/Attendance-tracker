@@ -106,10 +106,12 @@ object AttendanceController {
                             val first = if (t.from == Presence.UNKNOWN) " (already inside when tracking started)" else ""
                             db.insertEvent(t.atMs, EventType.CHECK_IN, "Entered ${s.office?.name}$gateTxt$first$gapTxt",
                                 sample.lat, sample.lng, sample.accuracyM)
+                            punchAlert(true, t.atMs, t.gate?.name, t.gapBeforeSec >= GAP_NOTE_SEC)
                         }
                         Presence.OUTSIDE -> if (t.from == Presence.INSIDE) {
                             db.insertEvent(t.atMs, EventType.CHECK_OUT, "Left ${s.office?.name}$gateTxt$gapTxt",
                                 sample.lat, sample.lng, sample.accuracyM)
+                            punchAlert(false, t.atMs, t.gate?.name, t.gapBeforeSec >= GAP_NOTE_SEC)
                         }
                         Presence.UNKNOWN -> Unit
                     }
@@ -288,6 +290,47 @@ object AttendanceController {
     fun hasFineLocation(ctx: Context) = ContextCompat.checkSelfPermission(
         ctx, Manifest.permission.ACCESS_FINE_LOCATION
     ) == PackageManager.PERMISSION_GRANTED
+
+    /** Chime + vibration + notification for every automatic IN / OUT. */
+    private fun punchAlert(isIn: Boolean, atMs: Long, gate: String?, approximate: Boolean) {
+        val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val t = LocalDateTime.ofInstant(Instant.ofEpochMilli(atMs), zone())
+        val time = "%d:%02d %s".format(if (t.hour % 12 == 0) 12 else t.hour % 12, t.minute, if (t.hour < 12) "AM" else "PM")
+        val where = gate ?: settings.settings.value.office?.name ?: "Office"
+        val title = (if (isIn) "IN  " else "OUT  ") + (if (approximate) "~" else "") + time
+        val text = if (isIn) {
+            val p = plan(System.currentTimeMillis())
+            val out = p.expectedEnd?.let { " · expected out ${"%d:%02d %s".format(if (it.hour % 12 == 0) 12 else it.hour % 12, it.minute, if (it.hour < 12) "AM" else "PM")}" } ?: ""
+            "$where$out · Have a great day!"
+        } else {
+            val worked = summary(t.toLocalDate()).secondsByStatus.let {
+                (it[WorkStatus.IN_OFFICE.name] ?: 0) + (it[WorkStatus.OVERTIME.name] ?: 0)
+            }
+            "$where · In office ${worked / 3600}h ${(worked % 3600) / 60}m today"
+        }
+        val channel = when {
+            !settings.punchSound -> AttendanceApp.CHANNEL_PUNCH_SILENT
+            isIn -> AttendanceApp.CHANNEL_PUNCH_IN
+            else -> AttendanceApp.CHANNEL_PUNCH_OUT
+        }
+        val pi = PendingIntent.getActivity(app, 5, Intent(app, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        runCatching {
+            nm.notify(
+                if (isIn) 3101 else 3102,
+                NotificationCompat.Builder(app, channel)
+                    .setSmallIcon(R.drawable.ic_notification)
+                    .setContentTitle(title)
+                    .setContentText(text)
+                    .setColor(if (isIn) 0xFF12B886.toInt() else 0xFFF0506E.toInt())
+                    .setCategory(NotificationCompat.CATEGORY_STATUS)
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setContentIntent(pi)
+                    .setAutoCancel(true)
+                    .setWhen(atMs).setShowWhen(true)
+                    .build()
+            )
+        }
+    }
 
     private fun alert(status: WorkStatus, plan: DayPlan) {
         val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

@@ -116,6 +116,11 @@ class SettingsRepository(context: Context) {
         get() = prefs.getLong("heartbeat", 0L)
         set(v) = prefs.edit().putLong("heartbeat", v).apply()
 
+    /** Sound + vibration when IN / OUT is recorded. */
+    var punchSound: Boolean
+        get() = prefs.getBoolean("punchSound", true)
+        set(v) = prefs.edit().putBoolean("punchSound", v).apply()
+
     var onboarded: Boolean
         get() = prefs.getBoolean("onboarded", false)
         set(v) = prefs.edit().putBoolean("onboarded", v).apply()

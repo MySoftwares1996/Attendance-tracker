@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -572,6 +573,16 @@ private fun AdvancedStep(s: AppSettings) {
         TimePickerDialog(ctx, { _, h, m -> onPicked(h * 60 + m) }, initial / 60, initial % 60, false).show()
 
     StepTitle("Advanced", "You normally don't need to change these.")
+    SoftCard {
+        CardHeader(rememberVectorPainter(Icons.Filled.Notifications), "Punch sound")
+        Spacer(Modifier.height(6.dp))
+        var sound by remember { mutableStateOf(AttendanceController.settings.punchSound) }
+        SoftSwitchRow(
+            "Sound & vibration on IN / OUT",
+            "Rising chime when you arrive, falling chime when you leave",
+            sound,
+        ) { v -> sound = v; AttendanceController.settings.punchSound = v }
+    }
     SoftCard {
         CardHeader(painterResource(R.drawable.ic_clock), "Overtime")
         Spacer(Modifier.height(12.dp))
