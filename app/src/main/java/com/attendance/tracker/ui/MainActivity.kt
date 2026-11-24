@@ -131,7 +131,7 @@ private fun MainContent() {
                     fadeOut(tween(180))
             },
             label = "tabs",
-            modifier = Modifier.fillMaxSize().statusBarsPadding(),
+            modifier = if (UiChrome.fullScreen) Modifier.fillMaxSize() else Modifier.fillMaxSize().statusBarsPadding(),
         ) { t ->
             when (t) {
                 0 -> DashboardScreen(onOpenSetup = { tab = 2 })
@@ -139,8 +139,20 @@ private fun MainContent() {
                 else -> SettingsScreen()
             }
         }
-        SoftNavBar(tab, { tab = it }, Modifier.align(Alignment.BottomCenter))
+        androidx.compose.animation.AnimatedVisibility(
+            visible = !UiChrome.fullScreen,
+            modifier = Modifier.align(Alignment.BottomCenter),
+            enter = fadeIn() + slideInVertically { it },
+            exit = fadeOut() + androidx.compose.animation.slideOutVertically { it },
+        ) {
+            SoftNavBar(tab, { tab = it }, Modifier)
+        }
     }
+}
+
+/** Lets a screen go full screen (hides the bottom tabs, draws under the status bar). */
+object UiChrome {
+    var fullScreen by mutableStateOf(false)
 }
 
 /** Space reserved at the bottom of every screen so content clears the floating bar. */

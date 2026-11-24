@@ -28,6 +28,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.draw.shadow
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -138,6 +143,11 @@ fun SettingsScreen() {
         if (inWizard) { wizardStep-- } else { page = Page.SUMMARY }
     }
 
+    // Map pages are full screen: hide the bottom tabs and draw under the status bar.
+    val fullScreen = shown == Page.OFFICE || shown == Page.GATES
+    LaunchedEffect(fullScreen) { UiChrome.fullScreen = fullScreen }
+    DisposableEffect(Unit) { onDispose { UiChrome.fullScreen = false } }
+
     Box(Modifier.fillMaxSize()) {
         AnimatedContent(
             targetState = shown,
@@ -147,12 +157,18 @@ fun SettingsScreen() {
             },
             label = "setupPage",
         ) { p ->
-            val mapPage = p == Page.OFFICE || p == Page.GATES
+            if (p == Page.OFFICE || p == Page.GATES) {
+                val stepLabel = if (inWizard) "Step ${wizardStep + 1} of ${WIZARD.size}" else null
+                val showBack = !inWizard || wizardStep > 0
+                val back: () -> Unit = { if (inWizard) { if (wizardStep > 0) wizardStep-- } else { page = Page.SUMMARY } }
+                val next: () -> Unit = { if (inWizard) { wizardStep++ } else { page = Page.SUMMARY } }
+                if (p == Page.OFFICE) OfficeStep(settings, inWizard, stepLabel, showBack, back, next)
+                else GatesStep(settings, capture != null, ::doCapture, inWizard, stepLabel, showBack, back, next)
+                return@AnimatedContent
+            }
             Column(
-                Modifier.fillMaxSize()
-                    .then(if (mapPage) Modifier else Modifier.verticalScroll(rememberScrollState()))
-                    .padding(horizontal = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(if (mapPage) 12.dp else 16.dp),
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 Spacer(Modifier.height(16.dp))
                 if (inWizard) {
@@ -162,8 +178,7 @@ fun SettingsScreen() {
                 }
                 when (p) {
                     Page.SUMMARY -> Summary(settings) { page = it }
-                    Page.OFFICE -> OfficeStep(settings)
-                    Page.GATES -> GatesStep(settings, capture != null, ::doCapture)
+                    Page.OFFICE, Page.GATES -> Unit
                     Page.HOURS -> HoursStep(settings)
                     Page.LUNCH -> LunchStep(settings)
                     Page.UPDATES -> SoftCard { UpdateControls() }
@@ -194,7 +209,7 @@ fun SettingsScreen() {
                         )
                     }
                 }
-                Spacer(Modifier.height(if (mapPage) NavBarClearance else NavBarClearance + 70.dp))
+                Spacer(Modifier.height(NavBarClearance + 70.dp))
             }
         }
 
@@ -202,7 +217,9 @@ fun SettingsScreen() {
         val cap = capture
         AnimatedVisibility(
             cap != null,
-            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 20.dp, end = 20.dp, bottom = 100.dp),
+            modifier = if (fullScreen)
+                Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(start = 16.dp, end = 16.dp, top = 72.dp)
+            else Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 20.dp, end = 20.dp, bottom = 100.dp),
             enter = fadeIn(), exit = fadeOut(),
         ) {
             if (cap != null) SoftCard(padding = 16.dp) {
@@ -336,7 +353,9 @@ private fun daysLabel(d: Set<DayOfWeek>) = when (d) {
 // ───────────────────────────── step 1: office ─────────────────────────────
 
 @Composable
-private fun ColumnScope.OfficeStep(s: AppSettings) {
+private fun OfficeStep(
+    s: AppSettings, wizard: Boolean, stepLabel: String?, showBack: Boolean, onBack: () -> Unit, onNext: () -> Unit,
+) {
     val ctx = LocalContext.current
     val c = Soft.colors
     val o = s.office
@@ -349,37 +368,92 @@ private fun ColumnScope.OfficeStep(s: AppSettings) {
         persist(ctx, current().copy(office = OfficeConfig.fromPolygon(name.ifBlank { "Office" }, corners.toList(), gates)), officeMoved = true)
     }
 
-    StepTitle("Draw your office", "Tap the map at each corner of your office compound.")
-    OfficeMap(
-        modifier = Modifier.fillMaxWidth().weight(1f),
-        corners = corners.toList(),
-        gates = o?.gates ?: emptyList(),
-        editableCorners = true,
-        onTap = { p -> corners.add(p); saveArea() },
-        onCornerMoved = { i, p -> if (i in corners.indices) { corners[i] = p; saveArea() } },
-    )
-    val area = GeoMath.areaM2(corners)
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            when {
-                corners.isEmpty() -> "Zoom in and tap the first corner"
-                corners.size < 3 -> "${corners.size} corner${if (corners.size == 1) "" else "s"} · tap ${3 - corners.size} more"
-                else -> "${corners.size} corners · ${areaLabel(area)} · saved ✓"
-            },
-            Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
-            color = if (corners.size >= 3) c.success else c.textSecondary,
-        )
-        if (corners.isNotEmpty()) {
-            SmallChip("Undo") { corners.removeAt(corners.lastIndex); saveArea() }
-            Spacer(Modifier.width(8.dp))
-            SmallChip("Clear") { corners.clear() }
+    MapScaffold(
+        title = "Draw your office",
+        stepLabel = stepLabel, showBack = showBack, onBack = onBack,
+        primaryLabel = if (wizard) "Next" else "Done",
+        primaryEnabled = s.office != null,
+        onPrimary = onNext,
+        map = {
+            OfficeMap(
+                modifier = Modifier.fillMaxSize(),
+                corners = corners.toList(),
+                gates = o?.gates ?: emptyList(),
+                editableCorners = true,
+                fullScreen = true,
+                onTap = { p -> corners.add(p); saveArea() },
+                onCornerMoved = { i, p -> if (i in corners.indices) { corners[i] = p; saveArea() } },
+            )
+        },
+    ) {
+        val area = GeoMath.areaM2(corners)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                when {
+                    corners.isEmpty() -> "Zoom in and tap each corner of your office"
+                    corners.size < 3 -> "${corners.size} corner${if (corners.size == 1) "" else "s"} \u00b7 tap ${3 - corners.size} more"
+                    else -> "${corners.size} corners \u00b7 ${areaLabel(area)} \u00b7 saved \u2713"
+                },
+                Modifier.weight(1f), style = MaterialTheme.typography.titleSmall,
+                color = if (corners.size >= 3) c.success else c.textPrimary,
+            )
+            if (corners.isNotEmpty()) {
+                SmallChip("Undo") { corners.removeAt(corners.lastIndex); saveArea() }
+                Spacer(Modifier.width(6.dp))
+                SmallChip("Clear") { corners.clear() }
+            }
+        }
+        Text("Press and hold a corner to move it.", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+        SoftField("Office name", name, keyboard = KeyboardType.Text) {
+            name = it
+            current().office?.let { off -> persist(ctx, current().copy(office = off.copy(name = it.ifBlank { "Office" }))) }
         }
     }
-    Text("Tip: use Satellite to see the walls. Press and hold a corner to move it.",
-        style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-    SoftField("Office name", name, keyboard = KeyboardType.Text) {
-        name = it
-        current().office?.let { off -> persist(ctx, current().copy(office = off.copy(name = it.ifBlank { "Office" }))) }
+}
+
+/** Full-screen map with a floating top bar and a bottom panel. */
+@Composable
+private fun MapScaffold(
+    title: String, stepLabel: String?, showBack: Boolean, onBack: () -> Unit,
+    primaryLabel: String, primaryEnabled: Boolean, onPrimary: () -> Unit,
+    map: @Composable () -> Unit,
+    panel: @Composable ColumnScope.() -> Unit,
+) {
+    val c = Soft.colors
+    Box(Modifier.fillMaxSize()) {
+        map()
+        Row(
+            Modifier.align(Alignment.TopStart).fillMaxWidth().statusBarsPadding().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (showBack) {
+                Box(
+                    Modifier.size(46.dp).shadow(10.dp, CircleShape).clip(CircleShape).background(c.card).pressScale(onBack),
+                    contentAlignment = Alignment.Center,
+                ) { Icon(rememberVectorPainter(Icons.AutoMirrored.Filled.ArrowBack), "Back", tint = c.textPrimary) }
+                Spacer(Modifier.width(10.dp))
+            }
+            Column(
+                Modifier.shadow(10.dp, Soft.pillShape).clip(Soft.pillShape).background(c.card)
+                    .padding(horizontal = 18.dp, vertical = 8.dp)
+            ) {
+                if (stepLabel != null) Text(stepLabel, style = MaterialTheme.typography.labelSmall, color = c.accent)
+                Text(title, style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
+            }
+        }
+        Column(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                .navigationBarsPadding().imePadding().padding(12.dp)
+                .shadow(24.dp, Soft.cardShape, ambientColor = c.shadow, spotColor = c.shadow)
+                .clip(Soft.cardShape).background(c.card).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            panel()
+            SoftButton(
+                primaryLabel, onPrimary, enabled = primaryEnabled,
+                icon = rememberVectorPainter(if (primaryLabel == "Done") Icons.Filled.Check else Icons.AutoMirrored.Filled.KeyboardArrowRight),
+            )
+        }
     }
 }
 
@@ -401,7 +475,10 @@ private fun areaLabel(m2: Double): String {
 // ───────────────────────────── step 2: gates ─────────────────────────────
 
 @Composable
-private fun ColumnScope.GatesStep(s: AppSettings, busy: Boolean, capture: (String, (Double, Double, Float) -> Unit) -> Unit) {
+private fun GatesStep(
+    s: AppSettings, busy: Boolean, capture: (String, (Double, Double, Float) -> Unit) -> Unit,
+    wizard: Boolean, stepLabel: String?, showBack: Boolean, onBack: () -> Unit, onNext: () -> Unit,
+) {
     val ctx = LocalContext.current
     val c = Soft.colors
     val o = s.office
@@ -415,42 +492,56 @@ private fun ColumnScope.GatesStep(s: AppSettings, busy: Boolean, capture: (Strin
         renaming = g // name it straight away
     }
 
-    StepTitle("Mark your gates", "Tap the map where each gate is. IN and OUT times are taken at these gates.")
     if (o == null) {
-        SoftCard { Text("Draw your office first.", color = c.textSecondary) }
+        Column(Modifier.fillMaxSize().statusBarsPadding().padding(20.dp)) {
+            Text("Draw your office first.", color = c.textSecondary)
+            Spacer(Modifier.height(12.dp))
+            SoftButton("Back", onBack)
+        }
         return
     }
-    OfficeMap(
-        modifier = Modifier.fillMaxWidth().weight(1f),
-        corners = o.polygon,
-        gates = o.gates,
-        editableCorners = false,
-        onTap = { p -> addGate(p.lat, p.lng) },
-    )
-    if (o.gates.isEmpty()) {
-        Text("No gates yet — tap on the map at your gate", style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
-    } else {
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            o.gates.forEach { g ->
-                Row(
-                    Modifier.clip(Soft.pillShape).background(c.successSoft).padding(start = 14.dp, end = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(g.name, Modifier.pressScale { renaming = g }.padding(vertical = 10.dp),
-                        style = MaterialTheme.typography.labelLarge, color = c.success)
-                    RoundIcon(rememberVectorPainter(Icons.Filled.Close), "Remove") {
-                        val off = current().office ?: return@RoundIcon
-                        persist(ctx, current().copy(office = off.copy(gates = off.gates.filter { it.id != g.id })), gatesChanged = true)
+    MapScaffold(
+        title = "Mark your gates",
+        stepLabel = stepLabel, showBack = showBack, onBack = onBack,
+        primaryLabel = if (wizard) (if (o.gates.isEmpty()) "Skip for now" else "Next") else "Done",
+        primaryEnabled = true,
+        onPrimary = onNext,
+        map = {
+            OfficeMap(
+                modifier = Modifier.fillMaxSize(),
+                corners = o.polygon,
+                gates = o.gates,
+                editableCorners = false,
+                fullScreen = true,
+                onTap = { p -> addGate(p.lat, p.lng) },
+            )
+        },
+    ) {
+        if (o.gates.isEmpty()) {
+            Text("Tap the map exactly where each gate is", style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
+        } else {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                o.gates.forEach { g ->
+                    Row(
+                        Modifier.clip(Soft.pillShape).background(c.successSoft).padding(start = 14.dp, end = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(g.name, Modifier.pressScale { renaming = g }.padding(vertical = 10.dp),
+                            style = MaterialTheme.typography.labelLarge, color = c.success)
+                        RoundIcon(rememberVectorPainter(Icons.Filled.Close), "Remove") {
+                            val off = current().office ?: return@RoundIcon
+                            persist(ctx, current().copy(office = off.copy(gates = off.gates.filter { it.id != g.id })), gatesChanged = true)
+                        }
                     }
                 }
             }
         }
+        SoftGhostButton(
+            "Add gate where I'm standing",
+            { capture("gate") { lat, lng, _ -> addGate(lat, lng) } },
+            icon = rememberVectorPainter(Icons.Filled.LocationOn), enabled = !busy,
+        )
     }
-    SoftGhostButton(
-        "Or add gate where I'm standing",
-        { capture("gate") { lat, lng, _ -> addGate(lat, lng) } },
-        icon = rememberVectorPainter(Icons.Filled.LocationOn), enabled = !busy,
-    )
 
     renaming?.let { g ->
         var text by remember(g.id) { mutableStateOf(g.name) }

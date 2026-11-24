@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -76,6 +77,7 @@ fun OfficeMap(
     corners: List<LatLng>,
     gates: List<Gate>,
     editableCorners: Boolean,
+    fullScreen: Boolean = false,
     onTap: (LatLng) -> Unit,
     onCornerMoved: (Int, LatLng) -> Unit = { _, _ -> },
 ) {
@@ -90,9 +92,10 @@ fun OfficeMap(
         MapView(ctx).apply {
             setMultiTouchControls(true)
             zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
-            setTilesScaledToDpi(true)
+            // Don't upscale tiles (that made satellite images blurry); allow close zoom.
+            setTilesScaledToDpi(false)
             minZoomLevel = 3.0
-            maxZoomLevel = 20.0
+            maxZoomLevel = 21.0
             isHorizontalMapRepetitionEnabled = false
             isVerticalMapRepetitionEnabled = false
             controller.setZoom(4.5)
@@ -150,7 +153,8 @@ fun OfficeMap(
         else myLoc.runOnFirstFix { map.post { myLoc.myLocation?.let { map.controller.animateTo(it, 18.5, 700L) } } }
     }
 
-    Box(modifier.shadow(18.dp, Soft.cardShape, ambientColor = c.shadow, spotColor = c.shadow).clip(Soft.cardShape)) {
+    val frame = if (fullScreen) modifier else modifier.shadow(18.dp, Soft.cardShape, ambientColor = c.shadow, spotColor = c.shadow).clip(Soft.cardShape)
+    Box(frame) {
         AndroidView(
             factory = { map },
             modifier = Modifier.fillMaxSize(),
@@ -204,16 +208,23 @@ fun OfficeMap(
 
         // Floating controls
         Column(
-            Modifier.align(Alignment.TopEnd).padding(12.dp),
+            Modifier.align(if (fullScreen) Alignment.CenterEnd else Alignment.TopEnd).padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalAlignment = Alignment.End,
         ) {
-            Text(
-                if (satellite) "Map" else "Satellite",
-                Modifier.shadow(8.dp, Soft.pillShape).clip(Soft.pillShape).background(c.card)
-                    .pressScale { satellite = !satellite }.padding(horizontal = 14.dp, vertical = 9.dp),
-                style = MaterialTheme.typography.labelMedium, color = c.accent,
-            )
+            // Clear two-option switch: Map | Satellite
+            Row(Modifier.shadow(8.dp, Soft.pillShape).clip(Soft.pillShape).background(c.card).padding(4.dp)) {
+                listOf(false to "Map", true to "Satellite").forEach { (sat, label) ->
+                    val sel = satellite == sat
+                    Text(
+                        label,
+                        Modifier.clip(Soft.pillShape).background(if (sel) c.accent else c.card)
+                            .pressScale { satellite = sat }.padding(horizontal = 12.dp, vertical = 8.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (sel) androidx.compose.ui.graphics.Color.White else c.textPrimary,
+                    )
+                }
+            }
             Box(
                 Modifier.size(44.dp).shadow(8.dp, CircleShape).clip(CircleShape).background(c.card).pressScale { recenter++ },
                 contentAlignment = Alignment.Center,
