@@ -6,7 +6,8 @@ plugins {
 
 // CI sets these so every build gets a higher versionCode (required for OTA updates).
 val ciBuildNumber = (System.getenv("BUILD_NUMBER") ?: "1").toInt()
-val updateManifestUrl = System.getenv("UPDATE_MANIFEST_URL")
+// CI passes an empty string when the optional variable isn't set, so treat blank as unset.
+val updateManifestUrl = System.getenv("UPDATE_MANIFEST_URL")?.takeIf { it.isNotBlank() }
     ?: "https://github.com/MySoftwares1996/Attendance-tracker/releases/latest/download/update.json"
 val releaseKeystore = System.getenv("RELEASE_KEYSTORE_PATH")?.let { file(it) }?.takeIf { it.exists() }
 

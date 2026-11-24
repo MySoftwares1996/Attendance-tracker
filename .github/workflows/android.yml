@@ -45,6 +45,9 @@ jobs:
             echo "SIGNED=false" >> "$GITHUB_ENV"
           fi
 
+      - name: Check update URL is baked in
+        run: echo "OTA manifest URL = ${UPDATE_MANIFEST_URL:-<default: this repo's latest release>}"
+
       - name: Unit tests
         run: ./gradlew --no-daemon testDebugUnitTest
 
@@ -55,6 +58,10 @@ jobs:
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
           ./gradlew --no-daemon assembleRelease
+          # Fail the build if the OTA URL did not make it into the app.
+          grep -q 'releases/latest/download/update.json\|https://' app/build/generated/source/buildConfig/release/com/attendance/tracker/BuildConfig.java
+          grep 'UPDATE_MANIFEST_URL' app/build/generated/source/buildConfig/release/com/attendance/tracker/BuildConfig.java
+          grep -q 'UPDATE_MANIFEST_URL = "https://' app/build/generated/source/buildConfig/release/com/attendance/tracker/BuildConfig.java
           mkdir -p dist
           cp app/build/outputs/apk/release/app-release.apk dist/AttendanceTracker.apk
 
