@@ -27,9 +27,27 @@ For the best results, allow location **"All the time"** with **Precise** on, dis
 
 ## Getting the APK
 
-Every push triggers the **Build APK** GitHub Actions workflow, which runs the unit tests and builds the APK. Open *Actions → Build APK → latest run → Artifacts → AttendanceTracker-apk*, download it, unzip it, and install `app-release.apk` on the phone. You may need to allow "Install unknown apps".
+Every push runs the **Build APK** GitHub Actions workflow, which runs the unit tests and builds `AttendanceTracker.apk`. Download it from *Actions → latest run → Artifacts*.
 
-The APK is signed with the debug key, which is fine for internal use. For Play Store distribution, add your own signing config in `app/build.gradle.kts`.
+## OTA (over-the-air) updates
+
+The installed app updates itself. It checks for updates when opened and every 6 hours while tracking runs, then shows **Update available → Install update**. The new APK is downloaded, its SHA-256 checksum is verified, and it is installed through Android's PackageInstaller.
+
+**One-time setup:**
+
+1. **Signing key.** Add 4 repository secrets: `RELEASE_KEYSTORE_BASE64`, `RELEASE_KEYSTORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`. Every release must be signed with the same key, because Android rejects updates signed with any other. Back up the keystore; if it is lost, phones can no longer be updated.
+2. **Where the app downloads updates.** By default it reads `https://github.com/<owner>/<repo>/releases/latest/download/update.json`. That URL only works for a **public** repository. If the repo stays private, either:
+   - publish releases to a public repository or other public host, then set the Actions variable `UPDATE_MANIFEST_URL` to that `update.json` URL; or
+   - use Google Play internal testing or Firebase App Distribution instead.
+3. **On the phone.** The first time you tap *Install update*, allow "Install unknown apps" for Attendance Tracker.
+
+**To release an update:** merge to the default branch, or run the workflow manually (*Actions → Build APK → Run workflow*). CI then bumps `versionCode` (it uses the run number), signs the APK, and creates a GitHub Release `v1.0.N` containing `AttendanceTracker.apk` and `update.json`:
+
+```json
+{"versionCode": 12, "versionName": "1.0.12", "apkUrl": "https://…/AttendanceTracker.apk", "sha256": "…", "notes": "…"}
+```
+
+Only builds signed with your release key are published. Note that the APK built before the key was added is debug-signed: uninstall it once and install the first signed release. After that, every update arrives over the air.
 
 ## Building locally
 
@@ -49,4 +67,5 @@ Requires Android Studio or an Android SDK with JDK 17:
 | `AttendanceController.kt` | Ties location, schedule and lunch together; logs events and durations |
 | `service/TrackingService.kt` | Foreground location service |
 | `service/LocationCapture.kt` | Averaged precise capture for the office and gates |
+| `update/UpdateManager.kt` | OTA check, download, checksum verification and install |
 | `ui/` | Today, History and Setup screens (Jetpack Compose) |
