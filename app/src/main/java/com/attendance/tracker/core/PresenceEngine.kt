@@ -26,6 +26,8 @@ class PresenceEngine(initial: Presence = Presence.UNKNOWN) {
         data class Accepted(
             val zone: Zone,
             val distanceM: Double,
+            /** Metres from the office boundary: negative inside, positive outside. */
+            val edgeDistanceM: Double,
             val nearGate: Gate?,
             val transition: Transition?,
         ) : Result()
@@ -104,9 +106,11 @@ class PresenceEngine(initial: Presence = Presence.UNKNOWN) {
         }
 
         val d = GeoMath.distanceM(s.lat, s.lng, office.lat, office.lng)
+        val edge = office.edgeDistanceM(s.lat, s.lng)
+        // The whole accuracy circle must be on one side of the (circle or drawn) boundary.
         val zone = when {
-            d + s.accuracyM <= office.radiusM -> Zone.INSIDE
-            d - s.accuracyM > office.radiusM -> Zone.OUTSIDE
+            edge + s.accuracyM <= 0 -> Zone.INSIDE
+            edge - s.accuracyM > 0 -> Zone.OUTSIDE
             else -> Zone.AMBIGUOUS
         }
 
@@ -151,7 +155,7 @@ class PresenceEngine(initial: Presence = Presence.UNKNOWN) {
                 }
             }
         }
-        return Result.Accepted(zone, d, gate, transition)
+        return Result.Accepted(zone, d, edge, gate, transition)
     }
 
     companion object {

@@ -16,6 +16,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.runtime.mutableStateListOf
+import com.attendance.tracker.core.GeoMath
+import com.attendance.tracker.core.LatLng
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -141,9 +146,12 @@ fun SettingsScreen() {
             },
             label = "setupPage",
         ) { p ->
+            val mapPage = p == Page.OFFICE || p == Page.GATES
             Column(
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                Modifier.fillMaxSize()
+                    .then(if (mapPage) Modifier else Modifier.verticalScroll(rememberScrollState()))
+                    .padding(horizontal = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(if (mapPage) 12.dp else 16.dp),
             ) {
                 Spacer(Modifier.height(16.dp))
                 if (inWizard) {
@@ -153,7 +161,7 @@ fun SettingsScreen() {
                 }
                 when (p) {
                     Page.SUMMARY -> Summary(settings) { page = it }
-                    Page.OFFICE -> OfficeStep(settings, capture != null, ::doCapture)
+                    Page.OFFICE -> OfficeStep(settings)
                     Page.GATES -> GatesStep(settings, capture != null, ::doCapture)
                     Page.HOURS -> HoursStep(settings)
                     Page.LUNCH -> LunchStep(settings)
@@ -185,7 +193,7 @@ fun SettingsScreen() {
                         )
                     }
                 }
-                Spacer(Modifier.height(NavBarClearance + 70.dp))
+                Spacer(Modifier.height(if (mapPage) NavBarClearance else NavBarClearance + 70.dp))
             }
         }
 
@@ -267,21 +275,21 @@ private fun Summary(s: AppSettings, open: (Page) -> Unit) {
     val sc = s.schedule
     SoftCard(padding = 8.dp) {
         SummaryRow(painterResource(R.drawable.ic_gate), "Office",
-            o?.let { "${it.name} · ${sizeLabel(it.radiusM)}" } ?: "Not set", o != null) { open(Page.OFFICE) }
+            o?.let { if (it.hasPolygon) "${it.name} · area drawn on map" else "${it.name} · ${sizeLabel(it.radiusM)} circle — tap to draw exact area" }
+                ?: "Not set", o?.hasPolygon == true) { open(Page.OFFICE) }
         Divider()
         SummaryRow(painterResource(R.drawable.ic_target), "Gates",
             o?.gates?.takeIf { it.isNotEmpty() }?.joinToString { it.name } ?: "None added", !o?.gates.isNullOrEmpty()) { open(Page.GATES) }
         Divider()
         SummaryRow(painterResource(R.drawable.ic_clock), "Work hours",
-            if (sc.flexible) "Flexible · arrive ${StatusResolver.fmt(sc.earliestStartMin)}–${StatusResolver.fmt(sc.latestStartMin)} · ${hoursLabel(sc.requiredMinutes)}"
-            else "${StatusResolver.fmt(sc.startMin)} – ${StatusResolver.fmt(sc.endMin)} · ${daysLabel(sc.workDays)}", true) { open(Page.HOURS) }
+            "${hoursLabel(sc.requiredMinutes)} from arrival · ${daysLabel(sc.workDays)}", true) { open(Page.HOURS) }
         Divider()
         SummaryRow(painterResource(R.drawable.ic_lunch), "Lunch", "${sc.maxLunchMinutes} min per day", true) { open(Page.LUNCH) }
     }
     SoftCard(padding = 8.dp) {
         SummaryRow(painterResource(R.drawable.ic_system_update), "App updates", "Version ${UpdateManager.currentVersionName}", true) { open(Page.UPDATES) }
         Divider()
-        SummaryRow(rememberVectorPainter(Icons.Filled.Settings), "Advanced", "Accuracy, overtime, lunch time window", true) { open(Page.ADVANCED) }
+        SummaryRow(rememberVectorPainter(Icons.Filled.Settings), "Advanced", "Accuracy, overtime", true) { open(Page.ADVANCED) }
     }
 }
 
@@ -327,124 +335,128 @@ private fun daysLabel(d: Set<DayOfWeek>) = when (d) {
 // ───────────────────────────── step 1: office ─────────────────────────────
 
 @Composable
-private fun OfficeStep(s: AppSettings, busy: Boolean, capture: (String, (Double, Double, Float) -> Unit) -> Unit) {
+private fun ColumnScope.OfficeStep(s: AppSettings) {
     val ctx = LocalContext.current
     val c = Soft.colors
     val o = s.office
+    val corners = remember { mutableStateListOf<LatLng>().apply { addAll(o?.polygon ?: emptyList()) } }
     var name by remember { mutableStateOf(o?.name ?: "My Office") }
-    var radius by remember { mutableStateOf(o?.radiusM ?: 100.0) }
 
-    StepTitle("Your office", "Go to the middle of your office and tap the button below.")
-    SoftCard {
-        SoftField("Office name", name, keyboard = KeyboardType.Text) {
-            name = it
-            o?.let { off -> persist(ctx, current().copy(office = off.copy(name = it.ifBlank { "Office" }))) }
-        }
-        Spacer(Modifier.height(16.dp))
-        AnimatedContent(o != null, label = "officeSet") { set ->
-            if (set && o != null) {
-                Row(
-                    Modifier.fillMaxWidth().clip(Soft.tileShape).background(c.successSoft).padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(rememberVectorPainter(Icons.Filled.Check), null, tint = c.success)
-                    Spacer(Modifier.width(10.dp))
-                    Text("Office location saved", style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
-                }
-            } else {
-                Text(
-                    "We'll take your exact position for 20 seconds. Standing near a window or outside gives the best result.",
-                    style = MaterialTheme.typography.bodyMedium, color = c.textSecondary,
-                )
-            }
-        }
-        Spacer(Modifier.height(16.dp))
-        val label = if (o == null) "I'm at my office now" else "Update office location"
-        val action = {
-            capture("office location") { lat, lng, _ ->
-                val off = OfficeConfig(name.ifBlank { "Office" }, lat, lng, radius, current().office?.gates ?: emptyList())
-                persist(ctx, current().copy(office = off), officeMoved = true)
-                Toast.makeText(ctx, "Office saved", Toast.LENGTH_SHORT).show()
-            }
-        }
-        if (o == null) SoftButton(label, action, icon = rememberVectorPainter(Icons.Filled.LocationOn), enabled = !busy)
-        else SoftGhostButton(label, action, icon = rememberVectorPainter(Icons.Filled.LocationOn), enabled = !busy)
+    fun saveArea() {
+        if (corners.size < 3) return
+        val gates = current().office?.gates ?: emptyList()
+        persist(ctx, current().copy(office = OfficeConfig.fromPolygon(name.ifBlank { "Office" }, corners.toList(), gates)), officeMoved = true)
     }
-    SoftCard {
-        Text("How big is your office area?", style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
-        Text("Include the parking and the whole compound up to the boundary wall.",
-            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-        Spacer(Modifier.height(14.dp))
-        Choices(
-            listOf("Small\n50 m" to 50.0, "Medium\n100 m" to 100.0, "Large\n200 m" to 200.0, "Campus\n400 m" to 400.0),
-            radius,
-        ) { r ->
-            radius = r
-            o?.let { persist(ctx, current().copy(office = it.copy(radiusM = r)), officeMoved = true) }
+
+    StepTitle("Draw your office", "Tap the map at each corner of your office compound.")
+    OfficeMap(
+        modifier = Modifier.fillMaxWidth().weight(1f),
+        corners = corners.toList(),
+        gates = o?.gates ?: emptyList(),
+        editableCorners = true,
+        onTap = { p -> corners.add(p); saveArea() },
+        onCornerMoved = { i, p -> if (i in corners.indices) { corners[i] = p; saveArea() } },
+    )
+    val area = GeoMath.areaM2(corners)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            when {
+                corners.isEmpty() -> "Zoom in and tap the first corner"
+                corners.size < 3 -> "${corners.size} corner${if (corners.size == 1) "" else "s"} · tap ${3 - corners.size} more"
+                else -> "${corners.size} corners · ${areaLabel(area)} · saved ✓"
+            },
+            Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
+            color = if (corners.size >= 3) c.success else c.textSecondary,
+        )
+        if (corners.isNotEmpty()) {
+            SmallChip("Undo") { corners.removeAt(corners.lastIndex); saveArea() }
+            Spacer(Modifier.width(8.dp))
+            SmallChip("Clear") { corners.clear() }
         }
     }
+    Text("Tip: use Satellite to see the walls. Press and hold a corner to move it.",
+        style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+    SoftField("Office name", name, keyboard = KeyboardType.Text) {
+        name = it
+        current().office?.let { off -> persist(ctx, current().copy(office = off.copy(name = it.ifBlank { "Office" }))) }
+    }
+}
+
+@Composable
+private fun SmallChip(label: String, onClick: () -> Unit) {
+    val c = Soft.colors
+    Text(
+        label,
+        Modifier.clip(Soft.pillShape).background(c.cardMuted).pressScale(onClick).padding(horizontal = 14.dp, vertical = 8.dp),
+        style = MaterialTheme.typography.labelMedium, color = c.textPrimary,
+    )
+}
+
+private fun areaLabel(m2: Double): String {
+    val acres = m2 / 4046.86
+    return if (acres >= 0.25) "%.2f acres".format(acres) else "${m2.toInt()} m²"
 }
 
 // ───────────────────────────── step 2: gates ─────────────────────────────
 
 @Composable
-private fun GatesStep(s: AppSettings, busy: Boolean, capture: (String, (Double, Double, Float) -> Unit) -> Unit) {
+private fun ColumnScope.GatesStep(s: AppSettings, busy: Boolean, capture: (String, (Double, Double, Float) -> Unit) -> Unit) {
     val ctx = LocalContext.current
     val c = Soft.colors
     val o = s.office
     var renaming by remember { mutableStateOf<Gate?>(null) }
 
-    StepTitle("Gates", "Walk to each gate you use and tap “Add this gate”. Your IN and OUT times are taken at these gates.")
+    fun addGate(lat: Double, lng: Double) {
+        val off = current().office ?: return
+        val n = off.gates.size
+        val g = Gate(UUID.randomUUID().toString(), if (n == 0) "Main Gate" else "Gate ${n + 1}", lat, lng, 25.0)
+        persist(ctx, current().copy(office = off.copy(gates = off.gates + g)), gatesChanged = true)
+        renaming = g // name it straight away
+    }
+
+    StepTitle("Mark your gates", "Tap the map where each gate is. IN and OUT times are taken at these gates.")
     if (o == null) {
-        SoftCard { Text("Set your office first.", color = c.textSecondary) }
+        SoftCard { Text("Draw your office first.", color = c.textSecondary) }
         return
     }
-    SoftCard {
-        if (o.gates.isEmpty()) {
-            Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                IconBubble(painterResource(R.drawable.ic_gate), c.accent, c.accentSoft, size = 56.dp)
-                Spacer(Modifier.height(10.dp))
-                Text("No gates yet", style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
-            }
-        }
-        o.gates.forEach { g ->
-            Row(
-                Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(Soft.tileShape).background(c.cardMuted)
-                    .padding(start = 14.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconBubble(painterResource(R.drawable.ic_gate), c.success, c.successSoft, size = 34.dp)
-                Spacer(Modifier.width(12.dp))
-                Text(g.name, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
-                RoundIcon(rememberVectorPainter(Icons.Filled.Edit), "Rename") { renaming = g }
-                RoundIcon(rememberVectorPainter(Icons.Filled.Close), "Remove") {
-                    val off = current().office ?: return@RoundIcon
-                    persist(ctx, current().copy(office = off.copy(gates = off.gates - g)), gatesChanged = true)
+    OfficeMap(
+        modifier = Modifier.fillMaxWidth().weight(1f),
+        corners = o.polygon,
+        gates = o.gates,
+        editableCorners = false,
+        onTap = { p -> addGate(p.lat, p.lng) },
+    )
+    if (o.gates.isEmpty()) {
+        Text("No gates yet — tap on the map at your gate", style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
+    } else {
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            o.gates.forEach { g ->
+                Row(
+                    Modifier.clip(Soft.pillShape).background(c.successSoft).padding(start = 14.dp, end = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(g.name, Modifier.pressScale { renaming = g }.padding(vertical = 10.dp),
+                        style = MaterialTheme.typography.labelLarge, color = c.success)
+                    RoundIcon(rememberVectorPainter(Icons.Filled.Close), "Remove") {
+                        val off = current().office ?: return@RoundIcon
+                        persist(ctx, current().copy(office = off.copy(gates = off.gates.filter { it.id != g.id })), gatesChanged = true)
+                    }
                 }
             }
         }
-        Spacer(Modifier.height(12.dp))
-        SoftButton(
-            if (o.gates.isEmpty()) "Add this gate" else "Add another gate",
-            {
-                val n = (current().office?.gates?.size ?: 0)
-                val name = if (n == 0) "Main Gate" else "Gate ${n + 1}"
-                capture(name) { lat, lng, _ ->
-                    val off = current().office ?: return@capture
-                    persist(ctx, current().copy(office = off.copy(gates = off.gates + Gate(UUID.randomUUID().toString(), name, lat, lng, 25.0))), gatesChanged = true)
-                    Toast.makeText(ctx, "$name added", Toast.LENGTH_SHORT).show()
-                }
-            },
-            icon = rememberVectorPainter(Icons.Filled.Add), enabled = !busy,
-        )
     }
+    SoftGhostButton(
+        "Or add gate where I'm standing",
+        { capture("gate") { lat, lng, _ -> addGate(lat, lng) } },
+        icon = rememberVectorPainter(Icons.Filled.LocationOn), enabled = !busy,
+    )
 
     renaming?.let { g ->
         var text by remember(g.id) { mutableStateOf(g.name) }
         AlertDialog(
             onDismissRequest = { renaming = null },
-            title = { Text("Gate name") },
-            text = { SoftField("Name", text, keyboard = KeyboardType.Text) { text = it } },
+            title = { Text("Name this gate") },
+            text = { SoftField("Gate name", text, keyboard = KeyboardType.Text) { text = it } },
             confirmButton = {
                 TextButton(onClick = {
                     val off = current().office
@@ -454,7 +466,7 @@ private fun GatesStep(s: AppSettings, busy: Boolean, capture: (String, (Double, 
                     renaming = null
                 }) { Text("Save") }
             },
-            dismissButton = { TextButton(onClick = { renaming = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { renaming = null }) { Text("Skip") } },
             shape = RoundedCornerShape(28.dp),
             containerColor = c.card,
         )
@@ -480,13 +492,10 @@ private fun HoursStep(s: AppSettings) {
     fun pick(initial: Int, onPicked: (Int) -> Unit) =
         TimePickerDialog(ctx, { _, h, m -> onPicked(h * 60 + m) }, initial / 60, initial % 60, false).show()
 
-    StepTitle("Work hours", "Do you start at the same time every day?")
+    StepTitle("Work hours", "Your day starts when you reach the office.")
     SoftCard {
-        SegmentedToggle("Same time daily", "Start time varies", sc.flexible) { flex -> save { it.copy(flexible = flex) } }
-        Spacer(Modifier.height(18.dp))
-        AnimatedContent(sc.flexible, transitionSpec = { fadeIn(tween(250)) togetherWith fadeOut(tween(150)) }, label = "mode") { flex ->
-            if (flex) Column {
-                Text("I usually arrive between", style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
+        Column {
+                Text("I usually arrive between (later = marked late)", style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     TimeTile("From", sc.earliestStartMin, Modifier.weight(1f)) { pick(sc.earliestStartMin) { v -> save { it.copy(earliestStartMin = v) } } }
@@ -501,16 +510,10 @@ private fun HoursStep(s: AppSettings) {
                 ) { v -> save { it.copy(requiredMinutes = v) } }
                 val r = sc.requiredMinutes
                 Text(
-                    "Example: in at 9:00 → out ${StatusResolver.fmt((540 + r) % 1440)}  ·  in at 11:00 → out ${StatusResolver.fmt((660 + r) % 1440)}",
+                    "In at 9 AM → out ${fmt12((540 + r) % 1440)}  ·  10 AM → ${fmt12((600 + r) % 1440)}  ·  11 AM → ${fmt12((660 + r) % 1440)}",
                     Modifier.padding(top = 12.dp).fillMaxWidth().clip(Soft.tileShape).background(c.accentSoft).padding(12.dp),
                     style = MaterialTheme.typography.bodySmall, color = c.accent,
                 )
-            } else Column {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TimeTile("Start", sc.startMin, Modifier.weight(1f)) { pick(sc.startMin) { v -> save { it.copy(startMin = v) } } }
-                    TimeTile("End", sc.endMin, Modifier.weight(1f)) { pick(sc.endMin) { v -> save { it.copy(endMin = v) } } }
-                }
-            }
         }
     }
     SoftCard {
@@ -544,14 +547,14 @@ private fun HoursStep(s: AppSettings) {
 private fun LunchStep(s: AppSettings) {
     val ctx = LocalContext.current
     val c = Soft.colors
-    StepTitle("Lunch break", "How long is your lunch break?")
+    StepTitle("Lunch break", "How much lunch time is allowed per day? Take it any time.")
     SoftCard {
         Choices(listOf("30 min" to 30, "45 min" to 45, "1 hour" to 60, "1½ hours" to 90), s.schedule.maxLunchMinutes) { v ->
             persist(ctx, current().copy(schedule = current().schedule.copy(maxLunchMinutes = v)))
         }
         Spacer(Modifier.height(14.dp))
         Text(
-            "Tap “Start lunch break” on the Today screen when you go. If you take longer, the extra time is added to your logout time automatically.",
+            "Tap “Start lunch break” on the Today screen whenever you go. If you take longer than this, the extra time is added to your logout time automatically.",
             style = MaterialTheme.typography.bodyMedium, color = c.textSecondary,
         )
     }
@@ -580,21 +583,6 @@ private fun AdvancedStep(s: AppSettings) {
         ) {
             Text("Count overtime until", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = c.textPrimary)
             Text(StatusResolver.fmt(sc.overtimeUntilMin), style = MaterialTheme.typography.titleLarge, color = c.accent)
-        }
-    }
-    SoftCard {
-        CardHeader(painterResource(R.drawable.ic_lunch), "Lunch time window", null, c.warning, c.warningSoft)
-        Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            TimeTile("From", sc.lunchStartMin, Modifier.weight(1f), c.warning, c.warningSoft) {
-                pick(sc.lunchStartMin) { v -> persist(ctx, current().copy(schedule = current().schedule.copy(lunchStartMin = v))) }
-            }
-            TimeTile("To", sc.lunchEndMin, Modifier.weight(1f), c.warning, c.warningSoft) {
-                pick(sc.lunchEndMin) { v -> persist(ctx, current().copy(schedule = current().schedule.copy(lunchEndMin = v))) }
-            }
-        }
-        SoftSwitchRow("Only allow lunch in this window", null, sc.restrictLunchToWindow) { v ->
-            persist(ctx, current().copy(schedule = current().schedule.copy(restrictLunchToWindow = v)))
         }
     }
     SoftCard {

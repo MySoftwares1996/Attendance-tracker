@@ -43,6 +43,8 @@ data class LiveState(
     val lastFix: LocationSample? = null,
     val lastAcceptedMs: Long? = null,
     val distanceM: Double? = null,
+    /** Metres from the office boundary: negative inside, positive outside. */
+    val edgeDistanceM: Double? = null,
     val lastReject: String? = null,
     val nearGate: String? = null,
     val lastGateUsed: String? = null,
@@ -91,7 +93,7 @@ object AttendanceController {
             is PresenceEngine.Result.Accepted -> {
                 st = st.copy(
                     lastReject = null, lastAcceptedMs = sample.timeMs,
-                    distanceM = res.distanceM, nearGate = res.nearGate?.name,
+                    distanceM = res.distanceM, edgeDistanceM = res.edgeDistanceM, nearGate = res.nearGate?.name,
                     presence = engine.presence,
                 )
                 res.transition?.let { t ->

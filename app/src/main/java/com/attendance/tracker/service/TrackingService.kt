@@ -136,12 +136,12 @@ class TrackingService : LifecycleService() {
         if (now < burstUntilMs) return Mode.NEAR
         if (!AttendanceController.highAccuracyWanted(now)) return Mode.LOW_POWER
         if (AttendanceController.pendingChange) return Mode.NEAR
-        val office = AttendanceController.settings.settings.value.office ?: return Mode.NORMAL
+        val edge = AttendanceController.state.value.edgeDistanceM ?: return Mode.NORMAL
         val d = AttendanceController.state.value.distanceM ?: return Mode.NORMAL
         val fixAge = now - (AttendanceController.state.value.lastAcceptedMs ?: 0L)
         if (fixAge > 3 * 60_000L) return Mode.NORMAL
         return when {
-            abs(d - office.radiusM) < NEAR_BAND_M -> Mode.NEAR
+            abs(edge) < NEAR_BAND_M -> Mode.NEAR
             d > FAR_M -> Mode.FAR
             else -> Mode.NORMAL
         }

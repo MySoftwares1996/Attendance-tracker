@@ -257,8 +257,7 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
                 Pill(q, qc, qbg)
             }
             Spacer(Modifier.height(14.dp))
-            val radius = settings.office?.radiusM
-            val dist = st.distanceM
+            val edge = st.edgeDistanceM
             InfoLine("Presence", when (st.presence) {
                 Presence.INSIDE -> "Inside premises"
                 Presence.OUTSIDE -> "Outside premises"
@@ -268,14 +267,11 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
                 Presence.OUTSIDE -> c.danger
                 Presence.UNKNOWN -> c.textSecondary
             })
-            InfoLine("Distance from office", dist?.let { "${it.toInt()} m" } ?: "—")
-            if (radius != null && dist != null) {
-                SoftBar(
-                    progress = (1f - (dist / (radius * 2)).toFloat()).coerceIn(0.03f, 1f),
-                    color = if (dist <= radius) c.success else c.warning,
-                    track = c.cardMuted, modifier = Modifier.padding(vertical = 6.dp),
-                )
-            }
+            InfoLine(
+                "Office boundary",
+                edge?.let { if (it <= 0) "${(-it).toInt()} m inside" else "${it.toInt()} m outside" } ?: "—",
+                if (edge == null) c.textSecondary else if (edge <= 0) c.success else c.warning,
+            )
             InfoLine("At gate", st.nearGate ?: "—")
             InfoLine("Last gate used", st.lastGateUsed ?: "—")
             InfoLine("Last reliable fix", fmtTimeSec(st.lastAcceptedMs))
@@ -512,7 +508,7 @@ private fun LunchCard(active: Boolean, startedAtMs: Long, nowMs: Long, sc: WorkS
                     } else {
                         Column {
                             Text(
-                                "${StatusResolver.fmt(sc.lunchStartMin)} – ${StatusResolver.fmt(sc.lunchEndMin)} · up to ${sc.maxLunchMinutes} min",
+                                "Take it any time · ${sc.maxLunchMinutes} min allowed today",
                                 style = MaterialTheme.typography.bodySmall, color = c.textSecondary,
                             )
                             val taken = plan?.lunchTakenSec ?: 0L

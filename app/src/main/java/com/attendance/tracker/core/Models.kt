@@ -12,14 +12,37 @@ data class Gate(
     val radiusM: Double = 25.0,
 )
 
-/** Office premises: a centre point + radius (geofence) and its gates. */
+data class LatLng(val lat: Double, val lng: Double)
+
+/**
+ * Office premises. If [polygon] has 3+ corners (drawn on the map) that exact
+ * shape is the boundary; otherwise a circle of [radiusM] around [lat]/[lng].
+ * For a polygon, [lat]/[lng] is its centre and [radiusM] reaches its farthest corner.
+ */
 data class OfficeConfig(
     val name: String,
     val lat: Double,
     val lng: Double,
     val radiusM: Double,
     val gates: List<Gate> = emptyList(),
-)
+    val polygon: List<LatLng> = emptyList(),
+) {
+    val hasPolygon: Boolean get() = polygon.size >= 3
+
+    /** Metres from the boundary: negative = inside, positive = outside. */
+    fun edgeDistanceM(lat: Double, lng: Double): Double =
+        if (hasPolygon) GeoMath.signedPolygonDistanceM(lat, lng, polygon)
+        else GeoMath.distanceM(lat, lng, this.lat, this.lng) - radiusM
+
+    companion object {
+        /** Builds an office from a drawn outline. */
+        fun fromPolygon(name: String, poly: List<LatLng>, gates: List<Gate>): OfficeConfig {
+            val c = GeoMath.centroid(poly)
+            val r = poly.maxOf { GeoMath.distanceM(c.lat, c.lng, it.lat, it.lng) }
+            return OfficeConfig(name, c.lat, c.lng, r, gates, poly)
+        }
+    }
+}
 
 /** Working hours and lunch rules. Times are minutes since midnight (0..1439). */
 data class WorkSchedule(
@@ -37,7 +60,7 @@ data class WorkSchedule(
 
     // ---- Flexible hours ----
     /** Flexible: the day starts when you arrive; logout = arrival + [requiredMinutes]. */
-    val flexible: Boolean = false,
+    val flexible: Boolean = true,
     /** Flexible: earliest time an arrival counts from (arriving earlier starts the day here). */
     val earliestStartMin: Int = 8 * 60,
     /** Flexible: arriving after this is marked late. */

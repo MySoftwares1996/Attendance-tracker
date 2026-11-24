@@ -3,6 +3,7 @@ package com.attendance.tracker.data
 import android.content.Context
 import com.attendance.tracker.core.AccuracyConfig
 import com.attendance.tracker.core.Gate
+import com.attendance.tracker.core.LatLng
 import com.attendance.tracker.core.LunchState
 import com.attendance.tracker.core.OfficeConfig
 import com.attendance.tracker.core.Presence
@@ -35,8 +36,10 @@ class SettingsRepository(context: Context) {
                 gates.put(JSONObject().put("id", it.id).put("name", it.name)
                     .put("lat", it.lat).put("lng", it.lng).put("r", it.radiusM))
             }
+            val poly = JSONArray()
+            o.polygon.forEach { poly.put(JSONArray().put(it.lat).put(it.lng)) }
             e.putString("office", JSONObject().put("name", o.name).put("lat", o.lat)
-                .put("lng", o.lng).put("r", o.radiusM).put("gates", gates).toString())
+                .put("lng", o.lng).put("r", o.radiusM).put("gates", gates).put("poly", poly).toString())
         }
         val sc = s.schedule
         e.putInt("startMin", sc.startMin).putInt("endMin", sc.endMin)
@@ -63,8 +66,10 @@ class SettingsRepository(context: Context) {
                     Gate(g.getString("id"), g.getString("name"), g.getDouble("lat"),
                         g.getDouble("lng"), g.optDouble("r", 25.0))
                 }
+                val pa = j.optJSONArray("poly") ?: JSONArray()
+                val poly = (0 until pa.length()).map { i -> pa.getJSONArray(i).let { LatLng(it.getDouble(0), it.getDouble(1)) } }
                 OfficeConfig(j.getString("name"), j.getDouble("lat"), j.getDouble("lng"),
-                    j.getDouble("r"), gates)
+                    j.getDouble("r"), gates, poly)
             }.getOrNull()
         }
         val d = WorkSchedule()
@@ -79,8 +84,9 @@ class SettingsRepository(context: Context) {
             lunchStartMin = prefs.getInt("lunchStartMin", d.lunchStartMin),
             lunchEndMin = prefs.getInt("lunchEndMin", d.lunchEndMin),
             maxLunchMinutes = prefs.getInt("maxLunch", d.maxLunchMinutes),
-            restrictLunchToWindow = prefs.getBoolean("restrictLunch", d.restrictLunchToWindow),
-            flexible = prefs.getBoolean("flexible", d.flexible),
+            // No fixed lunch time and no fixed working hours: the day follows your arrival.
+            restrictLunchToWindow = false,
+            flexible = true,
             earliestStartMin = prefs.getInt("earliestStart", d.earliestStartMin),
             latestStartMin = prefs.getInt("latestStart", d.latestStartMin),
             requiredMinutes = prefs.getInt("requiredMin", d.requiredMinutes),

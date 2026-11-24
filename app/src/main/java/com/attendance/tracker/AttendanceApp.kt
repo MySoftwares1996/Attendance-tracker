@@ -15,6 +15,12 @@ class AttendanceApp : Application() {
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_ALERTS, "Attendance alerts", NotificationManager.IMPORTANCE_HIGH)
         )
+        // OpenStreetMap tile policy requires an identifying user agent; cache tiles in app storage.
+        org.osmdroid.config.Configuration.getInstance().apply {
+            userAgentValue = packageName
+            osmdroidBasePath = java.io.File(cacheDir, "osmdroid")
+            osmdroidTileCache = java.io.File(cacheDir, "osmdroid/tiles")
+        }
         AttendanceController.init(this)
         // Self-healing: every 15 min make sure tracking and geofences are alive.
         com.attendance.tracker.service.WatchdogWorker.schedule(this)

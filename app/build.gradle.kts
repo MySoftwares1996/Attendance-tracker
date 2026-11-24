@@ -82,6 +82,8 @@ dependencies {
     // Interface used by androidx PackageManagerCompat.getUnusedAppRestrictionsStatus
     implementation("com.google.guava:listenablefuture:1.0")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+    // OpenStreetMap (no API key needed) for drawing the office area
+    implementation("org.osmdroid:osmdroid-android:6.1.20")
 
     testImplementation("junit:junit:4.13.2")
 }
