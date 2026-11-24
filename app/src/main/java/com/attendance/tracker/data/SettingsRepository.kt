@@ -132,6 +132,20 @@ class SettingsRepository(context: Context) {
         return true
     }
 
+    /** Office Wi-Fi networks used as a second "I'm inside" signal. */
+    var officeWifi: List<com.attendance.tracker.service.WifiNet>
+        get() = runCatching {
+            val a = JSONArray(prefs.getString("officeWifi", "[]"))
+            (0 until a.length()).map { i -> a.getJSONObject(i).let {
+                com.attendance.tracker.service.WifiNet(it.getString("ssid"), it.optString("bssid").ifBlank { null })
+            } }
+        }.getOrDefault(emptyList())
+        set(v) {
+            val a = JSONArray()
+            v.forEach { a.put(JSONObject().put("ssid", it.ssid).put("bssid", it.bssid ?: "")) }
+            prefs.edit().putString("officeWifi", a.toString()).apply()
+        }
+
     /** OUT / IN times of an afternoon break waiting for "Was this lunch?" (0 = none). */
     var pendingLunchOut: Long get() = prefs.getLong("pendingLunchOut", 0L); set(v) = prefs.edit().putLong("pendingLunchOut", v).apply()
     var pendingLunchIn: Long get() = prefs.getLong("pendingLunchIn", 0L); set(v) = prefs.edit().putLong("pendingLunchIn", v).apply()

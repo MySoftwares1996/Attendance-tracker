@@ -62,6 +62,18 @@ class PresenceEngine(initial: Presence = Presence.UNKNOWN) {
     /** True while a possible in/out change is waiting for confirmation (poll faster). */
     val hasPendingChange: Boolean get() = candidate != null
 
+    /**
+     * Office Wi-Fi says you're here while GPS can't tell (e.g. tracking started deep inside).
+     * Marks you INSIDE and returns the transition, or null if already inside.
+     */
+    fun wifiCheckIn(atMs: Long): Transition? {
+        if (presence == Presence.INSIDE) return null
+        val t = Transition(presence, Presence.INSIDE, atMs, null)
+        presence = Presence.INSIDE
+        candidate = null; candidateCount = 0
+        return t
+    }
+
     fun reset(p: Presence) {
         presence = p
         candidate = null
@@ -71,7 +83,12 @@ class PresenceEngine(initial: Presence = Presence.UNKNOWN) {
         lastGate = null
     }
 
-    fun process(s: LocationSample, office: OfficeConfig?, cfg: AccuracyConfig, nowMs: Long): Result {
+    /**
+     * @param onOfficeWifi phone is connected to a saved office Wi-Fi. While true, weak or
+     * borderline "outside" readings can't punch you OUT (GPS is poor deep inside buildings);
+     * only a precise reading far outside can.
+     */
+    fun process(s: LocationSample, office: OfficeConfig?, cfg: AccuracyConfig, nowMs: Long, onOfficeWifi: Boolean = false): Result {
         if (office == null) return Result.Rejected("Office location not configured")
         if (cfg.rejectMock && s.isMock) return Result.Rejected("Mock (fake) location detected")
         if (nowMs - s.timeMs > cfg.maxFixAgeSec * 1000L) return Result.Rejected("Stale location fix")
@@ -108,11 +125,14 @@ class PresenceEngine(initial: Presence = Presence.UNKNOWN) {
         val d = GeoMath.distanceM(s.lat, s.lng, office.lat, office.lng)
         val edge = office.edgeDistanceM(s.lat, s.lng)
         // The whole accuracy circle must be on one side of the (circle or drawn) boundary.
-        val zone = when {
+        var zone = when {
             edge + s.accuracyM <= 0 -> Zone.INSIDE
             edge - s.accuracyM > 0 -> Zone.OUTSIDE
             else -> Zone.AMBIGUOUS
         }
+        if (zone == Zone.OUTSIDE && onOfficeWifi && presence != Presence.OUTSIDE &&
+            !(edge > WIFI_OVERRIDE_EDGE_M && s.accuracyM <= WIFI_OVERRIDE_ACC_M)
+        ) zone = Zone.AMBIGUOUS
 
         val zonePresence = when (zone) {
             Zone.INSIDE -> Presence.INSIDE
@@ -163,6 +183,9 @@ class PresenceEngine(initial: Presence = Presence.UNKNOWN) {
         const val MAX_SPEED_MPS = 60.0
         /** A gate visit within this window before a transition is attributed to it. */
         const val GATE_WINDOW_MS = 10 * 60 * 1000L
+        /** On office Wi-Fi, only a reading this far outside with this accuracy can punch OUT. */
+        const val WIFI_OVERRIDE_EDGE_M = 150.0
+        const val WIFI_OVERRIDE_ACC_M = 20f
         /** Gate time refines the punch only if the crossing was this recent. */
         const val GATE_TIME_WINDOW_MS = 3 * 60 * 1000L
         /** Away from a gate this long = a new visit. */

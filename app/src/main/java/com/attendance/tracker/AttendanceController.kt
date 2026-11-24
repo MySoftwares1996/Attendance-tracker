@@ -11,7 +11,6 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.attendance.tracker.core.DayMark
 import com.attendance.tracker.core.DayPlan
-import com.attendance.tracker.core.DayMark
 import com.attendance.tracker.core.DayPlanner
 import com.attendance.tracker.core.LocationSample
 import com.attendance.tracker.core.LunchState
@@ -90,7 +89,7 @@ object AttendanceController {
     @Synchronized
     fun onLocation(sample: LocationSample, nowMs: Long = System.currentTimeMillis()) {
         val s = settings.settings.value
-        val res = engine.process(sample, s.office, s.accuracy, nowMs)
+        val res = engine.process(sample, s.office, s.accuracy, nowMs, onOfficeWifi = officeWifiSince > 0)
         var st = _state.value.copy(lastFix = sample)
         when (res) {
             is PresenceEngine.Result.Rejected -> st = st.copy(lastReject = res.reason)
@@ -147,6 +146,37 @@ object AttendanceController {
         tick()
         lastTickMs = 0L
         settings.lastHeartbeatMs = 0L
+    }
+
+    // ───────────── office Wi-Fi ─────────────
+    private var officeWifiSince = 0L
+    val onOfficeWifi: Boolean get() = officeWifiSince > 0
+
+    /**
+     * Called by the service with the current Wi-Fi state. Returns true when the phone just
+     * dropped off the office Wi-Fi while inside (a good moment to poll GPS fast).
+     */
+    @Synchronized
+    fun updateWifi(connected: Boolean, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val wasOn = officeWifiSince > 0
+        if (connected && !wasOn) officeWifiSince = nowMs
+        if (!connected) officeWifiSince = 0L
+        // Wi-Fi for 60 s but GPS can't place you (or you're right at the edge): count as inside.
+        if (connected && engine.presence != Presence.INSIDE && nowMs - officeWifiSince >= 60_000) {
+            val st = _state.value
+            val gpsFresh = st.lastAcceptedMs?.let { nowMs - it < 3 * 60_000 } == true
+            val nearEdge = (st.edgeDistanceM ?: 0.0) < 60.0
+            if (engine.presence == Presence.UNKNOWN || !gpsFresh || nearEdge) {
+                engine.wifiCheckIn(nowMs)?.let { t ->
+                    settings.presence = Presence.INSIDE
+                    db.insertEvent(nowMs, EventType.CHECK_IN, "Entered ${settings.settings.value.office?.name} (via office Wi-Fi)")
+                    punchAlert(true, nowMs, null, false)
+                    if (t.from == Presence.OUTSIDE) onReturnInside(nowMs)
+                    refresh(nowMs)
+                }
+            }
+        }
+        return wasOn && !connected && engine.presence == Presence.INSIDE
     }
 
     /** True while the engine is confirming a possible punch (service polls faster). */

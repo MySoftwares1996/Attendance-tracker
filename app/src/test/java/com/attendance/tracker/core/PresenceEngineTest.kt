@@ -129,6 +129,32 @@ class PresenceEngineTest {
         assertEquals(listOf(Presence.INSIDE, Presence.OUTSIDE, Presence.INSIDE, Presence.OUTSIDE), punches)
     }
 
+    @Test fun officeWifiBlocksFalseCheckout() {
+        val e = PresenceEngine(Presence.INSIDE)
+        var t = 0L
+        // Weak indoor GPS drifting 160 m out (±30 m) while still on office Wi-Fi: no OUT.
+        repeat(6) {
+            t += 10_000
+            val r = e.process(at(160.0, 30f, t), office, cfg, t, onOfficeWifi = true) as PresenceEngine.Result.Accepted
+            assertNull(r.transition)
+        }
+        assertEquals(Presence.INSIDE, e.presence)
+        // Precise reading far outside still punches OUT even if Wi-Fi lingers.
+        var tr: PresenceEngine.Transition? = null
+        repeat(3) {
+            t += 10_000
+            val r = e.process(at(400.0, 8f, t), office, cfg, t, onOfficeWifi = true) as PresenceEngine.Result.Accepted
+            tr = r.transition ?: tr
+        }
+        assertEquals(Presence.OUTSIDE, tr?.to)
+    }
+
+    @Test fun wifiCheckInWhenGpsCannotTell() {
+        val e = PresenceEngine(Presence.UNKNOWN)
+        assertEquals(Presence.INSIDE, e.wifiCheckIn(1000)?.to)
+        assertNull(e.wifiCheckIn(2000))
+    }
+
     @Test fun noOfficeConfiguredIsRejected() {
         assertTrue(PresenceEngine().process(at(0.0, 5f, 0), null, cfg, 0) is PresenceEngine.Result.Rejected)
     }
