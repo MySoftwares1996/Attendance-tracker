@@ -26,7 +26,7 @@ data class AttendanceEvent(
 
 /** Plain SQLite storage for the attendance log and per-day status durations. */
 class AttendanceDb(context: Context) :
-    SQLiteOpenHelper(context, "attendance.db", null, 1) {
+    SQLiteOpenHelper(context, "attendance.db", null, 2) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -45,9 +45,40 @@ class AttendanceDb(context: Context) :
                 seconds INTEGER NOT NULL,
                 PRIMARY KEY(day, status))"""
         )
+        createDayMarks(db)
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    private fun createDayMarks(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS day_marks(day TEXT PRIMARY KEY, mark TEXT NOT NULL, note TEXT)")
+    }
+
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) createDayMarks(db)
+    }
+
+    // ---- day marks (leave / holiday / WFH / half day) ----
+    fun dayMark(day: String): com.attendance.tracker.core.DayMark? =
+        readableDatabase.rawQuery("SELECT mark FROM day_marks WHERE day=?", arrayOf(day)).use { c ->
+            if (c.moveToFirst()) runCatching { com.attendance.tracker.core.DayMark.valueOf(c.getString(0)) }.getOrNull() else null
+        }
+
+    fun dayMarks(fromDay: String, toDay: String): Map<String, com.attendance.tracker.core.DayMark> {
+        val out = mutableMapOf<String, com.attendance.tracker.core.DayMark>()
+        readableDatabase.rawQuery("SELECT day, mark FROM day_marks WHERE day>=? AND day<=?", arrayOf(fromDay, toDay)).use { c ->
+            while (c.moveToNext()) runCatching { out[c.getString(0)] = com.attendance.tracker.core.DayMark.valueOf(c.getString(1)) }
+        }
+        return out
+    }
+
+    fun setDayMark(day: String, mark: com.attendance.tracker.core.DayMark?) {
+        if (mark == null) writableDatabase.delete("day_marks", "day=?", arrayOf(day))
+        else writableDatabase.insertWithOnConflict("day_marks", null,
+            ContentValues().apply { put("day", day); put("mark", mark.name) }, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    fun deleteEvent(id: Long) {
+        writableDatabase.delete("events", "id=?", arrayOf(id.toString()))
+    }
 
     fun insertEvent(
         timeMs: Long, type: EventType, detail: String,

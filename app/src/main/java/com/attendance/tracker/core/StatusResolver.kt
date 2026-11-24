@@ -31,6 +31,7 @@ object StatusResolver {
         presence: Presence,
         lunch: LunchState,
     ): WorkStatus {
+        if (plan.dayOff != null) return WorkStatus.DAY_OFF
         if (!plan.workDay || now >= plan.cutoff) return WorkStatus.OUTSIDE_WORKING_HOURS
         if (lunch.active) {
             val mins = (nowMs - lunch.startedAtMs) / 60_000
@@ -61,6 +62,7 @@ object StatusResolver {
         val start = plan.start
         return when {
             lunch.active -> "Lunch break already started"
+            plan.dayOff != null -> "Today is marked as ${plan.dayOff}"
             !plan.workDay || now >= plan.cutoff -> "Lunch can only be declared on a working day"
             start == null -> "Reach the office first — your day starts when you arrive"
             now < start -> "Working hours haven't started yet"

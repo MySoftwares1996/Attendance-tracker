@@ -98,12 +98,22 @@ enum class WorkStatus(val label: String) {
     NOT_STARTED("Work day not started"),
     LATE("Not in office — late"),
     OVERTIME("Overtime in office"),
+    DAY_OFF("Day off"),
     DAY_COMPLETE("Work day complete"),
     IN_OFFICE("In office"),
     OUTSIDE_OFFICE("Outside office (working hours)"),
     ON_LUNCH("On lunch break"),
     LUNCH_EXCEEDED("Lunch break exceeded"),
     UNKNOWN("Location unknown"),
+}
+
+/** A day marked by the user. Full-day marks are not working days. */
+enum class DayMark(val label: String, val fullDayOff: Boolean) {
+    LEAVE("Leave", true),
+    SICK("Sick leave", true),
+    WFH("Work from home", true),
+    HOLIDAY("Holiday", true),
+    HALF_DAY("Half day", false),
 }
 
 data class LunchState(val active: Boolean = false, val startedAtMs: Long = 0L)

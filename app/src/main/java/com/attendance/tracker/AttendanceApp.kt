@@ -32,6 +32,11 @@ class AttendanceApp : Application() {
         nm.createNotificationChannel(punchChannel(CHANNEL_PUNCH_IN, "Punch IN", R.raw.punch_in, longArrayOf(0, 120, 90, 120)))
         nm.createNotificationChannel(punchChannel(CHANNEL_PUNCH_OUT, "Punch OUT", R.raw.punch_out, longArrayOf(0, 450)))
         nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_REMINDERS, "Reminders", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Logout time, hours complete, lunch running over"
+            }
+        )
+        nm.createNotificationChannel(
             NotificationChannel(CHANNEL_PUNCH_SILENT, "Punches (silent)", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 setSound(null, null); enableVibration(false)
             }
@@ -53,5 +58,6 @@ class AttendanceApp : Application() {
         const val CHANNEL_PUNCH_IN = "punch_in_v1"
         const val CHANNEL_PUNCH_OUT = "punch_out_v1"
         const val CHANNEL_PUNCH_SILENT = "punch_silent_v1"
+        const val CHANNEL_REMINDERS = "reminders_v1"
     }
 }

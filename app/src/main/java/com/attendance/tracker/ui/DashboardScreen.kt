@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Notifications
@@ -46,6 +47,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -173,6 +175,35 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
         }
 
         HealthLine(st.trackingOn, st.lastAcceptedMs, st.lastFix?.timeMs, now)
+
+        // "Was this lunch?" — answered here or from the notification
+        st.pendingLunch?.let { (outMs, inMs) ->
+            SoftCard(color = c.warningSoft, padding = 16.dp) {
+                Text("Were you at lunch?", style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+                Text(
+                    "Out ${fmtTime(outMs)} \u2192 back ${fmtTime(inMs)} (${(inMs - outMs) / 60_000} min)",
+                    style = MaterialTheme.typography.bodyMedium, color = c.textSecondary,
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SoftButton("Yes, lunch", { AttendanceController.confirmPendingLunch() }, Modifier.weight(1f),
+                        colors = c.warning.copy(alpha = 0.85f) to c.warning)
+                    SoftGhostButton("No, work", { AttendanceController.dismissPendingLunch() }, Modifier.weight(1f),
+                        tint = c.textSecondary, background = c.card)
+                }
+            }
+        }
+
+        // Leave / WFH / holiday for today
+        var markOpen by remember { mutableStateOf(false) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                st.plan?.dayOff?.let { "Today: $it" } ?: if (AttendanceController.dayMark(java.time.LocalDate.now()) != null) "Today: Half day" else "Taking leave or working from home today?",
+                Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = c.textSecondary,
+            )
+            MiniAction(if (st.plan?.dayOff != null) "Change" else "Mark today") { markOpen = true }
+        }
+        if (markOpen) DayMarkDialog(java.time.LocalDate.now()) { markOpen = false }
 
         UpdateBanner()
 
@@ -418,16 +449,19 @@ private fun PunchesCard(punches: List<com.attendance.tracker.data.AttendanceEven
             Pill("${punches.size}", c.accent, c.accentSoft)
         }
         Spacer(Modifier.height(12.dp))
+        var addOpen by remember { mutableStateOf(false) }
         if (punches.isEmpty()) {
             Text(
                 "No punches yet. Your first IN is recorded as soon as you enter the office.",
                 style = MaterialTheme.typography.bodyMedium, color = c.textSecondary,
             )
         }
+        if (addOpen) ManualPunchDialog(java.time.LocalDate.now()) { addOpen = false }
         punches.forEachIndexed { i, e ->
             val isIn = e.type == com.attendance.tracker.data.EventType.CHECK_IN
             val gate = Regex("via (.+?)( \\(|$| ·)").find(e.detail)?.groupValues?.get(1)
             val approx = e.detail.contains("approximate")
+            val manual = e.detail.startsWith(AttendanceController.MANUAL_PREFIX)
             Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     if (isIn) "IN" else "OUT",
@@ -440,9 +474,16 @@ private fun PunchesCard(punches: List<com.attendance.tracker.data.AttendanceEven
                 Column(Modifier.weight(1f)) {
                     Text((if (approx) "~" else "") + fmtTime(e.timeMs), style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
                     Text(
-                        (gate ?: "Office boundary") + (e.accuracyM?.let { " · ±${it.toInt()} m" } ?: "") + if (approx) " · approximate" else "",
-                        style = MaterialTheme.typography.bodySmall, color = c.textSecondary,
+                        if (manual) e.detail.removePrefix(AttendanceController.MANUAL_PREFIX)
+                        else (gate ?: "Office boundary") + (e.accuracyM?.let { " · ±${it.toInt()} m" } ?: "") + if (approx) " · approximate" else "",
+                        style = MaterialTheme.typography.bodySmall, color = c.textSecondary, maxLines = 2,
                     )
+                }
+                if (manual) {
+                    Pill("Manual", c.warning, c.warningSoft)
+                    Spacer(Modifier.width(4.dp))
+                    Text("\u2715", Modifier.clip(CircleShape).pressScale { AttendanceController.deleteManualPunch(e) }.padding(8.dp),
+                        color = c.textSecondary, style = MaterialTheme.typography.labelMedium)
                 }
                 if (isIn) {
                     val outMs = punches.getOrNull(i + 1)?.timeMs
@@ -455,6 +496,8 @@ private fun PunchesCard(punches: List<com.attendance.tracker.data.AttendanceEven
                 }
             }
         }
+        Spacer(Modifier.height(10.dp))
+        MiniAction("+ Add missed punch") { addOpen = true }
     }
 }
 
@@ -557,6 +600,8 @@ private fun StatusHero(status: WorkStatus, tracking: Boolean, officeName: String
                 "Your day starts when you arrive · on time until ${fmtClock(plan.latestStart)}",
                 color = white, style = MaterialTheme.typography.labelMedium,
             )
+        } else if (plan?.dayOff != null) {
+            Text("Marked as ${plan.dayOff} \u00b7 enjoy your day", color = white, style = MaterialTheme.typography.labelMedium)
         } else {
             Text("No work scheduled now", color = white, style = MaterialTheme.typography.labelMedium)
         }

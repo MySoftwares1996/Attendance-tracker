@@ -739,6 +739,19 @@ private fun AdvancedStep(s: AppSettings) {
 
     StepTitle("Advanced", "You normally don't need to change these.")
     SoftCard {
+        CardHeader(rememberVectorPainter(Icons.Filled.Notifications), "Reminders & automation")
+        Spacer(Modifier.height(6.dp))
+        val st = AttendanceController.settings
+        var a1 by remember { mutableStateOf(st.autoLunch) }
+        var a2 by remember { mutableStateOf(st.remindBeforeLogout) }
+        var a3 by remember { mutableStateOf(st.remindHoursDone) }
+        var a4 by remember { mutableStateOf(st.remindLunchOver) }
+        SoftSwitchRow("Detect lunch automatically", "After an afternoon break, ask \u201cWas this lunch?\u201d", a1) { a1 = it; st.autoLunch = it }
+        SoftSwitchRow("15 min before logout", null, a2) { a2 = it; st.remindBeforeLogout = it }
+        SoftSwitchRow("Hours complete", "\u201cYou can leave now\u201d", a3) { a3 = it; st.remindHoursDone = it }
+        SoftSwitchRow("Lunch running over", null, a4) { a4 = it; st.remindLunchOver = it }
+    }
+    SoftCard {
         CardHeader(rememberVectorPainter(Icons.Filled.Notifications), "Punch sound")
         Spacer(Modifier.height(6.dp))
         var sound by remember { mutableStateOf(AttendanceController.settings.punchSound) }

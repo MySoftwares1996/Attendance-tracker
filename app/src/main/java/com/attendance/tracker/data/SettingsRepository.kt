@@ -116,6 +116,26 @@ class SettingsRepository(context: Context) {
         get() = prefs.getLong("heartbeat", 0L)
         set(v) = prefs.edit().putLong("heartbeat", v).apply()
 
+    private fun flag(key: String, def: Boolean = true) = prefs.getBoolean(key, def)
+    private fun setFlag(key: String, v: Boolean) = prefs.edit().putBoolean(key, v).apply()
+
+    /** Ask "Was this lunch?" after an afternoon OUT → IN. */
+    var autoLunch: Boolean get() = flag("autoLunch"); set(v) = setFlag("autoLunch", v)
+    var remindBeforeLogout: Boolean get() = flag("remindBefore"); set(v) = setFlag("remindBefore", v)
+    var remindHoursDone: Boolean get() = flag("remindDone"); set(v) = setFlag("remindDone", v)
+    var remindLunchOver: Boolean get() = flag("remindLunch"); set(v) = setFlag("remindLunch", v)
+
+    /** Returns true the first time [key] is seen (used for once-a-day reminders). */
+    fun firstTime(key: String): Boolean {
+        if (prefs.getBoolean("once_$key", false)) return false
+        prefs.edit().putBoolean("once_$key", true).apply()
+        return true
+    }
+
+    /** OUT / IN times of an afternoon break waiting for "Was this lunch?" (0 = none). */
+    var pendingLunchOut: Long get() = prefs.getLong("pendingLunchOut", 0L); set(v) = prefs.edit().putLong("pendingLunchOut", v).apply()
+    var pendingLunchIn: Long get() = prefs.getLong("pendingLunchIn", 0L); set(v) = prefs.edit().putLong("pendingLunchIn", v).apply()
+
     /** Sound + vibration when IN / OUT is recorded. */
     var punchSound: Boolean
         get() = prefs.getBoolean("punchSound", true)

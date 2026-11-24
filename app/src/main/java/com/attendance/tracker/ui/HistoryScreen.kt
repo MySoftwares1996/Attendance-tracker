@@ -91,6 +91,11 @@ fun HistoryScreen() {
 private fun DayCard(day: LocalDate, sum: com.attendance.tracker.DaySummary, events: List<AttendanceEvent>, expandedByDefault: Boolean) {
     val c = Soft.colors
     var expanded by remember { mutableStateOf(expandedByDefault) }
+    var markOpen by remember { mutableStateOf(false) }
+    var addOpen by remember { mutableStateOf(false) }
+    val mark = remember(day, markOpen) { AttendanceController.dayMark(day) }
+    if (markOpen) DayMarkDialog(day) { markOpen = false }
+    if (addOpen) ManualPunchDialog(day) { addOpen = false }
     val t = sum.secondsByStatus
     val office = t[WorkStatus.IN_OFFICE.name] ?: 0
     val away = t[WorkStatus.OUTSIDE_OFFICE.name] ?: 0
@@ -102,7 +107,8 @@ private fun DayCard(day: LocalDate, sum: com.attendance.tracker.DaySummary, even
                 Text(if (day == LocalDate.now()) "Today" else day.format(dayFmt), style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
                 Text(day.format(dateFmt), style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
             }
-            Pill("${fmtTime(sum.firstInMs)} → ${fmtTime(sum.lastOutMs)}", c.accent, c.accentSoft)
+            if (mark != null) Pill(mark.label, Color(0xFF8E63E0), Color(0x1F8E63E0))
+            else Pill("${fmtTime(sum.firstInMs)} → ${fmtTime(sum.lastOutMs)}", c.accent, c.accentSoft)
         }
         Spacer(Modifier.height(14.dp))
         // Proportional day bar: office / lunch / away
@@ -127,6 +133,10 @@ private fun DayCard(day: LocalDate, sum: com.attendance.tracker.DaySummary, even
         AnimatedVisibility(expanded && events.isNotEmpty(), enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
             Column(Modifier.padding(top = 16.dp)) {
                 events.forEachIndexed { i, e -> TimelineRow(e, last = i == events.lastIndex) }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MiniAction("+ Missed punch") { addOpen = true }
+                    MiniAction(if (mark == null) "Mark day" else "Change mark") { markOpen = true }
+                }
             }
         }
     }

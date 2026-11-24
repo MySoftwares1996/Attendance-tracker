@@ -27,6 +27,8 @@ data class DayPlan(
     val lunchTakenSec: Long,
     /** Lunch beyond the allowed maximum; added to the logout time. */
     val extraLunchSec: Long,
+    /** Set when the day is marked as leave / holiday / WFH etc. */
+    val dayOff: String? = null,
 )
 
 object DayPlanner {

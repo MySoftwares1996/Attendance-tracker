@@ -9,7 +9,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import com.attendance.tracker.core.DayMark
 import com.attendance.tracker.core.DayPlan
+import com.attendance.tracker.core.DayMark
 import com.attendance.tracker.core.DayPlanner
 import com.attendance.tracker.core.LocationSample
 import com.attendance.tracker.core.LunchState
@@ -51,6 +53,8 @@ data class LiveState(
     val lunch: LunchState = LunchState(),
     val today: DaySummary = DaySummary(),
     val plan: DayPlan? = null,
+    /** An afternoon OUT → IN waiting for "Was this lunch?" (outMs to inMs). */
+    val pendingLunch: Pair<Long, Long>? = null,
 )
 
 /**
@@ -107,6 +111,7 @@ object AttendanceController {
                             db.insertEvent(t.atMs, EventType.CHECK_IN, "Entered ${s.office?.name}$gateTxt$first$gapTxt",
                                 sample.lat, sample.lng, sample.accuracyM)
                             punchAlert(true, t.atMs, t.gate?.name, t.gapBeforeSec >= GAP_NOTE_SEC)
+                            if (t.from == Presence.OUTSIDE) onReturnInside(t.atMs)
                         }
                         Presence.OUTSIDE -> if (t.from == Presence.INSIDE) {
                             db.insertEvent(t.atMs, EventType.CHECK_OUT, "Left ${s.office?.name}$gateTxt$gapTxt",
@@ -193,8 +198,143 @@ object AttendanceController {
 
     fun plan(nowMs: Long = System.currentTimeMillis()): DayPlan {
         val now = LocalDateTime.ofInstant(Instant.ofEpochMilli(nowMs), zone())
-        return DayPlanner.plan(now, settings.settings.value.schedule, ::firstCheckIn) { lunchTakenSec(it, nowMs) }
+        val mark = db.dayMark(now.toLocalDate().toString())
+        var sched = settings.settings.value.schedule
+        if (mark == DayMark.HALF_DAY) sched = sched.copy(requiredMinutes = sched.requiredMinutes / 2)
+        val p = DayPlanner.plan(now, sched, ::firstCheckIn) { lunchTakenSec(it, nowMs) }
+        return if (mark?.fullDayOff == true) p.copy(workDay = false, dayOff = mark.label) else p
     }
+
+    fun dayMark(day: LocalDate): DayMark? = db.dayMark(day.toString())
+
+    fun setDayMark(day: LocalDate, mark: DayMark?) {
+        db.setDayMark(day.toString(), mark)
+        refresh()
+    }
+
+    // ───────────── missed punches ─────────────
+
+    /** Adds a punch the phone missed (battery dead, phone off). Clearly marked as manual. */
+    fun addManualPunch(isIn: Boolean, timeMs: Long, reason: String) {
+        db.insertEvent(timeMs, if (isIn) EventType.CHECK_IN else EventType.CHECK_OUT, "$MANUAL_PREFIX${reason.trim()}")
+        refresh()
+    }
+
+    fun deleteManualPunch(e: com.attendance.tracker.data.AttendanceEvent) {
+        if (e.detail.startsWith(MANUAL_PREFIX)) { db.deleteEvent(e.id); refresh() }
+    }
+
+    const val MANUAL_PREFIX = "Manual \u00b7 "
+
+    // ───────────── automatic lunch ─────────────
+
+    /** Called on every OUT → IN. Ends an open lunch, or asks whether the break was lunch. */
+    private fun onReturnInside(inMs: Long) {
+        val day = LocalDateTime.ofInstant(Instant.ofEpochMilli(inMs), zone()).toLocalDate()
+        val from = day.atStartOfDay(zone()).toInstant().toEpochMilli()
+        val events = db.events(from, inMs + 1)
+        val lastOut = events.lastOrNull { it.type == EventType.CHECK_OUT && it.timeMs < inMs } ?: return
+        val l = settings.lunch
+        if (l.active) {
+            // Went out for lunch and came back: end it automatically at the moment you walked in.
+            if (lastOut.timeMs >= l.startedAtMs) {
+                db.insertEvent(inMs, EventType.LUNCH_END, "Lunch ended automatically when you came back")
+                settings.lunch = LunchState()
+                notify(4101, "Welcome back \u2014 lunch ended", "Lunch ended at ${clock(inMs)} when you came in.")
+            }
+            return
+        }
+        if (!settings.autoLunch) return
+        val gapMin = (inMs - lastOut.timeMs) / 60_000
+        val outAt = LocalDateTime.ofInstant(Instant.ofEpochMilli(lastOut.timeMs), zone())
+        val outMin = outAt.hour * 60 + outAt.minute
+        val allowance = settings.settings.value.schedule.maxLunchMinutes * 60L
+        if (gapMin !in 10..150 || outMin !in (11 * 60)..(16 * 60 + 30)) return
+        if (lunchTakenSec(day, inMs) >= allowance) return
+        settings.pendingLunchOut = lastOut.timeMs
+        settings.pendingLunchIn = inMs
+        askLunch(lastOut.timeMs, inMs)
+    }
+
+    private fun askLunch(outMs: Long, inMs: Long) {
+        val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        fun action(a: String, req: Int) = PendingIntent.getBroadcast(
+            app, req, Intent(app, LunchActionReceiver::class.java).setAction(a), PendingIntent.FLAG_IMMUTABLE
+        )
+        val open = PendingIntent.getActivity(app, 6, Intent(app, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        runCatching {
+            nm.notify(
+                LUNCH_ASK_ID,
+                NotificationCompat.Builder(app, AttendanceApp.CHANNEL_REMINDERS)
+                    .setSmallIcon(R.drawable.ic_notification)
+                    .setContentTitle("Back at ${clock(inMs)} \u00b7 were you at lunch?")
+                    .setContentText("Out ${clock(outMs)} \u2192 In ${clock(inMs)} (${(inMs - outMs) / 60_000} min)")
+                    .addAction(0, "Yes, lunch", action(LunchActionReceiver.YES, 61))
+                    .addAction(0, "No, work", action(LunchActionReceiver.NO, 62))
+                    .setContentIntent(open)
+                    .setAutoCancel(true)
+                    .build()
+            )
+        }
+    }
+
+    /** "Yes, lunch": record the break as lunch (extra minutes extend logout). */
+    @Synchronized
+    fun confirmPendingLunch() {
+        val out = settings.pendingLunchOut; val inn = settings.pendingLunchIn
+        if (out > 0 && inn > out) {
+            db.insertEvent(out, EventType.LUNCH_START, "Lunch (auto-detected, confirmed)")
+            db.insertEvent(inn, EventType.LUNCH_END, "Lunch ended after ${(inn - out) / 60_000} min (auto-detected)")
+        }
+        dismissPendingLunch()
+    }
+
+    @Synchronized
+    fun dismissPendingLunch() {
+        settings.pendingLunchOut = 0L; settings.pendingLunchIn = 0L
+        (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(LUNCH_ASK_ID)
+        refresh()
+    }
+
+    // ───────────── reminders ─────────────
+
+    private fun reminders(now: LocalDateTime, plan: DayPlan, status: WorkStatus, lunch: LunchState, nowMs: Long) {
+        val day = plan.date.toString()
+        val end = plan.expectedEnd
+        if (end != null && status == WorkStatus.IN_OFFICE && settings.remindBeforeLogout) {
+            val minsLeft = java.time.Duration.between(now, end).toMinutes()
+            if (minsLeft in 0..15 && settings.firstTime("pre_$day")) {
+                notify(4201, "$minsLeft min to your logout \u00b7 ${clock(end)}", "Get ready to wrap up.")
+            }
+        }
+        if (status == WorkStatus.OVERTIME && settings.remindHoursDone && settings.firstTime("done_$day")) {
+            val req = settings.settings.value.schedule.requiredMinutes
+            notify(4202, "Your ${req / 60}h${if (req % 60 > 0) " ${req % 60}m" else ""} are complete \u2014 you can leave \uD83C\uDF89",
+                "Time in office from now counts as overtime.")
+        }
+        if (lunch.active && settings.remindLunchOver) {
+            val over = plan.lunchTakenSec - settings.settings.value.schedule.maxLunchMinutes * 60L
+            if (over >= 5 * 60 && settings.firstTime("lunchover_$day")) {
+                notify(4203, "Lunch is ${over / 60} min over", "Logout moves to ${end?.let { clock(it) } ?: "later"}.")
+            }
+        }
+    }
+
+    private fun clock(ms: Long) = clock(LocalDateTime.ofInstant(Instant.ofEpochMilli(ms), zone()))
+    private fun clock(t: LocalDateTime) = "%d:%02d %s".format(if (t.hour % 12 == 0) 12 else t.hour % 12, t.minute, if (t.hour < 12) "AM" else "PM")
+
+    private fun notify(id: Int, title: String, text: String) {
+        val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val pi = PendingIntent.getActivity(app, 7, Intent(app, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        runCatching {
+            nm.notify(id, NotificationCompat.Builder(app, AttendanceApp.CHANNEL_REMINDERS)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle(title).setContentText(text)
+                .setContentIntent(pi).setAutoCancel(true).build())
+        }
+    }
+
+    private const val LUNCH_ASK_ID = 4100
 
     /** High-accuracy GPS from 30 min before the day can start until overtime cut-off. */
     fun highAccuracyWanted(nowMs: Long = System.currentTimeMillis()): Boolean {
@@ -223,13 +363,17 @@ object AttendanceController {
         val old = lastStatus
         if (old != null && old != status) {
             db.insertEvent(nowMs, EventType.STATUS, "${old.label} → ${status.label}")
-            if (status == WorkStatus.OUTSIDE_OFFICE || status == WorkStatus.LUNCH_EXCEEDED ||
-                status == WorkStatus.LATE || status == WorkStatus.DAY_COMPLETE) alert(status, dayPlan)
+            if (status == WorkStatus.OUTSIDE_OFFICE || status == WorkStatus.LATE || status == WorkStatus.DAY_COMPLETE) {
+                alert(status, dayPlan)
+            }
         }
         lastStatus = status
+        reminders(now, dayPlan, status, lunch, nowMs)
+        val pl = settings.pendingLunchOut.takeIf { it > 0 }?.let { it to settings.pendingLunchIn }
         _state.value = _state.value.copy(
             status = status, presence = engine.presence, lunch = lunch,
             trackingOn = settings.trackingEnabled, today = summary(now.toLocalDate()), plan = dayPlan,
+            pendingLunch = pl,
         )
     }
 

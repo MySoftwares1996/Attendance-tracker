@@ -87,6 +87,12 @@ class StatusResolverTest {
         assertEquals(3 * 3600L + 30 * 60, DayPlanner.overtimeSec(plan(at(23, 30), flex, at(10), 90 * 60), at(23, 30)))
     }
 
+    @Test fun dayOffBeatsEverything() {
+        val p = plan(at(11), flex, null).copy(workDay = false, dayOff = "Leave")
+        assertEquals(WorkStatus.DAY_OFF, StatusResolver.resolve(at(11), 0, p, flex, Presence.INSIDE, LunchState()))
+        assertNotNull(StatusResolver.canStartLunch(at(11), p, flex, LunchState()))
+    }
+
     @Test fun lunchStatuses() {
         assertEquals(WorkStatus.ON_LUNCH,
             status(at(13), flex, Presence.OUTSIDE, at(10), lunch = LunchState(true, 0), nowMs = 30 * 60_000L))
