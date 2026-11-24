@@ -56,10 +56,15 @@ The installed app updates itself. It checks for updates when opened and every 6 
    - use Google Play internal testing or Firebase App Distribution instead.
 3. **On the phone.** The first time you tap *Install update*, allow "Install unknown apps" for Attendance Tracker.
 
-**To release an update:** merge to the default branch, or run the workflow manually (*Actions → Build APK → Run workflow*). CI then bumps `versionCode` (it uses the run number), signs the APK, and creates a GitHub Release `v1.0.N` containing `AttendanceTracker.apk` and `update.json`:
+**Release flow: test first, then confirm.**
+
+1. Every push to the default branch builds a **test build**, published as a GitHub *pre-release* (`v1.0.N`) with the APK. Install it by hand to try it. **Phones do not receive it over the air**, because the app only reads the latest *non*-pre-release.
+2. After the test build is confirmed, run *Actions → Build APK → Run workflow* with **promote_tag** = `v1.0.N`. That marks the build as the official release and phones update over the air.
+
+`update.json` format:
 
 ```json
-{"versionCode": 12, "versionName": "1.0.12", "apkUrl": "https://…/AttendanceTracker.apk", "sha256": "…", "notes": "…"}
+{"versionCode": 14, "versionName": "1.0.14", "apkUrl": "https://…/AttendanceTracker.apk", "sha256": "…", "notes": "…"}
 ```
 
 Only builds signed with your release key are published. Note that the APK built before the key was added is debug-signed: uninstall it once and install the first signed release. After that, every update arrives over the air.

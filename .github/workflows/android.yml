@@ -5,12 +5,8 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
-      release:
-        description: "Publish an OTA release from this run"
-        type: boolean
-        default: true
-      notes:
-        description: "Release notes shown in the app"
+      promote_tag:
+        description: "Confirmed test build to send to phones over the air (e.g. v1.0.14). Leave empty to just build."
         type: string
         default: ""
 
@@ -18,7 +14,23 @@ permissions:
   contents: write
 
 jobs:
+  # Sends an already-tested build to phones. Run ONLY after the owner confirms the build.
+  promote:
+    if: github.event_name == 'workflow_dispatch' && inputs.promote_tag != ''
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.promote_tag }}
+    steps:
+      - name: Promote confirmed test build to OTA release
+        run: |
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName,isPrerelease
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease=false --latest \
+            --title "Attendance Tracker ${TAG#v}"
+          echo "Phones will now receive $TAG over the air."
+
   build:
+    if: github.event_name != 'workflow_dispatch' || inputs.promote_tag == ''
     runs-on: ubuntu-latest
     env:
       BUILD_NUMBER: ${{ github.run_number }}
@@ -74,24 +86,27 @@ jobs:
           path: dist/AttendanceTracker.apk
           retention-days: 7
 
-      # OTA release: on pushes to the default branch, or a manual run with "release" ticked.
-      - name: Publish OTA release
+      # Every build on the default branch becomes a TEST build (GitHub pre-release).
+      # The app's OTA check only reads the latest *non*-pre-release, so phones do
+      # NOT receive it until the owner confirms and the "promote" job is run.
+      - name: Publish test build (not sent to phones)
         if: >-
           env.SIGNED == 'true' && (
             (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) ||
-            (github.event_name == 'workflow_dispatch' && inputs.release))
+            github.event_name == 'workflow_dispatch')
         env:
           GH_TOKEN: ${{ github.token }}
-          NOTES: ${{ inputs.notes }}
         run: |
           VERSION="1.0.${BUILD_NUMBER}"
           TAG="v${VERSION}"
           SHA=$(sha256sum dist/AttendanceTracker.apk | cut -d' ' -f1)
           URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/AttendanceTracker.apk"
-          [ -n "$NOTES" ] || NOTES=$(git log -1 --pretty=%s)
+          NOTES=$(git log -1 --pretty=%s)
           jq -n --argjson code "$BUILD_NUMBER" --arg name "$VERSION" --arg url "$URL" \
                 --arg sha "$SHA" --arg notes "$NOTES" \
                 '{versionCode:$code, versionName:$name, apkUrl:$url, sha256:$sha, notes:$notes}' > dist/update.json
           cat dist/update.json
           gh release create "$TAG" dist/AttendanceTracker.apk dist/update.json \
-            --title "Attendance Tracker $VERSION" --notes "$NOTES" --target "$GITHUB_SHA" --latest
+            --title "TEST BUILD $VERSION (not sent to phones yet)" \
+            --notes "$NOTES"$'\n\n'"Test build: install manually to try it. Phones get it over the air only after it is confirmed and promoted." \
+            --target "$GITHUB_SHA" --prerelease
