@@ -50,6 +50,7 @@ class AttendanceApp : Application() {
         AttendanceController.init(this)
         // Self-healing: every 15 min make sure tracking and geofences are alive.
         com.attendance.tracker.service.WatchdogWorker.schedule(this)
+        com.attendance.tracker.backup.BackupManager.schedule(this)
     }
 
     companion object {

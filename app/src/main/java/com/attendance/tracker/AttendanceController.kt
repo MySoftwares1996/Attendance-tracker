@@ -83,6 +83,17 @@ object AttendanceController {
         refresh()
     }
 
+    /** After a restore: re-read settings and state from storage. */
+    @Synchronized
+    fun reload() {
+        settings.reload()
+        engine.reset(settings.presence)
+        lastStatus = null
+        _state.value = LiveState(presence = engine.presence, lunch = settings.lunch)
+        runCatching { com.attendance.tracker.service.GeofenceManager.register(app) }
+        refresh()
+    }
+
     private fun zone(): ZoneId = ZoneId.systemDefault()
     private fun dayKey(ms: Long): String = Instant.ofEpochMilli(ms).atZone(zone()).toLocalDate().toString()
 
@@ -405,6 +416,7 @@ object AttendanceController {
             trackingOn = settings.trackingEnabled, today = summary(now.toLocalDate()), plan = dayPlan,
             pendingLunch = pl,
         )
+        runCatching { com.attendance.tracker.widget.AttendanceWidget.updateIfChanged(app) }
     }
 
     fun summary(day: LocalDate): DaySummary {

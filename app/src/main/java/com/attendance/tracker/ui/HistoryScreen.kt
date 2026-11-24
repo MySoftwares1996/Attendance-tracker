@@ -1,6 +1,19 @@
 package com.attendance.tracker.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.key
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.text.style.TextAlign
+import com.attendance.tracker.report.DayReport
+import com.attendance.tracker.report.DayState
+import com.attendance.tracker.report.MonthReport
+import com.attendance.tracker.report.MonthReports
+import com.attendance.tracker.report.ReportExporter
+import java.time.YearMonth
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,15 +63,22 @@ private val dateFmt = DateTimeFormatter.ofPattern("d MMM yyyy")
 @Composable
 fun HistoryScreen() {
     val c = Soft.colors
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     val st by AttendanceController.state.collectAsStateWithLifecycle()
-    val days = remember(st.today, st.status) {
+    var calendarMode by rememberSaveable { mutableStateOf(true) }
+    var month by remember { mutableStateOf(YearMonth.now()) }
+    var selected by remember { mutableStateOf(LocalDate.now()) }
+    val report = remember(month, st.today, st.status) { MonthReports.build(month) }
+    fun dayData(d: LocalDate): Triple<LocalDate, com.attendance.tracker.DaySummary, List<AttendanceEvent>> {
         val zone = ZoneId.systemDefault()
-        (0L until 14L).map { LocalDate.now().minusDays(it) }.map { d ->
-            val from = d.atStartOfDay(zone).toInstant().toEpochMilli()
-            val to = d.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
-            Triple(d, AttendanceController.summary(d), AttendanceController.db.events(from, to)
-                .filter { it.type != EventType.STATUS })
-        }.filter { it.third.isNotEmpty() || it.second.secondsByStatus.isNotEmpty() }
+        val from = d.atStartOfDay(zone).toInstant().toEpochMilli()
+        val to = d.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        return Triple(d, AttendanceController.summary(d), AttendanceController.db.events(from, to).filter { it.type != EventType.STATUS })
+    }
+    val days = remember(st.today, st.status, calendarMode) {
+        if (calendarMode) emptyList()
+        else (0L until 14L).map { LocalDate.now().minusDays(it) }.map { dayData(it) }
+            .filter { it.third.isNotEmpty() || it.second.secondsByStatus.isNotEmpty() }
     }
     LazyColumn(
         Modifier.fillMaxWidth().padding(horizontal = 20.dp),
@@ -66,24 +86,132 @@ fun HistoryScreen() {
     ) {
         item {
             Column(Modifier.padding(top = 20.dp, start = 4.dp)) {
-                Text("Last 14 days", style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
+                Text(if (calendarMode) "Month view & reports" else "Last 14 days", style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
                 Text("History", style = MaterialTheme.typography.headlineMedium, color = c.textPrimary)
             }
         }
-        if (days.isEmpty()) item {
-            SoftCard {
-                Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    IconBubble(painterResource(R.drawable.ic_clock), c.accent, c.accentSoft, size = 64.dp)
-                    Spacer(Modifier.height(16.dp))
-                    Text("Nothing here yet", style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
-                    Text("Your attendance will appear once tracking starts.", style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
+        item {
+            Row(Modifier.fillMaxWidth().height(48.dp).clip(Soft.pillShape).background(c.cardMuted).padding(4.dp)) {
+                listOf(true to "Calendar", false to "Days").forEach { (v, label) ->
+                    val sel = v == calendarMode
+                    Box(
+                        Modifier.weight(1f).fillMaxHeight().clip(Soft.pillShape).background(if (sel) c.card else c.cardMuted)
+                            .pressScale { calendarMode = v },
+                        contentAlignment = Alignment.Center,
+                    ) { Text(label, color = if (sel) c.accent else c.textSecondary, style = MaterialTheme.typography.labelLarge) }
                 }
             }
         }
-        items(days, key = { it.first.toString() }) { (day, sum, events) ->
-            DayCard(day, sum, events, expandedByDefault = day == LocalDate.now())
+        if (calendarMode) {
+            item { MonthCalendar(report, selected, onMonth = { month = it }, onSelect = { selected = it }) }
+            item {
+                val (d, sum, ev) = remember(selected, st.today, st.status) { dayData(selected) }
+                key(selected) { DayCard(d, sum, ev, expandedByDefault = true) }
+            }
+            item { MonthSummary(report, onPdf = { ReportExporter.sharePdf(ctx, report) }, onCsv = { ReportExporter.shareCsv(ctx, report) }) }
+        } else {
+            if (days.isEmpty()) item {
+                SoftCard {
+                    Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        IconBubble(painterResource(R.drawable.ic_clock), c.accent, c.accentSoft, size = 64.dp)
+                        Spacer(Modifier.height(16.dp))
+                        Text("Nothing here yet", style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+                        Text("Your attendance will appear once tracking starts.", style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
+                    }
+                }
+            }
+            items(days, key = { it.first.toString() }) { (day, sum, events) ->
+                DayCard(day, sum, events, expandedByDefault = day == LocalDate.now())
+            }
         }
         item { Spacer(Modifier.height(NavBarClearance)) }
+    }
+}
+
+private val monthTitle = DateTimeFormatter.ofPattern("MMMM yyyy")
+
+@Composable
+private fun dayColors(state: DayState): Pair<Color, Color> {
+    val c = Soft.colors
+    return when (state) {
+        DayState.OK -> c.successSoft to c.success
+        DayState.SHORT -> c.warningSoft to c.warning
+        DayState.LATE, DayState.ABSENT -> c.dangerSoft to c.danger
+        DayState.LEAVE -> Color(0x268E63E0) to Color(0xFF8E63E0)
+        DayState.TODAY -> c.accent to Color.White
+        DayState.OFF, DayState.FUTURE -> Color.Transparent to c.textSecondary
+    }
+}
+
+@Composable
+private fun MonthCalendar(r: MonthReport, selected: LocalDate, onMonth: (YearMonth) -> Unit, onSelect: (LocalDate) -> Unit) {
+    val c = Soft.colors
+    SoftCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("\u2039", Modifier.clip(CircleShape).pressScale { onMonth(r.month.minusMonths(1)) }.padding(horizontal = 14.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.headlineSmall, color = c.accent)
+            Text(r.month.format(monthTitle), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
+                color = c.textPrimary, textAlign = TextAlign.Center)
+            val canNext = r.month < YearMonth.now()
+            Text("\u203A", Modifier.clip(CircleShape).then(if (canNext) Modifier.pressScale { onMonth(r.month.plusMonths(1)) } else Modifier)
+                .padding(horizontal = 14.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.headlineSmall, color = if (canNext) c.accent else c.hairline)
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(Modifier.fillMaxWidth()) {
+            java.time.DayOfWeek.entries.forEach {
+                Text(it.getDisplayName(java.time.format.TextStyle.NARROW, java.util.Locale.getDefault()), Modifier.weight(1f),
+                    textAlign = TextAlign.Center, style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        val lead = r.month.atDay(1).dayOfWeek.value - 1
+        val cells: List<DayReport?> = List(lead) { null } + r.days
+        cells.chunked(7).forEach { week ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                (0 until 7).forEach { i ->
+                    val d = week.getOrNull(i)
+                    Box(Modifier.weight(1f).aspectRatio(1f), contentAlignment = Alignment.Center) {
+                        if (d != null) {
+                            val (bg, fg) = dayColors(d.state)
+                            val isSel = d.date == selected
+                            Box(
+                                Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)).background(bg)
+                                    .then(if (isSel) Modifier.border(2.dp, c.accent, RoundedCornerShape(12.dp)) else Modifier)
+                                    .pressScale { onSelect(d.date) },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text("${d.date.dayOfMonth}", style = MaterialTheme.typography.labelLarge, color = fg)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Legend(c.success, "Full"); Legend(c.warning, "Short"); Legend(c.danger, "Late / absent"); Legend(Color(0xFF8E63E0), "Leave")
+        }
+    }
+}
+
+@Composable
+private fun MonthSummary(r: MonthReport, onPdf: () -> Unit, onCsv: () -> Unit) {
+    val c = Soft.colors
+    SoftCard {
+        CardHeader(painterResource(R.drawable.ic_clock), "${r.month.format(monthTitle)} summary")
+        Spacer(Modifier.height(10.dp))
+        InfoLine("Days present", "${r.presentDays}")
+        InfoLine("Average per day", r.avgSec?.let { fmtDuration(it) } ?: "\u2014")
+        InfoLine("Total worked", fmtDuration(r.totalSec))
+        InfoLine("Overtime", fmtDuration(r.overtimeSec))
+        InfoLine("Late days", "${r.lateDays}", if (r.lateDays > 0) c.danger else c.textPrimary)
+        InfoLine("Leave days", "${r.leaveDays}")
+        Spacer(Modifier.height(14.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            SoftButton("Share PDF", onPdf, Modifier.weight(1f))
+            SoftGhostButton("Excel (CSV)", onCsv, Modifier.weight(1f))
+        }
     }
 }
 

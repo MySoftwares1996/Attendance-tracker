@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Attendance Tracker</string>
+    <string name="widget_description">Status, hours worked, logout time and lunch button</string>
 </resources>

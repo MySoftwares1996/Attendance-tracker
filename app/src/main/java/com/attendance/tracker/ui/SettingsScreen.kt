@@ -93,7 +93,7 @@ import java.time.DayOfWeek
 import java.util.Locale
 import java.util.UUID
 
-private enum class Page { SUMMARY, OFFICE, GATES, HOURS, LUNCH, UPDATES, ADVANCED }
+private enum class Page { SUMMARY, OFFICE, GATES, HOURS, LUNCH, UPDATES, ADVANCED, WIFI, BACKUP }
 
 private val WIZARD = listOf(Page.OFFICE, Page.GATES, Page.HOURS, Page.LUNCH)
 
@@ -207,6 +207,8 @@ fun SettingsScreen() {
                     Page.LUNCH -> LunchStep(settings)
                     Page.UPDATES -> SoftCard { UpdateControls() }
                     Page.ADVANCED -> AdvancedStep(settings)
+                    Page.WIFI -> WifiStep()
+                    Page.BACKUP -> BackupStep()
                 }
                 if (inWizard) {
                     val canNext = p != Page.OFFICE || settings.office != null
@@ -327,9 +329,20 @@ private fun Summary(s: AppSettings, open: (Page) -> Unit) {
             "${hoursLabel(sc.requiredMinutes)} from arrival · ${daysLabel(sc.workDays)}", true) { open(Page.HOURS) }
         Divider()
         SummaryRow(painterResource(R.drawable.ic_lunch), "Lunch", "${sc.maxLunchMinutes} min per day", true) { open(Page.LUNCH) }
+        Divider()
+        val wifi = AttendanceController.settings.officeWifi
+        SummaryRow(painterResource(R.drawable.ic_target), "Office Wi-Fi",
+            if (wifi.isEmpty()) "Optional \u00b7 improves accuracy indoors" else wifi.joinToString { it.ssid }, true) { open(Page.WIFI) }
     }
     SoftCard(padding = 8.dp) {
         SummaryRow(painterResource(R.drawable.ic_system_update), "App updates", "Version ${UpdateManager.currentVersionName}", true) { open(Page.UPDATES) }
+        Divider()
+        val ctxS = LocalContext.current
+        val last = com.attendance.tracker.backup.BackupManager.lastBackupMs(ctxS)
+        SummaryRow(painterResource(R.drawable.ic_shield), "Backup",
+            if (last > 0) "Last backup ${fmtTime(last)} \u00b7 ${java.time.Instant.ofEpochMilli(last).atZone(java.time.ZoneId.systemDefault()).toLocalDate()}"
+            else "Save to Google Drive \u00b7 restore on a new phone",
+            last > 0) { open(Page.BACKUP) }
         Divider()
         SummaryRow(rememberVectorPainter(Icons.Filled.Settings), "Advanced", "Accuracy, overtime", true) { open(Page.ADVANCED) }
     }
@@ -722,6 +735,136 @@ private fun LunchStep(s: AppSettings) {
         Text(
             "Tap “Start lunch break” on the Today screen whenever you go. If you take longer than this, the extra time is added to your logout time automatically.",
             style = MaterialTheme.typography.bodyMedium, color = c.textSecondary,
+        )
+    }
+}
+
+// ───────────────────────────── office Wi-Fi ─────────────────────────────
+
+@Composable
+private fun WifiStep() {
+    val ctx = LocalContext.current
+    val c = Soft.colors
+    var saved by remember { mutableStateOf(AttendanceController.settings.officeWifi) }
+    var current by remember { mutableStateOf(com.attendance.tracker.service.WifiHelper.current(ctx)) }
+    StepTitle("Office Wi-Fi", "A second signal that you're inside \u2014 useful when GPS is weak deep in the building.")
+    SoftCard {
+        CardHeader(painterResource(R.drawable.ic_target), "Connected now")
+        Spacer(Modifier.height(12.dp))
+        val cur = current
+        if (cur == null) {
+            Text("Not connected to Wi-Fi. Connect to the office Wi-Fi, then tap Refresh.",
+                style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
+        } else {
+            Text(cur.ssid, style = MaterialTheme.typography.titleLarge, color = c.textPrimary)
+        }
+        Spacer(Modifier.height(12.dp))
+        val already = cur != null && saved.any { it.ssid == cur.ssid }
+        if (cur != null && !already) {
+            SoftButton("Add \u201c${cur.ssid}\u201d as office Wi-Fi", {
+                saved = saved + cur
+                AttendanceController.settings.officeWifi = saved
+                Toast.makeText(ctx, "Saved", Toast.LENGTH_SHORT).show()
+            }, icon = rememberVectorPainter(Icons.Filled.Add))
+            Spacer(Modifier.height(8.dp))
+        }
+        SoftGhostButton("Refresh", { current = com.attendance.tracker.service.WifiHelper.current(ctx) })
+    }
+    if (saved.isNotEmpty()) SoftCard {
+        Text("Saved office networks", style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+        Spacer(Modifier.height(8.dp))
+        saved.forEach { w ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(w.ssid, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = c.textPrimary)
+                RoundIcon(rememberVectorPainter(Icons.Filled.Close), "Remove") {
+                    saved = saved.filter { it.ssid != w.ssid }
+                    AttendanceController.settings.officeWifi = saved
+                }
+            }
+        }
+    }
+    SoftCard {
+        Text("How it's used", style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
+        Text(
+            "While you're on office Wi-Fi, a weak GPS reading can't punch you OUT by mistake. Leaving is still detected by GPS and your gates. " +
+                "If tracking starts while you're deep inside and GPS can't place you, Wi-Fi marks you IN.",
+            style = MaterialTheme.typography.bodySmall, color = c.textSecondary,
+        )
+    }
+}
+
+// ───────────────────────────── backup ─────────────────────────────
+
+@Composable
+private fun BackupStep() {
+    val ctx = LocalContext.current
+    val c = Soft.colors
+    val bm = com.attendance.tracker.backup.BackupManager
+    var uri by remember { mutableStateOf(bm.backupUri(ctx)) }
+    var last by remember { mutableStateOf(bm.lastBackupMs(ctx)) }
+    var restoreUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    val create = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json")
+    ) { u ->
+        if (u != null) {
+            val ok = bm.setBackupUri(ctx, u)
+            uri = bm.backupUri(ctx); last = bm.lastBackupMs(ctx)
+            Toast.makeText(ctx, if (ok) "Backed up" else "Couldn't write the backup there", Toast.LENGTH_LONG).show()
+        }
+    }
+    val pick = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { u -> if (u != null) restoreUri = u }
+
+    StepTitle("Backup", "Keep your attendance history, office map and gates safe.")
+    SoftCard {
+        CardHeader(painterResource(R.drawable.ic_shield), "Backup file on Google Drive", "Updated automatically every night", c.success, c.successSoft)
+        Spacer(Modifier.height(12.dp))
+        if (uri == null) {
+            Text("Tap below, choose Google Drive in the file picker, pick a folder and tap Save.",
+                style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
+            Spacer(Modifier.height(12.dp))
+            SoftButton("Choose Google Drive location", { create.launch("attendance-backup.json") })
+        } else {
+            InfoLine("Last backup", if (last > 0) "${fmtTime(last)} \u00b7 ${java.time.Instant.ofEpochMilli(last).atZone(java.time.ZoneId.systemDefault()).toLocalDate()}" else "\u2014",
+                if (last > 0) c.success else c.warning)
+            Spacer(Modifier.height(10.dp))
+            SoftButton("Back up now", {
+                val ok = bm.backupNow(ctx); last = bm.lastBackupMs(ctx)
+                Toast.makeText(ctx, if (ok) "Backed up" else "Backup failed \u2014 choose the location again", Toast.LENGTH_LONG).show()
+            }, colors = c.success.copy(alpha = 0.85f) to c.success)
+            Spacer(Modifier.height(8.dp))
+            SoftGhostButton("Change location", { create.launch("attendance-backup.json") })
+        }
+    }
+    SoftCard {
+        CardHeader(painterResource(R.drawable.ic_system_update), "Restore on a new phone")
+        Spacer(Modifier.height(10.dp))
+        Text("Install the app, finish the permission steps, then pick your backup file from Google Drive.",
+            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+        Spacer(Modifier.height(12.dp))
+        SoftGhostButton("Restore from backup file", { pick.launch(arrayOf("application/json", "application/octet-stream", "*/*")) })
+    }
+    SoftCard {
+        Text("Also automatic", style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
+        Text("Android's own backup also saves this app's data to your Google account (when phone backup is on in Settings \u2192 Google \u2192 Backup) and restores it when you install the app on a new phone.",
+            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+    }
+
+    restoreUri?.let { u ->
+        AlertDialog(
+            onDismissRequest = { restoreUri = null },
+            title = { Text("Restore this backup?") },
+            text = { Text("This replaces the attendance history and settings on this phone with the backup's.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val err = bm.restore(ctx, u)
+                    restoreUri = null
+                    Toast.makeText(ctx, err ?: "Restored", Toast.LENGTH_LONG).show()
+                }) { Text("Restore") }
+            },
+            dismissButton = { TextButton(onClick = { restoreUri = null }) { Text("Cancel") } },
+            shape = RoundedCornerShape(28.dp), containerColor = c.card,
         )
     }
 }

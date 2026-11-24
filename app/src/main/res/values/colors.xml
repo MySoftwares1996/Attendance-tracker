@@ -1,3 +1,9 @@
 <resources>
     <color name="bg">#F5F6FB</color>
+    <color name="widget_bg">#FFFFFFFF</color>
+    <color name="widget_muted">#FFF0F2F8</color>
+    <color name="widget_text">#FF1C2033</color>
+    <color name="widget_text2">#FF7A8099</color>
+    <color name="widget_btn">#FFFFF4DB</color>
+    <color name="widget_btn_text">#FFF59F00</color>
 </resources>

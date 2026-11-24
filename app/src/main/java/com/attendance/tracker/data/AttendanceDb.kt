@@ -76,6 +76,37 @@ class AttendanceDb(context: Context) :
             ContentValues().apply { put("day", day); put("mark", mark.name) }, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
+    // ---- backup / restore ----
+    fun dumpEvents(): List<List<Any?>> = readableDatabase.rawQuery("SELECT time_ms,type,detail,lat,lng,acc FROM events ORDER BY time_ms", null).use { c ->
+        buildList { while (c.moveToNext()) add(listOf(c.getLong(0), c.getString(1), c.getString(2),
+            if (c.isNull(3)) null else c.getDouble(3), if (c.isNull(4)) null else c.getDouble(4), if (c.isNull(5)) null else c.getDouble(5))) }
+    }
+    fun dumpDurations(): List<List<Any?>> = readableDatabase.rawQuery("SELECT day,status,seconds FROM durations", null).use { c ->
+        buildList { while (c.moveToNext()) add(listOf(c.getString(0), c.getString(1), c.getLong(2))) }
+    }
+    fun dumpMarks(): List<List<Any?>> = readableDatabase.rawQuery("SELECT day,mark FROM day_marks", null).use { c ->
+        buildList { while (c.moveToNext()) add(listOf(c.getString(0), c.getString(1))) }
+    }
+
+    fun restoreAll(events: List<org.json.JSONArray>, durations: List<org.json.JSONArray>, marks: List<org.json.JSONArray>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete("events", null, null); db.delete("durations", null, null); db.delete("day_marks", null, null)
+            events.forEach { r ->
+                db.insert("events", null, ContentValues().apply {
+                    put("time_ms", r.getLong(0)); put("type", r.getString(1)); put("detail", r.getString(2))
+                    if (!r.isNull(3)) put("lat", r.getDouble(3)); if (!r.isNull(4)) put("lng", r.getDouble(4)); if (!r.isNull(5)) put("acc", r.getDouble(5))
+                })
+            }
+            durations.forEach { r -> db.insert("durations", null, ContentValues().apply { put("day", r.getString(0)); put("status", r.getString(1)); put("seconds", r.getLong(2)) }) }
+            marks.forEach { r -> db.insert("day_marks", null, ContentValues().apply { put("day", r.getString(0)); put("mark", r.getString(1)) }) }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
     fun deleteEvent(id: Long) {
         writableDatabase.delete("events", "id=?", arrayOf(id.toString()))
     }

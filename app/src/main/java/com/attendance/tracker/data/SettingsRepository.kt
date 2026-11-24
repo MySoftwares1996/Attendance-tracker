@@ -25,6 +25,9 @@ class SettingsRepository(context: Context) {
     private val _settings = MutableStateFlow(load())
     val settings: StateFlow<AppSettings> = _settings
 
+    /** Re-read everything from storage (after a restore). */
+    fun reload() { _settings.value = load() }
+
     fun save(s: AppSettings) {
         val e = prefs.edit()
         val o = s.office
