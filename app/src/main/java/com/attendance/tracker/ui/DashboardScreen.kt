@@ -162,7 +162,10 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
         AnimatedContent(st.trackingOn, transitionSpec = { fadeIn(tween(250)) togetherWith fadeOut(tween(150)) }, label = "trk") { on ->
             if (on) {
                 SoftGhostButton(
-                    "Pause tracking", { TrackingService.stop(ctx) },
+                    "Pause tracking", {
+                        AttendanceController.settings.userPaused = true
+                        TrackingService.stop(ctx)
+                    },
                     tint = c.textSecondary, background = c.cardMuted,
                 )
             } else {
@@ -171,7 +174,10 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
                     {
                         if (!fine) requestForeground()
                         else if (settings.office == null) onOpenSetup()
-                        else TrackingService.start(ctx)
+                        else {
+                            AttendanceController.settings.userPaused = false
+                            TrackingService.start(ctx)
+                        }
                     },
                     icon = rememberVectorPainter(Icons.Filled.PlayArrow),
                 )

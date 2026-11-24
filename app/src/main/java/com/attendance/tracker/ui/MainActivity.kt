@@ -45,6 +45,14 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
 import com.attendance.tracker.AttendanceController
 import com.attendance.tracker.update.UpdateManager
+import com.attendance.tracker.permissions.PermissionStatus
+import com.attendance.tracker.permissions.PermissionsManager
+import com.attendance.tracker.service.TrackingService
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -53,27 +61,54 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             AttendanceTheme {
-                var tab by rememberSaveable { mutableIntStateOf(0) }
-                Box(Modifier.fillMaxSize().background(Soft.colors.background)) {
-                    AnimatedContent(
-                        targetState = tab,
-                        transitionSpec = {
-                            (fadeIn(tween(320, easing = FastOutSlowInEasing)) +
-                                slideInVertically(tween(320, easing = FastOutSlowInEasing)) { it / 24 }) togetherWith
-                                fadeOut(tween(180))
-                        },
-                        label = "tabs",
-                        modifier = Modifier.fillMaxSize().statusBarsPadding(),
-                    ) { t ->
-                        when (t) {
-                            0 -> DashboardScreen(onOpenSetup = { tab = 2 })
-                            1 -> HistoryScreen()
-                            else -> SettingsScreen()
+                val ctx = LocalContext.current
+                var perm by remember { mutableStateOf<PermissionStatus?>(null) }
+                var refresh by remember { mutableIntStateOf(0) }
+                var onboarded by remember { mutableStateOf(AttendanceController.settings.onboarded) }
+                LifecycleResumeEffect(Unit) {
+                    refresh++
+                    onPauseOrDispose { }
+                }
+                LaunchedEffect(refresh) {
+                    val p = PermissionsManager.status(ctx)
+                    perm = p
+                    autoStartTracking(p)
+                }
+                val gate = perm?.let { !it.requiredOk || !onboarded } ?: true
+                AnimatedContent(
+                    targetState = gate,
+                    transitionSpec = { fadeIn(tween(400)) togetherWith fadeOut(tween(250)) },
+                    label = "gate",
+                    modifier = Modifier.fillMaxSize().background(Soft.colors.background),
+                ) { showGate ->
+                    if (showGate) {
+                        val p = perm
+                        if (p != null) {
+                            Box(Modifier.statusBarsPadding()) {
+                                PermissionsScreen(
+                                    status = p,
+                                    onChanged = { refresh++ },
+                                    onContinue = {
+                                        AttendanceController.settings.onboarded = true
+                                        onboarded = true
+                                        refresh++
+                                    },
+                                )
+                            }
                         }
+                    } else {
+                        MainContent()
                     }
-                    SoftNavBar(tab, { tab = it }, Modifier.align(Alignment.BottomCenter))
                 }
             }
+        }
+    }
+
+    /** Starts tracking automatically once everything is allowed and the office is set up. */
+    private fun autoStartTracking(p: PermissionStatus) {
+        val s = AttendanceController.settings
+        if (p.requiredOk && s.settings.value.office != null && !s.trackingEnabled && !s.userPaused) {
+            runCatching { TrackingService.start(this) }
         }
     }
 
@@ -81,6 +116,30 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         AttendanceController.refresh()
         lifecycleScope.launch { UpdateManager.checkIfDue(applicationContext) }
+    }
+}
+
+@Composable
+private fun MainContent() {
+    var tab by rememberSaveable { mutableIntStateOf(0) }
+    Box(Modifier.fillMaxSize().background(Soft.colors.background)) {
+        AnimatedContent(
+            targetState = tab,
+            transitionSpec = {
+                (fadeIn(tween(320, easing = FastOutSlowInEasing)) +
+                    slideInVertically(tween(320, easing = FastOutSlowInEasing)) { it / 24 }) togetherWith
+                    fadeOut(tween(180))
+            },
+            label = "tabs",
+            modifier = Modifier.fillMaxSize().statusBarsPadding(),
+        ) { t ->
+            when (t) {
+                0 -> DashboardScreen(onOpenSetup = { tab = 2 })
+                1 -> HistoryScreen()
+                else -> SettingsScreen()
+            }
+        }
+        SoftNavBar(tab, { tab = it }, Modifier.align(Alignment.BottomCenter))
     }
 }
 

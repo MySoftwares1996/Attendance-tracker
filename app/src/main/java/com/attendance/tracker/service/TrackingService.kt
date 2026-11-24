@@ -23,6 +23,7 @@ import com.attendance.tracker.core.StatusResolver
 import com.attendance.tracker.data.EventType
 import com.attendance.tracker.ui.MainActivity
 import com.attendance.tracker.update.UpdateManager
+import com.attendance.tracker.permissions.PermissionsManager
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.Granularity
 import com.google.android.gms.location.LocationCallback
@@ -54,9 +55,18 @@ class TrackingService : LifecycleService() {
         }
     }
 
+    private val providerReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) = watchdog()
+    }
+
     override fun onCreate() {
         super.onCreate()
         fused = LocationServices.getFusedLocationProviderClient(this)
+        ContextCompat.registerReceiver(
+            this, providerReceiver,
+            android.content.IntentFilter(android.location.LocationManager.PROVIDERS_CHANGED_ACTION),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -88,6 +98,7 @@ class TrackingService : LifecycleService() {
                     AttendanceController.tick()
                     applyLocationMode(force = false)
                     updateNotification()
+                    watchdog()
                     runCatching { UpdateManager.checkIfDue(applicationContext) }
                     delay(TICK_MS)
                 }
@@ -129,6 +140,41 @@ class TrackingService : LifecycleService() {
         }
     }
 
+    private var lastBlockers: List<String> = emptyList()
+
+    /** Alerts the user immediately if location access is switched off while tracking. */
+    private fun watchdog() {
+        val blockers = PermissionsManager.trackingBlockers(this)
+        if (blockers == lastBlockers) return
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (blockers.isNotEmpty()) {
+            AttendanceController.db.insertEvent(System.currentTimeMillis(), EventType.TRACKING, "Tracking blocked: ${blockers.first()}")
+            val fix = PendingIntent.getActivity(
+                this, 4, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                PendingIntent.FLAG_IMMUTABLE
+            )
+            runCatching {
+                nm.notify(
+                    ALERT_ID,
+                    NotificationCompat.Builder(this, AttendanceApp.CHANNEL_ALERTS)
+                        .setSmallIcon(R.drawable.ic_notification)
+                        .setContentTitle("Attendance can't be tracked")
+                        .setContentText("${blockers.first()}. Tap to fix.")
+                        .setStyle(NotificationCompat.BigTextStyle().bigText(blockers.joinToString("\n") + "\nTap to fix."))
+                        .setPriority(NotificationCompat.PRIORITY_HIGH)
+                        .setContentIntent(fix)
+                        .setOngoing(true)
+                        .build()
+                )
+            }
+        } else if (lastBlockers.isNotEmpty()) {
+            AttendanceController.db.insertEvent(System.currentTimeMillis(), EventType.TRACKING, "Location access restored")
+            nm.cancel(ALERT_ID)
+            applyLocationMode(force = true)
+        }
+        lastBlockers = blockers
+    }
+
     private fun stopTracking() {
         fused.removeLocationUpdates(callback)
         ticker?.cancel()
@@ -143,6 +189,7 @@ class TrackingService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        runCatching { unregisterReceiver(providerReceiver) }
         fused.removeLocationUpdates(callback)
         super.onDestroy()
     }
@@ -170,6 +217,7 @@ class TrackingService : LifecycleService() {
 
     companion object {
         private const val NOTIF_ID = 1001
+        private const val ALERT_ID = 2002
         private const val TICK_MS = 20_000L
         const val ACTION_STOP = "com.attendance.tracker.STOP"
 

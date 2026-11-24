@@ -93,6 +93,15 @@ class SettingsRepository(context: Context) {
         get() = prefs.getBoolean("tracking", false)
         set(v) = prefs.edit().putBoolean("tracking", v).apply()
 
+    /** True when the user explicitly paused tracking (suppresses auto-start). */
+    var userPaused: Boolean
+        get() = prefs.getBoolean("userPaused", false)
+        set(v) = prefs.edit().putBoolean("userPaused", v).apply()
+
+    var onboarded: Boolean
+        get() = prefs.getBoolean("onboarded", false)
+        set(v) = prefs.edit().putBoolean("onboarded", v).apply()
+
     var presence: Presence
         get() = runCatching { Presence.valueOf(prefs.getString("presence", "UNKNOWN")!!) }
             .getOrDefault(Presence.UNKNOWN)

@@ -150,6 +150,10 @@ fun SettingsScreen() {
         if (old == null || old.lat != office.lat || old.lng != office.lng || old.radiusM != office.radiusM) {
             AttendanceController.onOfficeChanged()
         } else AttendanceController.refresh()
+        val st = AttendanceController.settings
+        if (!st.trackingEnabled && !st.userPaused && AttendanceController.hasFineLocation(ctx)) {
+            runCatching { com.attendance.tracker.service.TrackingService.start(ctx) }
+        }
         Toast.makeText(ctx, "Saved", Toast.LENGTH_SHORT).show()
     }
 
