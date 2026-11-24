@@ -1,15 +1,17 @@
 package com.attendance.tracker.ui
 
 import android.app.TimePickerDialog
+import android.content.Context
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.togetherWith
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,377 +32,630 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.attendance.tracker.AttendanceController
 import com.attendance.tracker.R
-import com.attendance.tracker.core.AccuracyConfig
 import com.attendance.tracker.core.Gate
 import com.attendance.tracker.core.OfficeConfig
 import com.attendance.tracker.core.StatusResolver
-import com.attendance.tracker.core.WorkSchedule
 import com.attendance.tracker.data.AppSettings
+import com.attendance.tracker.service.GeofenceManager
 import com.attendance.tracker.service.LocationCapture
+import com.attendance.tracker.service.TrackingService
+import com.attendance.tracker.update.UpdateManager
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
 import java.util.Locale
 import java.util.UUID
 
+private enum class Page { SUMMARY, OFFICE, GATES, HOURS, LUNCH, UPDATES, ADVANCED }
+
+private val WIZARD = listOf(Page.OFFICE, Page.GATES, Page.HOURS, Page.LUNCH)
+
 private data class CaptureUi(val label: String, val secondsLeft: Int, val total: Int, val best: Float?)
+
+/** Saves immediately and keeps tracking / geofences in sync. */
+private fun persist(ctx: Context, s: AppSettings, officeMoved: Boolean = false, gatesChanged: Boolean = false) {
+    AttendanceController.settings.save(s)
+    if (officeMoved) AttendanceController.onOfficeChanged() else AttendanceController.refresh()
+    if (gatesChanged && !officeMoved) GeofenceManager.register(ctx)
+    val st = AttendanceController.settings
+    if (s.office != null && !st.trackingEnabled && !st.userPaused && AttendanceController.hasFineLocation(ctx)) {
+        runCatching { TrackingService.start(ctx) }
+    }
+}
+
+private fun current() = AttendanceController.settings.settings.value
 
 @Composable
 fun SettingsScreen() {
     val ctx = LocalContext.current
     val c = Soft.colors
     val scope = rememberCoroutineScope()
-    val saved = remember { AttendanceController.settings.settings.value }
+    val settings by AttendanceController.settings.settings.collectAsStateWithLifecycle()
 
-    var officeName by remember { mutableStateOf(saved.office?.name ?: "My Office") }
-    var lat by remember { mutableStateOf(saved.office?.lat?.toString() ?: "") }
-    var lng by remember { mutableStateOf(saved.office?.lng?.toString() ?: "") }
-    var radius by remember { mutableStateOf((saved.office?.radiusM ?: 100.0).toInt().toString()) }
-    val gates = remember { mutableStateListOf<Gate>().apply { addAll(saved.office?.gates ?: emptyList()) } }
-    var newGateName by remember { mutableStateOf("Main Gate") }
-    var newGateRadius by remember { mutableStateOf("25") }
-
-    var startMin by remember { mutableIntStateOf(saved.schedule.startMin) }
-    var endMin by remember { mutableIntStateOf(saved.schedule.endMin) }
-    var lunchStart by remember { mutableIntStateOf(saved.schedule.lunchStartMin) }
-    var lunchEnd by remember { mutableIntStateOf(saved.schedule.lunchEndMin) }
-    var maxLunch by remember { mutableStateOf(saved.schedule.maxLunchMinutes.toString()) }
-    var restrictLunch by remember { mutableStateOf(saved.schedule.restrictLunchToWindow) }
-    val days = remember { mutableStateListOf<DayOfWeek>().apply { addAll(saved.schedule.workDays) } }
-    var flexible by remember { mutableStateOf(saved.schedule.flexible) }
-    var earliestStart by remember { mutableIntStateOf(saved.schedule.earliestStartMin) }
-    var latestStart by remember { mutableIntStateOf(saved.schedule.latestStartMin) }
-    var requiredHours by remember { mutableStateOf("%.1f".format(Locale.US, saved.schedule.requiredMinutes / 60.0).removeSuffix(".0")) }
-    var overtimeUntil by remember { mutableIntStateOf(saved.schedule.overtimeUntilMin) }
-
-    var maxAcc by remember { mutableStateOf(saved.accuracy.maxAccuracyM.toInt().toString()) }
-    var confirm by remember { mutableStateOf(saved.accuracy.confirmSamples.toString()) }
-    var rejectMock by remember { mutableStateOf(saved.accuracy.rejectMock) }
-    var showAdvanced by remember { mutableStateOf(false) }
-
+    // First run (no office yet) → guided wizard. Afterwards → simple summary.
+    var wizardStep by rememberSaveable { mutableIntStateOf(if (settings.office == null) 0 else -1) }
+    var page by rememberSaveable { mutableStateOf(Page.SUMMARY) }
     var capture by remember { mutableStateOf<CaptureUi?>(null) }
 
-    fun pickTime(initial: Int, onPicked: (Int) -> Unit) {
-        TimePickerDialog(ctx, { _, h, m -> onPicked(h * 60 + m) }, initial / 60, initial % 60, true).show()
-    }
-
-    fun doCapture(label: String, onDone: (Double, Double) -> Unit) {
+    fun doCapture(label: String, onDone: (Double, Double, Float) -> Unit) {
         if (!AttendanceController.hasFineLocation(ctx)) {
-            Toast.makeText(ctx, "Allow location on the Today tab first", Toast.LENGTH_LONG).show()
-            return
+            Toast.makeText(ctx, "Allow location first", Toast.LENGTH_LONG).show(); return
         }
+        if (capture != null) return
         scope.launch {
             val r = LocationCapture.capture(ctx) { left, best -> capture = CaptureUi(label, left, 20, best) }
             capture = null
-            if (r == null) {
-                Toast.makeText(ctx, "Couldn't get a GPS fix. Try again in open sky.", Toast.LENGTH_LONG).show()
-            } else {
-                onDone(r.point.lat, r.point.lng)
-                Toast.makeText(ctx, "$label saved · ±${r.point.accuracyM.toInt()} m from ${r.samplesUsed} readings", Toast.LENGTH_LONG).show()
-            }
+            if (r == null) Toast.makeText(ctx, "Couldn't get GPS. Step outside and try again.", Toast.LENGTH_LONG).show()
+            else onDone(r.point.lat, r.point.lng, r.point.accuracyM)
         }
     }
 
-    fun save() {
-        val la = lat.toDoubleOrNull(); val ln = lng.toDoubleOrNull(); val r = radius.toDoubleOrNull()
-        val err = when {
-            la == null || ln == null || la !in -90.0..90.0 || ln !in -180.0..180.0 -> "Set the office location first"
-            r == null || r < 20 -> "Radius must be at least 20 m"
-            !flexible && startMin == endMin -> "Start and end time can't be the same"
-            flexible && latestStart < earliestStart -> "Latest arrival must be after earliest arrival"
-            flexible && (requiredHours.toDoubleOrNull() ?: 0.0) !in 1.0..16.0 -> "Hours to work must be between 1 and 16"
-            days.isEmpty() -> "Pick at least one working day"
-            else -> null
-        }
-        if (err != null) { Toast.makeText(ctx, err, Toast.LENGTH_LONG).show(); return }
-        val old = AttendanceController.settings.settings.value.office
-        val office = OfficeConfig(officeName.ifBlank { "Office" }, la!!, ln!!, r!!, gates.toList())
-        AttendanceController.settings.save(
-            AppSettings(
-                office = office,
-                schedule = WorkSchedule(
-                    startMin = startMin, endMin = endMin, workDays = days.toSet(),
-                    lunchStartMin = lunchStart, lunchEndMin = lunchEnd,
-                    maxLunchMinutes = (maxLunch.toIntOrNull() ?: 60).coerceIn(5, 240),
-                    restrictLunchToWindow = restrictLunch,
-                    flexible = flexible,
-                    earliestStartMin = earliestStart, latestStartMin = latestStart,
-                    requiredMinutes = ((requiredHours.toDoubleOrNull() ?: 9.0) * 60).toInt().coerceIn(60, 16 * 60),
-                    overtimeUntilMin = overtimeUntil,
-                ),
-                accuracy = AccuracyConfig(
-                    maxAccuracyM = (maxAcc.toFloatOrNull() ?: 35f).coerceIn(5f, 200f),
-                    confirmSamples = (confirm.toIntOrNull() ?: 3).coerceIn(1, 10),
-                    rejectMock = rejectMock,
-                ),
-            )
-        )
-        if (old == null || old.lat != office.lat || old.lng != office.lng || old.radiusM != office.radiusM) {
-            AttendanceController.onOfficeChanged()
-        } else {
-            AttendanceController.refresh()
-            com.attendance.tracker.service.GeofenceManager.register(ctx) // gates may have changed
-        }
-        val st = AttendanceController.settings
-        if (!st.trackingEnabled && !st.userPaused && AttendanceController.hasFineLocation(ctx)) {
-            runCatching { com.attendance.tracker.service.TrackingService.start(ctx) }
-        }
-        Toast.makeText(ctx, "Saved", Toast.LENGTH_SHORT).show()
+    val inWizard = wizardStep >= 0
+    val shown = if (inWizard) WIZARD[wizardStep] else page
+    BackHandler(enabled = (inWizard && wizardStep > 0) || (!inWizard && page != Page.SUMMARY)) {
+        if (inWizard) { wizardStep-- } else { page = Page.SUMMARY }
     }
 
     Box(Modifier.fillMaxSize()) {
-        Column(
-            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Column(Modifier.padding(top = 20.dp, start = 4.dp)) {
-                Text("Make it yours", style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
-                Text("Setup", style = MaterialTheme.typography.headlineMedium, color = c.textPrimary)
-            }
-
-            // ---------------- Working hours ----------------
-            SoftCard {
-                CardHeader(painterResource(R.drawable.ic_clock), "Working hours", "When you're expected at the office")
-                Spacer(Modifier.height(18.dp))
-                SegmentedToggle("Fixed", "Flexible", flexible) { flexible = it }
+        AnimatedContent(
+            targetState = shown,
+            transitionSpec = {
+                (fadeIn(tween(260)) + slideInHorizontally(tween(260)) { it / 10 }) togetherWith
+                    (fadeOut(tween(160)) + slideOutHorizontally(tween(160)) { -it / 10 })
+            },
+            label = "setupPage",
+        ) { p ->
+            Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
                 Spacer(Modifier.height(16.dp))
-                AnimatedContent(flexible, transitionSpec = { fadeIn(tween(250)) togetherWith fadeOut(tween(150)) }, label = "mode") { flex ->
-                    if (flex) {
-                        Column {
-                            Text("Arrive any time between", style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
-                            Spacer(Modifier.height(10.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                TimeTile("Earliest", earliestStart, Modifier.weight(1f)) { pickTime(earliestStart) { earliestStart = it } }
-                                TimeTile("Latest", latestStart, Modifier.weight(1f)) { pickTime(latestStart) { latestStart = it } }
-                            }
-                            Spacer(Modifier.height(14.dp))
-                            SoftField("Hours to work (incl. lunch)", requiredHours, "h", keyboard = KeyboardType.Decimal) {
-                                requiredHours = it.filter { ch -> ch.isDigit() || ch == '.' }
-                            }
-                            val req = ((requiredHours.toDoubleOrNull() ?: 9.0) * 60).toInt()
-                            Text(
-                                "Arrive 9:00 → out ${StatusResolver.fmt((9 * 60 + req) % 1440)} · " +
-                                    "10:00 → ${StatusResolver.fmt((10 * 60 + req) % 1440)} · " +
-                                    "11:00 → ${StatusResolver.fmt((11 * 60 + req) % 1440)}",
-                                Modifier.padding(top = 8.dp, start = 4.dp),
-                                style = MaterialTheme.typography.bodySmall, color = c.accent,
-                            )
-                        }
-                    } else {
-                        Column {
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                TimeTile("Starts", startMin, Modifier.weight(1f)) { pickTime(startMin) { startMin = it } }
-                                TimeTile("Ends", endMin, Modifier.weight(1f)) { pickTime(endMin) { endMin = it } }
-                            }
-                            if (endMin < startMin) {
-                                Text("Night shift — ends the next day", Modifier.padding(top = 10.dp), style = MaterialTheme.typography.bodySmall, color = c.accent)
-                            }
-                        }
-                    }
+                if (inWizard) {
+                    WizardHeader(wizardStep, WIZARD.size)
+                } else if (p != Page.SUMMARY) {
+                    BackRow { page = Page.SUMMARY }
                 }
-                Spacer(Modifier.height(14.dp))
-                Row(
-                    Modifier.fillMaxWidth().clip(Soft.tileShape).background(c.cardMuted).pressScale { pickTime(overtimeUntil) { overtimeUntil = it } }
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Count overtime until", style = MaterialTheme.typography.bodyLarge, color = c.textPrimary)
-                        Text("Staying late? Time in office after logout is overtime", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-                    }
-                    Text(StatusResolver.fmt(overtimeUntil), style = MaterialTheme.typography.titleLarge, color = c.accent)
+                when (p) {
+                    Page.SUMMARY -> Summary(settings) { page = it }
+                    Page.OFFICE -> OfficeStep(settings, capture != null, ::doCapture)
+                    Page.GATES -> GatesStep(settings, capture != null, ::doCapture)
+                    Page.HOURS -> HoursStep(settings)
+                    Page.LUNCH -> LunchStep(settings)
+                    Page.UPDATES -> SoftCard { UpdateControls() }
+                    Page.ADVANCED -> AdvancedStep(settings)
                 }
-                Text(
-                    "Extra lunch beyond the allowed time is added to your logout automatically.",
-                    Modifier.padding(top = 10.dp, start = 4.dp), style = MaterialTheme.typography.bodySmall, color = c.textSecondary,
-                )
-                Spacer(Modifier.height(18.dp))
-                Text("Working days", style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    DayOfWeek.entries.forEach { d ->
-                        DayDot(d.getDisplayName(java.time.format.TextStyle.NARROW, Locale.getDefault()), d in days, Modifier.weight(1f)) {
-                            if (d in days) days.remove(d) else days.add(d)
-                        }
-                    }
-                }
-            }
-
-            // ---------------- Lunch ----------------
-            SoftCard {
-                CardHeader(painterResource(R.drawable.ic_lunch), "Lunch break", "Declared from the Today screen", c.warning, c.warningSoft)
-                Spacer(Modifier.height(18.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TimeTile("From", lunchStart, Modifier.weight(1f), c.warning, c.warningSoft) { pickTime(lunchStart) { lunchStart = it } }
-                    TimeTile("To", lunchEnd, Modifier.weight(1f), c.warning, c.warningSoft) { pickTime(lunchEnd) { lunchEnd = it } }
-                }
-                Spacer(Modifier.height(14.dp))
-                SoftField("Maximum duration", maxLunch, "min") { maxLunch = it.filter(Char::isDigit) }
-                Spacer(Modifier.height(6.dp))
-                SoftSwitchRow("Only inside this window", "Block lunch declarations at other times", restrictLunch) { restrictLunch = it }
-            }
-
-            // ---------------- Office ----------------
-            SoftCard {
-                CardHeader(painterResource(R.drawable.ic_gate), "Office", "Stand at the centre of the premises", c.success, c.successSoft)
-                Spacer(Modifier.height(18.dp))
-                SoftField("Office name", officeName, keyboard = KeyboardType.Text) { officeName = it }
-                Spacer(Modifier.height(12.dp))
-                val hasLoc = lat.toDoubleOrNull() != null && lng.toDoubleOrNull() != null
-                Row(
-                    Modifier.fillMaxWidth().clip(Soft.tileShape).background(c.cardMuted).padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(rememberVectorPainter(Icons.Filled.LocationOn), null, tint = if (hasLoc) c.success else c.textSecondary)
-                    Spacer(Modifier.width(10.dp))
-                    Text(
-                        if (hasLoc) "%.6f, %.6f".format(Locale.US, lat.toDouble(), lng.toDouble()) else "Location not set",
-                        style = MaterialTheme.typography.bodyMedium, color = c.textPrimary,
+                if (inWizard) {
+                    val canNext = p != Page.OFFICE || settings.office != null
+                    val last = wizardStep == WIZARD.lastIndex
+                    SoftButton(
+                        when {
+                            last -> "Finish"
+                            p == Page.GATES && settings.office?.gates.isNullOrEmpty() -> "Skip for now"
+                            else -> "Next"
+                        },
+                        {
+                            if (last) {
+                                wizardStep = -1; page = Page.SUMMARY
+                                Toast.makeText(ctx, "All set! Attendance is now automatic.", Toast.LENGTH_LONG).show()
+                            } else wizardStep++
+                        },
+                        enabled = canNext,
+                        icon = rememberVectorPainter(if (last) Icons.Filled.Check else Icons.AutoMirrored.Filled.KeyboardArrowRight),
                     )
-                }
-                Spacer(Modifier.height(12.dp))
-                SoftButton(
-                    if (hasLoc) "Re-capture office centre" else "Capture office centre",
-                    { doCapture("Office centre") { a, b -> lat = "%.7f".format(Locale.US, a); lng = "%.7f".format(Locale.US, b) } },
-                    colors = c.success.copy(alpha = 0.85f) to c.success,
-                    icon = painterResource(R.drawable.ic_target),
-                    enabled = capture == null,
-                )
-                Spacer(Modifier.height(14.dp))
-                SoftField("Premises radius", radius, "m") { radius = it.filter(Char::isDigit) }
-                Text(
-                    "Cover the whole compound up to the boundary wall. You're counted inside only when GPS is sure.",
-                    Modifier.padding(top = 8.dp, start = 4.dp), style = MaterialTheme.typography.bodySmall, color = c.textSecondary,
-                )
-            }
-
-            // ---------------- Gates ----------------
-            SoftCard {
-                CardHeader(painterResource(R.drawable.ic_gate), "Gates", "Stand at each gate to add it")
-                Spacer(Modifier.height(14.dp))
-                if (gates.isEmpty()) {
-                    Text("No gates yet", style = MaterialTheme.typography.bodyMedium, color = c.textSecondary, modifier = Modifier.padding(4.dp))
-                }
-                gates.forEach { g ->
-                    Row(
-                        Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(Soft.tileShape).background(c.cardMuted).padding(start = 14.dp, top = 10.dp, bottom = 10.dp, end = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        IconBubble(painterResource(R.drawable.ic_gate), c.accent, c.accentSoft, size = 34.dp)
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(g.name, style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
-                            Text("${g.radiusM.toInt()} m zone", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-                        }
-                        Box(
-                            Modifier.size(36.dp).clip(CircleShape).pressScale { gates.remove(g) },
-                            contentAlignment = Alignment.Center,
-                        ) { Icon(rememberVectorPainter(Icons.Filled.Close), "Remove", tint = c.textSecondary, modifier = Modifier.size(18.dp)) }
+                    if (wizardStep > 0) {
+                        Text(
+                            "Back", Modifier.fillMaxWidth().clip(Soft.pillShape).pressScale { wizardStep-- }.padding(12.dp),
+                            textAlign = TextAlign.Center, color = c.textSecondary, style = MaterialTheme.typography.labelLarge,
+                        )
                     }
                 }
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Box(Modifier.weight(1.6f)) { SoftField("Gate name", newGateName, keyboard = KeyboardType.Text) { newGateName = it } }
-                    Box(Modifier.weight(1f)) { SoftField("Zone", newGateRadius, "m") { newGateRadius = it.filter(Char::isDigit) } }
-                }
-                Spacer(Modifier.height(12.dp))
-                SoftGhostButton(
-                    "Add gate here",
-                    {
-                        val name = newGateName.ifBlank { "Gate ${gates.size + 1}" }
-                        val r = newGateRadius.toDoubleOrNull() ?: 25.0
-                        doCapture(name) { a, b ->
-                            gates.add(Gate(UUID.randomUUID().toString(), name, a, b, r))
-                            newGateName = "Gate ${gates.size + 1}"
-                        }
-                    },
-                    icon = rememberVectorPainter(Icons.Filled.Add),
-                    enabled = capture == null,
-                )
+                Spacer(Modifier.height(NavBarClearance + 70.dp))
             }
-
-            // ---------------- Accuracy ----------------
-            SoftCard(onClick = { showAdvanced = !showAdvanced }) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.weight(1f)) {
-                        CardHeader(painterResource(R.drawable.ic_shield), "Accuracy", "Fine-tune how strict detection is")
-                    }
-                    Text(if (showAdvanced) "Hide" else "Show", style = MaterialTheme.typography.labelLarge, color = c.accent)
-                }
-                AnimatedVisibility(showAdvanced, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-                    Column(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        SoftField("Ignore readings worse than", maxAcc, "m") { maxAcc = it.filter(Char::isDigit) }
-                        SoftField("Readings needed to switch in/out", confirm, "×") { confirm = it.filter(Char::isDigit) }
-                        SoftSwitchRow("Block fake GPS apps", "Reject mock locations", rejectMock) { rejectMock = it }
-                    }
-                }
-            }
-
-            // ---------------- Updates ----------------
-            SoftCard {
-                CardHeader(painterResource(R.drawable.ic_system_update), "App updates", "Delivered over the air")
-                Spacer(Modifier.height(14.dp))
-                UpdateControls()
-            }
-
-            Spacer(Modifier.height(NavBarClearance + 72.dp))
         }
 
-        // Sticky save / capture bar
-        Column(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(start = 20.dp, end = 20.dp, bottom = 96.dp)
+        // Capture progress floats above the nav bar
+        val cap = capture
+        AnimatedVisibility(
+            cap != null,
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 20.dp, end = 20.dp, bottom = 100.dp),
+            enter = fadeIn(), exit = fadeOut(),
         ) {
-            val cap = capture
-            if (cap != null) {
-                SoftCard(padding = 16.dp) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        ProgressRing(
-                            progress = 1f - cap.secondsLeft.toFloat() / cap.total,
-                            color = c.accent, track = c.accentSoft, modifier = Modifier.size(44.dp), stroke = 5.dp,
-                        ) { Text("${cap.secondsLeft}", style = MaterialTheme.typography.labelMedium, color = c.accent) }
-                        Spacer(Modifier.width(14.dp))
-                        Column {
-                            Text("Capturing ${cap.label}…", style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
-                            Text(
-                                "Hold still · best ±${cap.best?.toInt() ?: "–"} m",
-                                style = MaterialTheme.typography.bodySmall, color = c.textSecondary,
-                            )
-                        }
+            if (cap != null) SoftCard(padding = 16.dp) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ProgressRing(
+                        progress = 1f - cap.secondsLeft.toFloat() / cap.total,
+                        color = c.accent, track = c.accentSoft, modifier = Modifier.size(48.dp), stroke = 5.dp,
+                    ) { Text("${cap.secondsLeft}", style = MaterialTheme.typography.labelLarge, color = c.accent) }
+                    Spacer(Modifier.width(14.dp))
+                    Column {
+                        Text("Saving ${cap.label}…", style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
+                        Text("Please stand still · GPS ±${cap.best?.toInt() ?: "–"} m",
+                            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
                     }
                 }
-            } else {
-                SoftButton("Save changes", { save() }, icon = rememberVectorPainter(Icons.Filled.Check))
             }
+        }
+    }
+}
+
+// ───────────────────────────── headers ─────────────────────────────
+
+@Composable
+private fun WizardHeader(step: Int, total: Int) {
+    val c = Soft.colors
+    Column(Modifier.padding(start = 4.dp, top = 4.dp)) {
+        Text("Step ${step + 1} of $total", style = MaterialTheme.typography.labelLarge, color = c.accent)
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            repeat(total) { i ->
+                val col = animatedColor(if (i <= step) c.accent else c.hairline, "wiz$i")
+                Box(Modifier.weight(1f).height(6.dp).clip(Soft.pillShape).background(col))
+            }
+        }
+    }
+}
+
+@Composable
+private fun BackRow(onBack: () -> Unit) {
+    val c = Soft.colors
+    Row(
+        Modifier.clip(Soft.pillShape).pressScale(onBack).padding(vertical = 8.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(rememberVectorPainter(Icons.AutoMirrored.Filled.ArrowBack), null, tint = c.accent, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(8.dp))
+        Text("Setup", style = MaterialTheme.typography.labelLarge, color = c.accent)
+    }
+}
+
+@Composable
+private fun StepTitle(title: String, subtitle: String) {
+    val c = Soft.colors
+    Column(Modifier.padding(start = 4.dp)) {
+        Text(title, style = MaterialTheme.typography.headlineMedium, color = c.textPrimary)
+        Spacer(Modifier.height(4.dp))
+        Text(subtitle, style = MaterialTheme.typography.bodyLarge, color = c.textSecondary)
+    }
+}
+
+// ───────────────────────────── summary ─────────────────────────────
+
+@Composable
+private fun Summary(s: AppSettings, open: (Page) -> Unit) {
+    val c = Soft.colors
+    Column(Modifier.padding(start = 4.dp, top = 4.dp)) {
+        Text("Setup", style = MaterialTheme.typography.headlineMedium, color = c.textPrimary)
+        Text("Tap anything to change it. Changes save automatically.", style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
+    }
+    val o = s.office
+    val sc = s.schedule
+    SoftCard(padding = 8.dp) {
+        SummaryRow(painterResource(R.drawable.ic_gate), "Office",
+            o?.let { "${it.name} · ${sizeLabel(it.radiusM)}" } ?: "Not set", o != null) { open(Page.OFFICE) }
+        Divider()
+        SummaryRow(painterResource(R.drawable.ic_target), "Gates",
+            o?.gates?.takeIf { it.isNotEmpty() }?.joinToString { it.name } ?: "None added", !o?.gates.isNullOrEmpty()) { open(Page.GATES) }
+        Divider()
+        SummaryRow(painterResource(R.drawable.ic_clock), "Work hours",
+            if (sc.flexible) "Flexible · arrive ${StatusResolver.fmt(sc.earliestStartMin)}–${StatusResolver.fmt(sc.latestStartMin)} · ${hoursLabel(sc.requiredMinutes)}"
+            else "${StatusResolver.fmt(sc.startMin)} – ${StatusResolver.fmt(sc.endMin)} · ${daysLabel(sc.workDays)}", true) { open(Page.HOURS) }
+        Divider()
+        SummaryRow(painterResource(R.drawable.ic_lunch), "Lunch", "${sc.maxLunchMinutes} min per day", true) { open(Page.LUNCH) }
+    }
+    SoftCard(padding = 8.dp) {
+        SummaryRow(painterResource(R.drawable.ic_system_update), "App updates", "Version ${UpdateManager.currentVersionName}", true) { open(Page.UPDATES) }
+        Divider()
+        SummaryRow(rememberVectorPainter(Icons.Filled.Settings), "Advanced", "Accuracy, overtime, lunch time window", true) { open(Page.ADVANCED) }
+    }
+}
+
+@Composable
+private fun SummaryRow(icon: Painter, title: String, value: String, ok: Boolean, onClick: () -> Unit) {
+    val c = Soft.colors
+    Row(
+        Modifier.fillMaxWidth().clip(Soft.tileShape).pressScale(onClick).padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconBubble(icon, if (ok) c.accent else c.warning, if (ok) c.accentSoft else c.warningSoft, size = 40.dp)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
+            Text(value, style = MaterialTheme.typography.bodySmall, color = if (ok) c.textSecondary else c.warning, maxLines = 2)
+        }
+        Icon(rememberVectorPainter(Icons.AutoMirrored.Filled.KeyboardArrowRight), null, tint = c.textSecondary)
+    }
+}
+
+@Composable
+private fun Divider() = Box(Modifier.padding(start = 66.dp).fillMaxWidth().height(1.dp).background(Soft.colors.hairline))
+
+private fun sizeLabel(r: Double) = when {
+    r <= 60 -> "Small (${r.toInt()} m)"
+    r <= 120 -> "Medium (${r.toInt()} m)"
+    r <= 220 -> "Large (${r.toInt()} m)"
+    else -> "${r.toInt()} m"
+}
+
+private fun hoursLabel(min: Int) = if (min % 60 == 0) "${min / 60} h per day" else "${min / 60}.${(min % 60) * 10 / 60} h per day"
+
+private val MON_FRI = setOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY, DayOfWeek.FRIDAY)
+private val MON_SAT = MON_FRI + DayOfWeek.SATURDAY
+
+private fun daysLabel(d: Set<DayOfWeek>) = when (d) {
+    MON_FRI -> "Mon–Fri"
+    MON_SAT -> "Mon–Sat"
+    DayOfWeek.entries.toSet() -> "Every day"
+    else -> DayOfWeek.entries.filter { it in d }.joinToString(" ") { it.getDisplayName(java.time.format.TextStyle.SHORT, Locale.getDefault()) }
+}
+
+// ───────────────────────────── step 1: office ─────────────────────────────
+
+@Composable
+private fun OfficeStep(s: AppSettings, busy: Boolean, capture: (String, (Double, Double, Float) -> Unit) -> Unit) {
+    val ctx = LocalContext.current
+    val c = Soft.colors
+    val o = s.office
+    var name by remember { mutableStateOf(o?.name ?: "My Office") }
+    var radius by remember { mutableStateOf(o?.radiusM ?: 100.0) }
+
+    StepTitle("Your office", "Go to the middle of your office and tap the button below.")
+    SoftCard {
+        SoftField("Office name", name, keyboard = KeyboardType.Text) {
+            name = it
+            o?.let { off -> persist(ctx, current().copy(office = off.copy(name = it.ifBlank { "Office" }))) }
+        }
+        Spacer(Modifier.height(16.dp))
+        AnimatedContent(o != null, label = "officeSet") { set ->
+            if (set && o != null) {
+                Row(
+                    Modifier.fillMaxWidth().clip(Soft.tileShape).background(c.successSoft).padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(rememberVectorPainter(Icons.Filled.Check), null, tint = c.success)
+                    Spacer(Modifier.width(10.dp))
+                    Text("Office location saved", style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
+                }
+            } else {
+                Text(
+                    "We'll take your exact position for 20 seconds. Standing near a window or outside gives the best result.",
+                    style = MaterialTheme.typography.bodyMedium, color = c.textSecondary,
+                )
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        val label = if (o == null) "I'm at my office now" else "Update office location"
+        val action = {
+            capture("office location") { lat, lng, _ ->
+                val off = OfficeConfig(name.ifBlank { "Office" }, lat, lng, radius, current().office?.gates ?: emptyList())
+                persist(ctx, current().copy(office = off), officeMoved = true)
+                Toast.makeText(ctx, "Office saved", Toast.LENGTH_SHORT).show()
+            }
+        }
+        if (o == null) SoftButton(label, action, icon = rememberVectorPainter(Icons.Filled.LocationOn), enabled = !busy)
+        else SoftGhostButton(label, action, icon = rememberVectorPainter(Icons.Filled.LocationOn), enabled = !busy)
+    }
+    SoftCard {
+        Text("How big is your office area?", style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+        Text("Include the parking and the whole compound up to the boundary wall.",
+            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+        Spacer(Modifier.height(14.dp))
+        Choices(
+            listOf("Small\n50 m" to 50.0, "Medium\n100 m" to 100.0, "Large\n200 m" to 200.0, "Campus\n400 m" to 400.0),
+            radius,
+        ) { r ->
+            radius = r
+            o?.let { persist(ctx, current().copy(office = it.copy(radiusM = r)), officeMoved = true) }
+        }
+    }
+}
+
+// ───────────────────────────── step 2: gates ─────────────────────────────
+
+@Composable
+private fun GatesStep(s: AppSettings, busy: Boolean, capture: (String, (Double, Double, Float) -> Unit) -> Unit) {
+    val ctx = LocalContext.current
+    val c = Soft.colors
+    val o = s.office
+    var renaming by remember { mutableStateOf<Gate?>(null) }
+
+    StepTitle("Gates", "Walk to each gate you use and tap “Add this gate”. Your IN and OUT times are taken at these gates.")
+    if (o == null) {
+        SoftCard { Text("Set your office first.", color = c.textSecondary) }
+        return
+    }
+    SoftCard {
+        if (o.gates.isEmpty()) {
+            Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                IconBubble(painterResource(R.drawable.ic_gate), c.accent, c.accentSoft, size = 56.dp)
+                Spacer(Modifier.height(10.dp))
+                Text("No gates yet", style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
+            }
+        }
+        o.gates.forEach { g ->
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(Soft.tileShape).background(c.cardMuted)
+                    .padding(start = 14.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconBubble(painterResource(R.drawable.ic_gate), c.success, c.successSoft, size = 34.dp)
+                Spacer(Modifier.width(12.dp))
+                Text(g.name, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
+                RoundIcon(rememberVectorPainter(Icons.Filled.Edit), "Rename") { renaming = g }
+                RoundIcon(rememberVectorPainter(Icons.Filled.Close), "Remove") {
+                    val off = current().office ?: return@RoundIcon
+                    persist(ctx, current().copy(office = off.copy(gates = off.gates - g)), gatesChanged = true)
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        SoftButton(
+            if (o.gates.isEmpty()) "Add this gate" else "Add another gate",
+            {
+                val n = (current().office?.gates?.size ?: 0)
+                val name = if (n == 0) "Main Gate" else "Gate ${n + 1}"
+                capture(name) { lat, lng, _ ->
+                    val off = current().office ?: return@capture
+                    persist(ctx, current().copy(office = off.copy(gates = off.gates + Gate(UUID.randomUUID().toString(), name, lat, lng, 25.0))), gatesChanged = true)
+                    Toast.makeText(ctx, "$name added", Toast.LENGTH_SHORT).show()
+                }
+            },
+            icon = rememberVectorPainter(Icons.Filled.Add), enabled = !busy,
+        )
+    }
+
+    renaming?.let { g ->
+        var text by remember(g.id) { mutableStateOf(g.name) }
+        AlertDialog(
+            onDismissRequest = { renaming = null },
+            title = { Text("Gate name") },
+            text = { SoftField("Name", text, keyboard = KeyboardType.Text) { text = it } },
+            confirmButton = {
+                TextButton(onClick = {
+                    val off = current().office
+                    if (off != null && text.isNotBlank()) {
+                        persist(ctx, current().copy(office = off.copy(gates = off.gates.map { if (it.id == g.id) it.copy(name = text.trim()) else it })))
+                    }
+                    renaming = null
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { renaming = null }) { Text("Cancel") } },
+            shape = RoundedCornerShape(28.dp),
+            containerColor = c.card,
+        )
+    }
+}
+
+@Composable
+private fun RoundIcon(icon: Painter, desc: String, onClick: () -> Unit) {
+    Box(Modifier.size(40.dp).clip(CircleShape).pressScale(onClick), contentAlignment = Alignment.Center) {
+        Icon(icon, desc, tint = Soft.colors.textSecondary, modifier = Modifier.size(18.dp))
+    }
+}
+
+// ───────────────────────────── step 3: hours ─────────────────────────────
+
+@Composable
+private fun HoursStep(s: AppSettings) {
+    val ctx = LocalContext.current
+    val c = Soft.colors
+    val sc = s.schedule
+    fun save(f: (com.attendance.tracker.core.WorkSchedule) -> com.attendance.tracker.core.WorkSchedule) =
+        persist(ctx, current().copy(schedule = f(current().schedule)))
+    fun pick(initial: Int, onPicked: (Int) -> Unit) =
+        TimePickerDialog(ctx, { _, h, m -> onPicked(h * 60 + m) }, initial / 60, initial % 60, false).show()
+
+    StepTitle("Work hours", "Do you start at the same time every day?")
+    SoftCard {
+        SegmentedToggle("Same time daily", "Start time varies", sc.flexible) { flex -> save { it.copy(flexible = flex) } }
+        Spacer(Modifier.height(18.dp))
+        AnimatedContent(sc.flexible, transitionSpec = { fadeIn(tween(250)) togetherWith fadeOut(tween(150)) }, label = "mode") { flex ->
+            if (flex) Column {
+                Text("I usually arrive between", style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TimeTile("From", sc.earliestStartMin, Modifier.weight(1f)) { pick(sc.earliestStartMin) { v -> save { it.copy(earliestStartMin = v) } } }
+                    TimeTile("To", sc.latestStartMin, Modifier.weight(1f)) { pick(sc.latestStartMin) { v -> save { it.copy(latestStartMin = v) } } }
+                }
+                Spacer(Modifier.height(18.dp))
+                Text("Hours I work each day (with lunch)", style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
+                Spacer(Modifier.height(10.dp))
+                Choices(
+                    listOf("8h" to 480, "8½h" to 510, "9h" to 540, "9½h" to 570, "10h" to 600),
+                    sc.requiredMinutes,
+                ) { v -> save { it.copy(requiredMinutes = v) } }
+                val r = sc.requiredMinutes
+                Text(
+                    "Example: in at 9:00 → out ${StatusResolver.fmt((540 + r) % 1440)}  ·  in at 11:00 → out ${StatusResolver.fmt((660 + r) % 1440)}",
+                    Modifier.padding(top = 12.dp).fillMaxWidth().clip(Soft.tileShape).background(c.accentSoft).padding(12.dp),
+                    style = MaterialTheme.typography.bodySmall, color = c.accent,
+                )
+            } else Column {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TimeTile("Start", sc.startMin, Modifier.weight(1f)) { pick(sc.startMin) { v -> save { it.copy(startMin = v) } } }
+                    TimeTile("End", sc.endMin, Modifier.weight(1f)) { pick(sc.endMin) { v -> save { it.copy(endMin = v) } } }
+                }
+            }
+        }
+    }
+    SoftCard {
+        Text("Working days", style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+        Spacer(Modifier.height(12.dp))
+        val preset = when (sc.workDays) { MON_FRI -> 0; MON_SAT -> 1; else -> 2 }
+        var custom by remember { mutableStateOf(preset == 2) }
+        Choices(listOf("Mon–Fri" to 0, "Mon–Sat" to 1, "Choose" to 2), if (custom) 2 else preset) { v ->
+            custom = v == 2
+            when (v) {
+                0 -> save { it.copy(workDays = MON_FRI) }
+                1 -> save { it.copy(workDays = MON_SAT) }
+            }
+        }
+        AnimatedVisibility(custom) {
+            Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                DayOfWeek.entries.forEach { d ->
+                    DayDot(d.getDisplayName(java.time.format.TextStyle.NARROW, Locale.getDefault()), d in sc.workDays, Modifier.weight(1f)) {
+                        val nd = if (d in sc.workDays) sc.workDays - d else sc.workDays + d
+                        if (nd.isNotEmpty()) save { it.copy(workDays = nd) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ───────────────────────────── step 4: lunch ─────────────────────────────
+
+@Composable
+private fun LunchStep(s: AppSettings) {
+    val ctx = LocalContext.current
+    val c = Soft.colors
+    StepTitle("Lunch break", "How long is your lunch break?")
+    SoftCard {
+        Choices(listOf("30 min" to 30, "45 min" to 45, "1 hour" to 60, "1½ hours" to 90), s.schedule.maxLunchMinutes) { v ->
+            persist(ctx, current().copy(schedule = current().schedule.copy(maxLunchMinutes = v)))
+        }
+        Spacer(Modifier.height(14.dp))
+        Text(
+            "Tap “Start lunch break” on the Today screen when you go. If you take longer, the extra time is added to your logout time automatically.",
+            style = MaterialTheme.typography.bodyMedium, color = c.textSecondary,
+        )
+    }
+}
+
+// ───────────────────────────── advanced ─────────────────────────────
+
+@Composable
+private fun AdvancedStep(s: AppSettings) {
+    val ctx = LocalContext.current
+    val c = Soft.colors
+    val sc = s.schedule
+    val acc = s.accuracy
+    fun pick(initial: Int, onPicked: (Int) -> Unit) =
+        TimePickerDialog(ctx, { _, h, m -> onPicked(h * 60 + m) }, initial / 60, initial % 60, false).show()
+
+    StepTitle("Advanced", "You normally don't need to change these.")
+    SoftCard {
+        CardHeader(painterResource(R.drawable.ic_clock), "Overtime")
+        Spacer(Modifier.height(12.dp))
+        Row(
+            Modifier.fillMaxWidth().clip(Soft.tileShape).background(c.cardMuted)
+                .pressScale { pick(sc.overtimeUntilMin) { v -> persist(ctx, current().copy(schedule = current().schedule.copy(overtimeUntilMin = v))) } }
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Count overtime until", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = c.textPrimary)
+            Text(StatusResolver.fmt(sc.overtimeUntilMin), style = MaterialTheme.typography.titleLarge, color = c.accent)
+        }
+    }
+    SoftCard {
+        CardHeader(painterResource(R.drawable.ic_lunch), "Lunch time window", null, c.warning, c.warningSoft)
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TimeTile("From", sc.lunchStartMin, Modifier.weight(1f), c.warning, c.warningSoft) {
+                pick(sc.lunchStartMin) { v -> persist(ctx, current().copy(schedule = current().schedule.copy(lunchStartMin = v))) }
+            }
+            TimeTile("To", sc.lunchEndMin, Modifier.weight(1f), c.warning, c.warningSoft) {
+                pick(sc.lunchEndMin) { v -> persist(ctx, current().copy(schedule = current().schedule.copy(lunchEndMin = v))) }
+            }
+        }
+        SoftSwitchRow("Only allow lunch in this window", null, sc.restrictLunchToWindow) { v ->
+            persist(ctx, current().copy(schedule = current().schedule.copy(restrictLunchToWindow = v)))
+        }
+    }
+    SoftCard {
+        CardHeader(painterResource(R.drawable.ic_shield), "Detection accuracy")
+        Spacer(Modifier.height(12.dp))
+        Text("Ignore GPS readings worse than", style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
+        Spacer(Modifier.height(8.dp))
+        Choices(listOf("20 m" to 20f, "35 m" to 35f, "50 m" to 50f, "75 m" to 75f), acc.maxAccuracyM) { v ->
+            persist(ctx, current().copy(accuracy = current().accuracy.copy(maxAccuracyM = v)))
+        }
+        Spacer(Modifier.height(14.dp))
+        Text("Readings needed to confirm IN / OUT", style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
+        Spacer(Modifier.height(8.dp))
+        Choices(listOf("2 (faster)" to 2, "3" to 3, "4" to 4, "5 (safer)" to 5), acc.confirmSamples) { v ->
+            persist(ctx, current().copy(accuracy = current().accuracy.copy(confirmSamples = v)))
+        }
+        Spacer(Modifier.height(6.dp))
+        SoftSwitchRow("Block fake GPS apps", null, acc.rejectMock) { v ->
+            persist(ctx, current().copy(accuracy = current().accuracy.copy(rejectMock = v)))
+        }
+    }
+    s.office?.let { o ->
+        SoftCard {
+            CardHeader(rememberVectorPainter(Icons.Filled.LocationOn), "Office coordinates")
+            Spacer(Modifier.height(12.dp))
+            var lat by remember { mutableStateOf("%.7f".format(Locale.US, o.lat)) }
+            var lng by remember { mutableStateOf("%.7f".format(Locale.US, o.lng)) }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(Modifier.weight(1f)) { SoftField("Latitude", lat, keyboard = KeyboardType.Decimal) { lat = it } }
+                Box(Modifier.weight(1f)) { SoftField("Longitude", lng, keyboard = KeyboardType.Decimal) { lng = it } }
+            }
+            Spacer(Modifier.height(12.dp))
+            SoftGhostButton("Use these coordinates", {
+                val la = lat.toDoubleOrNull(); val ln = lng.toDoubleOrNull()
+                if (la == null || ln == null || la !in -90.0..90.0 || ln !in -180.0..180.0) {
+                    Toast.makeText(ctx, "Invalid coordinates", Toast.LENGTH_SHORT).show()
+                } else {
+                    persist(ctx, current().copy(office = current().office?.copy(lat = la, lng = ln)), officeMoved = true)
+                    Toast.makeText(ctx, "Saved", Toast.LENGTH_SHORT).show()
+                }
+            })
+        }
+    }
+}
+
+// ───────────────────────────── small controls ─────────────────────────────
+
+/** Row of big tappable choices; the selected one is filled. */
+@Composable
+private fun <T> Choices(options: List<Pair<String, T>>, selected: T, onSelect: (T) -> Unit) {
+    val c = Soft.colors
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        options.forEach { (label, value) ->
+            val sel = value == selected
+            val bg = animatedColor(if (sel) c.accent else c.cardMuted, "choiceBg")
+            val fg = animatedColor(if (sel) Color.White else c.textPrimary, "choiceFg")
+            Box(
+                Modifier.weight(1f).height(if (label.contains('\n')) 64.dp else 48.dp).clip(Soft.tileShape).background(bg)
+                    .pressScale { onSelect(value) },
+                contentAlignment = Alignment.Center,
+            ) { Text(label, color = fg, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center) }
         }
     }
 }
@@ -408,7 +663,7 @@ fun SettingsScreen() {
 @Composable
 private fun SegmentedToggle(left: String, right: String, rightSelected: Boolean, onChange: (Boolean) -> Unit) {
     val c = Soft.colors
-    Row(Modifier.fillMaxWidth().height(48.dp).clip(Soft.pillShape).background(c.cardMuted).padding(4.dp)) {
+    Row(Modifier.fillMaxWidth().height(52.dp).clip(Soft.pillShape).background(c.cardMuted).padding(4.dp)) {
         listOf(false to left, true to right).forEach { (value, label) ->
             val sel = value == rightSelected
             val bg = animatedColor(if (sel) c.card else c.cardMuted, "segBg")
@@ -426,13 +681,17 @@ private fun TimeTile(
     label: String, minutes: Int, modifier: Modifier,
     tint: Color = Soft.colors.accent, bg: Color = Soft.colors.accentSoft, onClick: () -> Unit,
 ) {
-    Column(
-        modifier.clip(Soft.tileShape).background(bg).pressScale(onClick).padding(vertical = 16.dp, horizontal = 18.dp)
-    ) {
+    Column(modifier.clip(Soft.tileShape).background(bg).pressScale(onClick).padding(vertical = 16.dp, horizontal = 18.dp)) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = tint)
         Spacer(Modifier.height(4.dp))
-        Text(StatusResolver.fmt(minutes), style = MaterialTheme.typography.headlineSmall, color = Soft.colors.textPrimary)
+        Text(fmt12(minutes), style = MaterialTheme.typography.headlineSmall, color = Soft.colors.textPrimary)
     }
+}
+
+private fun fmt12(min: Int): String {
+    val h = min / 60; val m = min % 60
+    val h12 = if (h % 12 == 0) 12 else h % 12
+    return "%d:%02d %s".format(h12, m, if (h < 12) "AM" else "PM")
 }
 
 @Composable
@@ -440,10 +699,9 @@ private fun DayDot(label: String, selected: Boolean, modifier: Modifier, onClick
     val c = Soft.colors
     val bg = animatedColor(if (selected) c.accent else c.cardMuted, "dayBg")
     val fg = animatedColor(if (selected) Color.White else c.textSecondary, "dayFg")
-    Box(
-        modifier.aspectRatio(1f).clip(CircleShape).background(bg).pressScale(onClick),
-        contentAlignment = Alignment.Center,
-    ) { Text(label, color = fg, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center) }
+    Box(modifier.aspectRatio(1f).clip(CircleShape).background(bg).pressScale(onClick), contentAlignment = Alignment.Center) {
+        Text(label, color = fg, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center)
+    }
 }
 
 @Composable
