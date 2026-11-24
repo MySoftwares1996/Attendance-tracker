@@ -9,6 +9,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import com.attendance.tracker.core.DayPlan
+import com.attendance.tracker.core.DayPlanner
 import com.attendance.tracker.core.LocationSample
 import com.attendance.tracker.core.LunchState
 import com.attendance.tracker.core.Presence
@@ -44,6 +46,7 @@ data class LiveState(
     val lastGateUsed: String? = null,
     val lunch: LunchState = LunchState(),
     val today: DaySummary = DaySummary(),
+    val plan: DayPlan? = null,
 )
 
 /**
@@ -132,26 +135,71 @@ object AttendanceController {
         lastTickMs = 0L
     }
 
+    /** First office entry on [date]. */
+    private fun firstCheckIn(date: LocalDate): LocalDateTime? {
+        val from = date.atStartOfDay(zone()).toInstant().toEpochMilli()
+        val to = date.plusDays(1).atStartOfDay(zone()).toInstant().toEpochMilli()
+        return db.events(from, to).firstOrNull { it.type == EventType.CHECK_IN }
+            ?.let { LocalDateTime.ofInstant(Instant.ofEpochMilli(it.timeMs), zone()) }
+    }
+
+    /** Total lunch taken on [date] from the lunch log, plus a lunch still in progress. */
+    private fun lunchTakenSec(date: LocalDate, nowMs: Long): Long {
+        val from = date.atStartOfDay(zone()).toInstant().toEpochMilli()
+        val to = date.plusDays(1).atStartOfDay(zone()).toInstant().toEpochMilli()
+        var total = 0L
+        var open: Long? = null
+        for (e in db.events(from, to)) {
+            when (e.type) {
+                EventType.LUNCH_START -> open = e.timeMs
+                EventType.LUNCH_END -> { open?.let { total += (e.timeMs - it) / 1000 }; open = null }
+                else -> Unit
+            }
+        }
+        val active = settings.lunch
+        if (active.active && active.startedAtMs in from until to) total += ((nowMs - active.startedAtMs) / 1000).coerceAtLeast(0)
+        return total
+    }
+
+    fun plan(nowMs: Long = System.currentTimeMillis()): DayPlan {
+        val now = LocalDateTime.ofInstant(Instant.ofEpochMilli(nowMs), zone())
+        return DayPlanner.plan(now, settings.settings.value.schedule, ::firstCheckIn) { lunchTakenSec(it, nowMs) }
+    }
+
+    /** High-accuracy GPS from 30 min before the day can start until overtime cut-off. */
+    fun highAccuracyWanted(nowMs: Long = System.currentTimeMillis()): Boolean {
+        val s = settings.settings.value.schedule
+        val now = LocalDateTime.ofInstant(Instant.ofEpochMilli(nowMs), zone())
+        val p = plan(nowMs)
+        if (!p.workDay) return false
+        val dayStartMin = if (s.flexible) s.earliestStartMin else s.startMin
+        val opens = p.date.atStartOfDay().plusMinutes(dayStartMin.toLong() - 30)
+        return now >= opens && now < p.cutoff
+    }
+
     @Synchronized
     fun refresh(nowMs: Long = System.currentTimeMillis()) {
         val s = settings.settings.value
         val now = LocalDateTime.ofInstant(Instant.ofEpochMilli(nowMs), zone())
+        var dayPlan = plan(nowMs)
         var lunch = settings.lunch
-        // Auto-close a lunch that is still open once working hours are over.
-        if (lunch.active && !StatusResolver.isWorkingTime(now, s.schedule)) {
-            db.insertEvent(nowMs, EventType.LUNCH_END, "Lunch auto-ended (working hours over)")
+        // Auto-close a lunch that is still open once the working day is over.
+        if (lunch.active && (!dayPlan.workDay || now >= dayPlan.cutoff)) {
+            db.insertEvent(nowMs, EventType.LUNCH_END, "Lunch auto-ended (working day over)")
             lunch = LunchState(); settings.lunch = lunch
+            dayPlan = plan(nowMs)
         }
-        val status = StatusResolver.resolve(now, nowMs, s.schedule, engine.presence, lunch)
+        val status = StatusResolver.resolve(now, nowMs, dayPlan, s.schedule, engine.presence, lunch)
         val old = lastStatus
         if (old != null && old != status) {
             db.insertEvent(nowMs, EventType.STATUS, "${old.label} → ${status.label}")
-            if (status == WorkStatus.OUTSIDE_OFFICE || status == WorkStatus.LUNCH_EXCEEDED) alert(status)
+            if (status == WorkStatus.OUTSIDE_OFFICE || status == WorkStatus.LUNCH_EXCEEDED ||
+                status == WorkStatus.LATE || status == WorkStatus.DAY_COMPLETE) alert(status, dayPlan)
         }
         lastStatus = status
         _state.value = _state.value.copy(
             status = status, presence = engine.presence, lunch = lunch,
-            trackingOn = settings.trackingEnabled, today = summary(now.toLocalDate()),
+            trackingOn = settings.trackingEnabled, today = summary(now.toLocalDate()), plan = dayPlan,
         )
     }
 
@@ -171,7 +219,7 @@ object AttendanceController {
     fun startLunch(nowMs: Long = System.currentTimeMillis()): String? {
         val s = settings.settings.value
         val now = LocalDateTime.ofInstant(Instant.ofEpochMilli(nowMs), zone())
-        StatusResolver.canStartLunch(now, s.schedule, settings.lunch)?.let { return it }
+        StatusResolver.canStartLunch(now, plan(nowMs), s.schedule, settings.lunch)?.let { return it }
         tick(nowMs)
         settings.lunch = LunchState(true, nowMs)
         val where = when (engine.presence) {
@@ -190,10 +238,13 @@ object AttendanceController {
         if (!l.active) return
         tick(nowMs)
         val mins = (nowMs - l.startedAtMs) / 60_000
-        val max = settings.settings.value.schedule.maxLunchMinutes
-        val over = if (mins > max) " — exceeded by ${mins - max} min" else ""
-        db.insertEvent(nowMs, EventType.LUNCH_END, "Lunch ended after $mins min$over")
+        db.insertEvent(nowMs, EventType.LUNCH_END, "Lunch ended after $mins min")
         settings.lunch = LunchState()
+        val p = plan(nowMs)
+        if (p.extraLunchSec > 0 && p.expectedEnd != null) {
+            val t = "%02d:%02d".format(p.expectedEnd.hour, p.expectedEnd.minute)
+            db.insertEvent(nowMs, EventType.STATUS, "Extra lunch ${p.extraLunchSec / 60} min today — logout moved to $t")
+        }
         refresh(nowMs)
     }
 
@@ -208,14 +259,16 @@ object AttendanceController {
         ctx, Manifest.permission.ACCESS_FINE_LOCATION
     ) == PackageManager.PERMISSION_GRANTED
 
-    private fun alert(status: WorkStatus) {
+    private fun alert(status: WorkStatus, plan: DayPlan) {
         val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val pi = PendingIntent.getActivity(
             app, 1, Intent(app, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
         )
         val text = when (status) {
             WorkStatus.OUTSIDE_OFFICE -> "You are outside the office during working hours."
-            WorkStatus.LUNCH_EXCEEDED -> "Your lunch break has exceeded the allowed time."
+            WorkStatus.LUNCH_EXCEEDED -> "Lunch is over the allowed time — every extra minute is added to your logout."
+            WorkStatus.LATE -> "You haven't reached the office by the latest arrival time."
+            WorkStatus.DAY_COMPLETE -> "Work day complete. Have a good evening!"
             else -> status.label
         }
         runCatching {

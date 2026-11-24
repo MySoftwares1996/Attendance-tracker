@@ -34,6 +34,18 @@ data class WorkSchedule(
     val maxLunchMinutes: Int = 60,
     /** If true, lunch can only be declared inside the lunch window. */
     val restrictLunchToWindow: Boolean = false,
+
+    // ---- Flexible hours ----
+    /** Flexible: the day starts when you arrive; logout = arrival + [requiredMinutes]. */
+    val flexible: Boolean = false,
+    /** Flexible: earliest time an arrival counts from (arriving earlier starts the day here). */
+    val earliestStartMin: Int = 8 * 60,
+    /** Flexible: arriving after this is marked late. */
+    val latestStartMin: Int = 11 * 60,
+    /** Flexible: length of the working day, including the allowed lunch. */
+    val requiredMinutes: Int = 9 * 60,
+    /** Overtime is counted while in office until this time (day shifts). */
+    val overtimeUntilMin: Int = 23 * 60,
 )
 
 /** Filters that decide whether a GPS fix is trustworthy enough to use. */
@@ -60,6 +72,10 @@ enum class Presence { UNKNOWN, INSIDE, OUTSIDE }
 
 enum class WorkStatus(val label: String) {
     OUTSIDE_WORKING_HOURS("Outside working hours"),
+    NOT_STARTED("Work day not started"),
+    LATE("Not in office — late"),
+    OVERTIME("Overtime in office"),
+    DAY_COMPLETE("Work day complete"),
     IN_OFFICE("In office"),
     OUTSIDE_OFFICE("Outside office (working hours)"),
     ON_LUNCH("On lunch break"),

@@ -43,6 +43,9 @@ class SettingsRepository(context: Context) {
             .putString("workDays", sc.workDays.joinToString(",") { it.name })
             .putInt("lunchStartMin", sc.lunchStartMin).putInt("lunchEndMin", sc.lunchEndMin)
             .putInt("maxLunch", sc.maxLunchMinutes).putBoolean("restrictLunch", sc.restrictLunchToWindow)
+            .putBoolean("flexible", sc.flexible).putInt("earliestStart", sc.earliestStartMin)
+            .putInt("latestStart", sc.latestStartMin).putInt("requiredMin", sc.requiredMinutes)
+            .putInt("overtimeUntil", sc.overtimeUntilMin)
         val a = s.accuracy
         e.putFloat("maxAcc", a.maxAccuracyM).putInt("confirm", a.confirmSamples)
             .putBoolean("rejectMock", a.rejectMock).putInt("maxAge", a.maxFixAgeSec)
@@ -77,6 +80,11 @@ class SettingsRepository(context: Context) {
             lunchEndMin = prefs.getInt("lunchEndMin", d.lunchEndMin),
             maxLunchMinutes = prefs.getInt("maxLunch", d.maxLunchMinutes),
             restrictLunchToWindow = prefs.getBoolean("restrictLunch", d.restrictLunchToWindow),
+            flexible = prefs.getBoolean("flexible", d.flexible),
+            earliestStartMin = prefs.getInt("earliestStart", d.earliestStartMin),
+            latestStartMin = prefs.getInt("latestStart", d.latestStartMin),
+            requiredMinutes = prefs.getInt("requiredMin", d.requiredMinutes),
+            overtimeUntilMin = prefs.getInt("overtimeUntil", d.overtimeUntilMin),
         )
         val da = AccuracyConfig()
         val accuracy = AccuracyConfig(

@@ -62,12 +62,15 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.attendance.tracker.AttendanceController
 import com.attendance.tracker.R
+import com.attendance.tracker.core.DayPlan
+import com.attendance.tracker.core.DayPlanner
 import com.attendance.tracker.core.Presence
 import com.attendance.tracker.core.StatusResolver
 import com.attendance.tracker.core.WorkSchedule
 import com.attendance.tracker.core.WorkStatus
 import com.attendance.tracker.service.TrackingService
 import kotlinx.coroutines.delay
+import java.time.Duration
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
@@ -126,7 +129,7 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
             tracking = st.trackingOn,
             officeName = settings.office?.name,
             nowMs = now,
-            schedule = sc,
+            plan = st.plan,
         )
 
         // ---------- setup notices ----------
@@ -185,7 +188,7 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
         }
 
         // ---------- lunch ----------
-        LunchCard(st.lunch.active, st.lunch.startedAtMs, now, sc) { msg ->
+        LunchCard(st.lunch.active, st.lunch.startedAtMs, now, sc, st.plan) { msg ->
             Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
         }
 
@@ -199,6 +202,24 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             StatTile("In office", fmtDuration(t[WorkStatus.IN_OFFICE.name] ?: 0), painterResource(R.drawable.ic_clock), c.accent, c.accentSoft, Modifier.weight(1f))
             StatTile("Away (work hrs)", fmtDuration(t[WorkStatus.OUTSIDE_OFFICE.name] ?: 0), painterResource(R.drawable.ic_clock), c.warning, c.warningSoft, Modifier.weight(1f))
+        }
+        val plan = st.plan
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            StatTile(
+                if ((plan?.extraLunchSec ?: 0L) > 0) "Logout (+${fmtDuration(plan!!.extraLunchSec)} lunch)" else "Expected logout",
+                fmtClock(plan?.expectedEnd), painterResource(R.drawable.ic_gate), c.accent, c.accentSoft, Modifier.weight(1f),
+            )
+            StatTile(
+                "Overtime", fmtDuration(t[WorkStatus.OVERTIME.name] ?: 0),
+                painterResource(R.drawable.ic_clock), Color(0xFF6A4FE8), Color(0x1F6A4FE8), Modifier.weight(1f),
+            )
+        }
+        if (plan?.late == true) {
+            Text(
+                "Arrived late at ${fmtClock(plan.firstIn)}" + (plan.latestStart?.let { " · on time until ${fmtClock(it)}" } ?: ""),
+                Modifier.fillMaxWidth().clip(Soft.tileShape).background(c.warningSoft).padding(14.dp),
+                style = MaterialTheme.typography.bodyMedium, color = c.textPrimary,
+            )
         }
 
         // ---------- location quality ----------
@@ -272,7 +293,7 @@ private fun Notices(
 }
 
 @Composable
-private fun StatusHero(status: WorkStatus, tracking: Boolean, officeName: String?, nowMs: Long, schedule: WorkSchedule) {
+private fun StatusHero(status: WorkStatus, tracking: Boolean, officeName: String?, nowMs: Long, plan: DayPlan?) {
     val (g1, g2) = statusGradient(status)
     val a = animatedColor(g1, "heroA")
     val b = animatedColor(g2, "heroB")
@@ -314,33 +335,57 @@ private fun StatusHero(status: WorkStatus, tracking: Boolean, officeName: String
             Text(officeName ?: "Office not set up", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.bodyMedium)
         }
 
-        // Workday progress
+        // Workday progress: actual start → expected logout (incl. extra lunch)
         Spacer(Modifier.height(22.dp))
-        val dt = LocalDateTime.now()
-        val m = dt.hour * 60 + dt.minute
-        val span = ((schedule.endMin - schedule.startMin + 1440) % 1440).coerceAtLeast(1)
-        val elapsed = ((m - schedule.startMin + 1440) % 1440)
-        val inShift = StatusResolver.isWorkingTime(dt, schedule)
-        val progress = if (inShift) elapsed.toFloat() / span else if (elapsed in 0..span) 1f else 0f
-        SoftBar(progress, Color.White, Color.White.copy(alpha = 0.25f), height = 6.dp)
-        Spacer(Modifier.height(8.dp))
-        Row {
-            Text(StatusResolver.fmt(schedule.startMin), color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.labelMedium)
-            Spacer(Modifier.weight(1f))
+        val now = LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(nowMs), java.time.ZoneId.systemDefault())
+        val start = plan?.start
+        val end = plan?.expectedEnd
+        val white = Color.White.copy(alpha = 0.85f)
+        if (plan != null && start != null && end != null && plan.workDay) {
+            val total = Duration.between(start, end).seconds.coerceAtLeast(1)
+            val done = Duration.between(start, now).seconds.coerceIn(0, total)
+            SoftBar(done.toFloat() / total, Color.White, Color.White.copy(alpha = 0.25f), height = 6.dp)
+            Spacer(Modifier.height(8.dp))
+            val overtime = DayPlanner.overtimeSec(plan, now)
+            Row {
+                Text("In ${fmtClock(start)}", color = white, style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.weight(1f))
+                Text(
+                    when {
+                        overtime > 0 -> "+${fmtDuration(overtime)} overtime"
+                        now < start -> "Starts ${fmtClock(start)}"
+                        else -> "${fmtDuration(total - done)} left"
+                    },
+                    color = white, style = MaterialTheme.typography.labelMedium,
+                )
+                Spacer(Modifier.weight(1f))
+                Text("Out ${fmtClock(end)}", color = white, style = MaterialTheme.typography.labelMedium)
+            }
+            if (plan.extraLunchSec > 0) {
+                Text(
+                    "Logout extended +${fmtDuration(plan.extraLunchSec)} for extra lunch",
+                    Modifier.padding(top = 10.dp).clip(Soft.pillShape).background(Color.White.copy(alpha = 0.2f))
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    color = Color.White, style = MaterialTheme.typography.labelMedium,
+                )
+            }
+        } else if (plan != null && plan.workDay && plan.flexible) {
             Text(
-                if (inShift) "${fmtDuration(((span - elapsed).toLong()) * 60)} left" else "Work hours",
-                color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.labelMedium,
+                "Your day starts when you arrive · on time until ${fmtClock(plan.latestStart)}",
+                color = white, style = MaterialTheme.typography.labelMedium,
             )
-            Spacer(Modifier.weight(1f))
-            Text(StatusResolver.fmt(schedule.endMin), color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.labelMedium)
+        } else {
+            Text("No work scheduled now", color = white, style = MaterialTheme.typography.labelMedium)
         }
     }
 }
 
 @Composable
-private fun LunchCard(active: Boolean, startedAtMs: Long, nowMs: Long, sc: WorkSchedule, onError: (String) -> Unit) {
+private fun LunchCard(active: Boolean, startedAtMs: Long, nowMs: Long, sc: WorkSchedule, plan: DayPlan?, onError: (String) -> Unit) {
     val c = Soft.colors
-    val secs = if (active) ((nowMs - startedAtMs) / 1000).coerceAtLeast(0) else 0L
+    // Allowance is per day: earlier lunches today count against it.
+    val earlier = ((plan?.lunchTakenSec ?: 0L) - if (active) ((nowMs - startedAtMs) / 1000) else 0).coerceAtLeast(0)
+    val secs = if (active) ((nowMs - startedAtMs) / 1000).coerceAtLeast(0) + earlier else 0L
     val maxSecs = sc.maxLunchMinutes * 60L
     val over = active && secs >= maxSecs
     val ringColor = animatedColor(if (over) c.danger else c.warning, "lunchRing")
@@ -367,15 +412,25 @@ private fun LunchCard(active: Boolean, startedAtMs: Long, nowMs: Long, sc: WorkS
                                 color = if (over) c.danger else c.textPrimary,
                             )
                             Text(
-                                if (over) "Over by ${fmtDuration(secs - maxSecs)}" else "of ${sc.maxLunchMinutes} min · since ${fmtTime(startedAtMs)}",
+                                if (over) "Over by ${fmtDuration(secs - maxSecs)} · logout moves to ${fmtClock(plan?.expectedEnd)}"
+                                else "of ${sc.maxLunchMinutes} min · since ${fmtTime(startedAtMs)}",
                                 style = MaterialTheme.typography.bodySmall, color = c.textSecondary,
                             )
                         }
                     } else {
-                        Text(
-                            "${StatusResolver.fmt(sc.lunchStartMin)} – ${StatusResolver.fmt(sc.lunchEndMin)} · up to ${sc.maxLunchMinutes} min",
-                            style = MaterialTheme.typography.bodySmall, color = c.textSecondary,
-                        )
+                        Column {
+                            Text(
+                                "${StatusResolver.fmt(sc.lunchStartMin)} – ${StatusResolver.fmt(sc.lunchEndMin)} · up to ${sc.maxLunchMinutes} min",
+                                style = MaterialTheme.typography.bodySmall, color = c.textSecondary,
+                            )
+                            val taken = plan?.lunchTakenSec ?: 0L
+                            if (taken > 0) Text(
+                                "Taken today ${fmtDuration(taken)}" +
+                                    ((plan?.extraLunchSec ?: 0L).takeIf { it > 0 }?.let { " · +${fmtDuration(it)} added to logout" } ?: ""),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if ((plan?.extraLunchSec ?: 0L) > 0) c.warning else c.textSecondary,
+                            )
+                        }
                     }
                 }
             }

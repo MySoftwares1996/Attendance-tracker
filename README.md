@@ -4,7 +4,11 @@ An Android app that works out whether an employee is **in the office during work
 
 ## Features
 
-- **Working hours**: set From/To times and working days. Night shifts that run past midnight work too.
+- **Working hours**: choose one of two modes.
+  - **Fixed**: From/To times. Night shifts that run past midnight work too.
+  - **Flexible**: arrive any time inside a window (for example 8:00–11:00). Expected logout = actual arrival + hours to work. For example, with 9 h: arrive at 9 → out at 18:00; arrive at 10 → 19:00; arrive at 11 → 20:00. Arriving after the window is flagged *Late*.
+  - **Extra lunch extends logout**: lunch beyond the daily allowance is added to the logout time automatically.
+  - **Overtime**: time in the office after logout is counted as overtime until a cutoff you choose (for example 23:00).
 - **Lunch break declaration**: tap *Declare lunch break* to start and *End lunch break* to finish. You can set a lunch window, a maximum length, and optionally allow lunch only inside the window. An alert fires if lunch goes over the limit. An open lunch ends automatically when working hours finish.
 - **Office and gates**:
   - Stand in the middle of the office and tap *Use my current location*. The app averages 20 seconds of GPS fixes.

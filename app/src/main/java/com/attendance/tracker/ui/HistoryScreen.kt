@@ -95,6 +95,7 @@ private fun DayCard(day: LocalDate, sum: com.attendance.tracker.DaySummary, even
     val office = t[WorkStatus.IN_OFFICE.name] ?: 0
     val away = t[WorkStatus.OUTSIDE_OFFICE.name] ?: 0
     val lunch = (t[WorkStatus.ON_LUNCH.name] ?: 0) + (t[WorkStatus.LUNCH_EXCEEDED.name] ?: 0)
+    val overtime = t[WorkStatus.OVERTIME.name] ?: 0
     SoftCard(onClick = { expanded = !expanded }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -105,18 +106,23 @@ private fun DayCard(day: LocalDate, sum: com.attendance.tracker.DaySummary, even
         }
         Spacer(Modifier.height(14.dp))
         // Proportional day bar: office / lunch / away
-        val total = (office + away + lunch).coerceAtLeast(1)
+        val total = (office + away + lunch + overtime).coerceAtLeast(1)
         Row(Modifier.fillMaxWidth().height(10.dp).clip(Soft.pillShape).background(c.cardMuted)) {
             if (office > 0) Box(Modifier.weight(office.toFloat() / total).fillMaxHeight().background(c.success))
             if (lunch > 0) Box(Modifier.weight(lunch.toFloat() / total).fillMaxHeight().background(c.warning))
             if (away > 0) Box(Modifier.weight(away.toFloat() / total).fillMaxHeight().background(c.danger))
-            if (office + lunch + away == 0L) Spacer(Modifier.weight(1f))
+            if (overtime > 0) Box(Modifier.weight(overtime.toFloat() / total).fillMaxHeight().background(Color(0xFF6A4FE8)))
+            if (office + lunch + away + overtime == 0L) Spacer(Modifier.weight(1f))
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             Legend(c.success, "Office ${fmtDuration(office)}")
             Legend(c.warning, "Lunch ${fmtDuration(lunch)}")
             Legend(c.danger, "Away ${fmtDuration(away)}")
+        }
+        if (overtime > 0) {
+            Spacer(Modifier.height(6.dp))
+            Legend(Color(0xFF6A4FE8), "Overtime ${fmtDuration(overtime)}")
         }
         AnimatedVisibility(expanded && events.isNotEmpty(), enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
             Column(Modifier.padding(top = 16.dp)) {

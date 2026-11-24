@@ -107,14 +107,8 @@ class TrackingService : LifecycleService() {
         return START_STICKY
     }
 
-    /** High accuracy from 30 min before work until 30 min after; low power otherwise. */
-    private fun wantHighAccuracy(): Boolean {
-        val s = AttendanceController.settings.settings.value.schedule
-        val now = LocalDateTime.now()
-        return StatusResolver.isWorkingTime(now.plusMinutes(30), s) ||
-            StatusResolver.isWorkingTime(now, s) ||
-            StatusResolver.isWorkingTime(now.minusMinutes(30), s)
-    }
+    /** High accuracy around the working day (incl. overtime window); low power otherwise. */
+    private fun wantHighAccuracy(): Boolean = AttendanceController.highAccuracyWanted()
 
     @SuppressLint("MissingPermission")
     private fun applyLocationMode(force: Boolean) {

@@ -2,7 +2,10 @@ package com.attendance.tracker.ui
 
 import android.app.TimePickerDialog
 import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -92,6 +95,11 @@ fun SettingsScreen() {
     var maxLunch by remember { mutableStateOf(saved.schedule.maxLunchMinutes.toString()) }
     var restrictLunch by remember { mutableStateOf(saved.schedule.restrictLunchToWindow) }
     val days = remember { mutableStateListOf<DayOfWeek>().apply { addAll(saved.schedule.workDays) } }
+    var flexible by remember { mutableStateOf(saved.schedule.flexible) }
+    var earliestStart by remember { mutableIntStateOf(saved.schedule.earliestStartMin) }
+    var latestStart by remember { mutableIntStateOf(saved.schedule.latestStartMin) }
+    var requiredHours by remember { mutableStateOf("%.1f".format(Locale.US, saved.schedule.requiredMinutes / 60.0).removeSuffix(".0")) }
+    var overtimeUntil by remember { mutableIntStateOf(saved.schedule.overtimeUntilMin) }
 
     var maxAcc by remember { mutableStateOf(saved.accuracy.maxAccuracyM.toInt().toString()) }
     var confirm by remember { mutableStateOf(saved.accuracy.confirmSamples.toString()) }
@@ -126,7 +134,9 @@ fun SettingsScreen() {
         val err = when {
             la == null || ln == null || la !in -90.0..90.0 || ln !in -180.0..180.0 -> "Set the office location first"
             r == null || r < 20 -> "Radius must be at least 20 m"
-            startMin == endMin -> "Start and end time can't be the same"
+            !flexible && startMin == endMin -> "Start and end time can't be the same"
+            flexible && latestStart < earliestStart -> "Latest arrival must be after earliest arrival"
+            flexible && (requiredHours.toDoubleOrNull() ?: 0.0) !in 1.0..16.0 -> "Hours to work must be between 1 and 16"
             days.isEmpty() -> "Pick at least one working day"
             else -> null
         }
@@ -137,8 +147,14 @@ fun SettingsScreen() {
             AppSettings(
                 office = office,
                 schedule = WorkSchedule(
-                    startMin, endMin, days.toSet(), lunchStart, lunchEnd,
-                    (maxLunch.toIntOrNull() ?: 60).coerceIn(5, 240), restrictLunch,
+                    startMin = startMin, endMin = endMin, workDays = days.toSet(),
+                    lunchStartMin = lunchStart, lunchEndMin = lunchEnd,
+                    maxLunchMinutes = (maxLunch.toIntOrNull() ?: 60).coerceIn(5, 240),
+                    restrictLunchToWindow = restrictLunch,
+                    flexible = flexible,
+                    earliestStartMin = earliestStart, latestStartMin = latestStart,
+                    requiredMinutes = ((requiredHours.toDoubleOrNull() ?: 9.0) * 60).toInt().coerceIn(60, 16 * 60),
+                    overtimeUntilMin = overtimeUntil,
                 ),
                 accuracy = AccuracyConfig(
                     maxAccuracyM = (maxAcc.toFloatOrNull() ?: 35f).coerceIn(5f, 200f),
@@ -171,13 +187,58 @@ fun SettingsScreen() {
             SoftCard {
                 CardHeader(painterResource(R.drawable.ic_clock), "Working hours", "When you're expected at the office")
                 Spacer(Modifier.height(18.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TimeTile("Starts", startMin, Modifier.weight(1f)) { pickTime(startMin) { startMin = it } }
-                    TimeTile("Ends", endMin, Modifier.weight(1f)) { pickTime(endMin) { endMin = it } }
+                SegmentedToggle("Fixed", "Flexible", flexible) { flexible = it }
+                Spacer(Modifier.height(16.dp))
+                AnimatedContent(flexible, transitionSpec = { fadeIn(tween(250)) togetherWith fadeOut(tween(150)) }, label = "mode") { flex ->
+                    if (flex) {
+                        Column {
+                            Text("Arrive any time between", style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
+                            Spacer(Modifier.height(10.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                TimeTile("Earliest", earliestStart, Modifier.weight(1f)) { pickTime(earliestStart) { earliestStart = it } }
+                                TimeTile("Latest", latestStart, Modifier.weight(1f)) { pickTime(latestStart) { latestStart = it } }
+                            }
+                            Spacer(Modifier.height(14.dp))
+                            SoftField("Hours to work (incl. lunch)", requiredHours, "h", keyboard = KeyboardType.Decimal) {
+                                requiredHours = it.filter { ch -> ch.isDigit() || ch == '.' }
+                            }
+                            val req = ((requiredHours.toDoubleOrNull() ?: 9.0) * 60).toInt()
+                            Text(
+                                "Arrive 9:00 → out ${StatusResolver.fmt((9 * 60 + req) % 1440)} · " +
+                                    "10:00 → ${StatusResolver.fmt((10 * 60 + req) % 1440)} · " +
+                                    "11:00 → ${StatusResolver.fmt((11 * 60 + req) % 1440)}",
+                                Modifier.padding(top = 8.dp, start = 4.dp),
+                                style = MaterialTheme.typography.bodySmall, color = c.accent,
+                            )
+                        }
+                    } else {
+                        Column {
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                TimeTile("Starts", startMin, Modifier.weight(1f)) { pickTime(startMin) { startMin = it } }
+                                TimeTile("Ends", endMin, Modifier.weight(1f)) { pickTime(endMin) { endMin = it } }
+                            }
+                            if (endMin < startMin) {
+                                Text("Night shift — ends the next day", Modifier.padding(top = 10.dp), style = MaterialTheme.typography.bodySmall, color = c.accent)
+                            }
+                        }
+                    }
                 }
-                AnimatedVisibility(endMin < startMin) {
-                    Text("Night shift — ends the next day", Modifier.padding(top = 10.dp), style = MaterialTheme.typography.bodySmall, color = c.accent)
+                Spacer(Modifier.height(14.dp))
+                Row(
+                    Modifier.fillMaxWidth().clip(Soft.tileShape).background(c.cardMuted).pressScale { pickTime(overtimeUntil) { overtimeUntil = it } }
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Count overtime until", style = MaterialTheme.typography.bodyLarge, color = c.textPrimary)
+                        Text("Staying late? Time in office after logout is overtime", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+                    }
+                    Text(StatusResolver.fmt(overtimeUntil), style = MaterialTheme.typography.titleLarge, color = c.accent)
                 }
+                Text(
+                    "Extra lunch beyond the allowed time is added to your logout automatically.",
+                    Modifier.padding(top = 10.dp, start = 4.dp), style = MaterialTheme.typography.bodySmall, color = c.textSecondary,
+                )
                 Spacer(Modifier.height(18.dp))
                 Text("Working days", style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
                 Spacer(Modifier.height(10.dp))
@@ -337,6 +398,22 @@ fun SettingsScreen() {
             } else {
                 SoftButton("Save changes", { save() }, icon = rememberVectorPainter(Icons.Filled.Check))
             }
+        }
+    }
+}
+
+@Composable
+private fun SegmentedToggle(left: String, right: String, rightSelected: Boolean, onChange: (Boolean) -> Unit) {
+    val c = Soft.colors
+    Row(Modifier.fillMaxWidth().height(48.dp).clip(Soft.pillShape).background(c.cardMuted).padding(4.dp)) {
+        listOf(false to left, true to right).forEach { (value, label) ->
+            val sel = value == rightSelected
+            val bg = animatedColor(if (sel) c.card else c.cardMuted, "segBg")
+            val fg = animatedColor(if (sel) c.accent else c.textSecondary, "segFg")
+            Box(
+                Modifier.weight(1f).fillMaxSize().clip(Soft.pillShape).background(bg).pressScale { onChange(value) },
+                contentAlignment = Alignment.Center,
+            ) { Text(label, color = fg, style = MaterialTheme.typography.labelLarge) }
         }
     }
 }

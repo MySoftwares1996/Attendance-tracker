@@ -26,14 +26,28 @@ object StatusResolver {
     fun resolve(
         now: LocalDateTime,
         nowMs: Long,
+        plan: DayPlan,
         schedule: WorkSchedule,
         presence: Presence,
         lunch: LunchState,
     ): WorkStatus {
-        if (!isWorkingTime(now, schedule)) return WorkStatus.OUTSIDE_WORKING_HOURS
+        if (!plan.workDay || now >= plan.cutoff) return WorkStatus.OUTSIDE_WORKING_HOURS
         if (lunch.active) {
             val mins = (nowMs - lunch.startedAtMs) / 60_000
-            return if (mins >= schedule.maxLunchMinutes) WorkStatus.LUNCH_EXCEEDED else WorkStatus.ON_LUNCH
+            // The allowance is per day, so earlier lunches today count too.
+            val over = mins >= schedule.maxLunchMinutes || plan.lunchTakenSec >= schedule.maxLunchMinutes * 60L
+            return if (over) WorkStatus.LUNCH_EXCEEDED else WorkStatus.ON_LUNCH
+        }
+        val start = plan.start
+        if (start == null) {
+            // Flexible day and you haven't arrived yet.
+            val ls = plan.latestStart
+            return if (ls != null && now >= ls) WorkStatus.LATE else WorkStatus.NOT_STARTED
+        }
+        if (now < start) return WorkStatus.NOT_STARTED
+        val end = plan.expectedEnd
+        if (end != null && now >= end) {
+            return if (presence == Presence.INSIDE) WorkStatus.OVERTIME else WorkStatus.DAY_COMPLETE
         }
         return when (presence) {
             Presence.INSIDE -> WorkStatus.IN_OFFICE
@@ -43,12 +57,18 @@ object StatusResolver {
     }
 
     /** Returns an error message if lunch cannot be declared now, otherwise null. */
-    fun canStartLunch(now: LocalDateTime, schedule: WorkSchedule, lunch: LunchState): String? = when {
-        lunch.active -> "Lunch break already started"
-        !isWorkingTime(now, schedule) -> "Lunch can only be declared during working hours"
-        schedule.restrictLunchToWindow && !isLunchWindow(now, schedule) ->
-            "Lunch can only be declared between ${fmt(schedule.lunchStartMin)} and ${fmt(schedule.lunchEndMin)}"
-        else -> null
+    fun canStartLunch(now: LocalDateTime, plan: DayPlan, schedule: WorkSchedule, lunch: LunchState): String? {
+        val start = plan.start
+        return when {
+            lunch.active -> "Lunch break already started"
+            !plan.workDay || now >= plan.cutoff -> "Lunch can only be declared on a working day"
+            start == null -> "Reach the office first — your day starts when you arrive"
+            now < start -> "Working hours haven't started yet"
+            plan.expectedEnd != null && now >= plan.expectedEnd -> "Your working day is already complete"
+            schedule.restrictLunchToWindow && !isLunchWindow(now, schedule) ->
+                "Lunch can only be declared between ${fmt(schedule.lunchStartMin)} and ${fmt(schedule.lunchEndMin)}"
+            else -> null
+        }
     }
 
     fun fmt(min: Int): String = "%02d:%02d".format(min / 60, min % 60)

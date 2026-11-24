@@ -29,6 +29,10 @@ fun statusGradient(s: WorkStatus): Pair<Color, Color> = when (s) {
     WorkStatus.LUNCH_EXCEEDED -> Color(0xFFF79AC8) to Color(0xFFD9468F)
     WorkStatus.OUTSIDE_WORKING_HOURS -> Color(0xFF8E9BFF) to Color(0xFF5B6CFF)
     WorkStatus.UNKNOWN -> Color(0xFFB4A5FF) to Color(0xFF7C66F0)
+    WorkStatus.NOT_STARTED -> Color(0xFF7FC8F8) to Color(0xFF3D9BE0)
+    WorkStatus.LATE -> Color(0xFFFFA48A) to Color(0xFFF2694A)
+    WorkStatus.OVERTIME -> Color(0xFF9F8CFF) to Color(0xFF6A4FE8)
+    WorkStatus.DAY_COMPLETE -> Color(0xFF6FD6C8) to Color(0xFF26A69A)
 }
 
 fun statusColor(s: WorkStatus): Color = statusGradient(s).second
@@ -40,4 +44,10 @@ fun statusShort(s: WorkStatus): String = when (s) {
     WorkStatus.LUNCH_EXCEEDED -> "Lunch over"
     WorkStatus.OUTSIDE_WORKING_HOURS -> "Off duty"
     WorkStatus.UNKNOWN -> "Locating"
+    WorkStatus.NOT_STARTED -> "Not started"
+    WorkStatus.LATE -> "Running late"
+    WorkStatus.OVERTIME -> "Overtime"
+    WorkStatus.DAY_COMPLETE -> "Day done"
 }
+
+fun fmtClock(t: java.time.LocalDateTime?): String = t?.let { "%02d:%02d".format(it.hour, it.minute) } ?: "—"
