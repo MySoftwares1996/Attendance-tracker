@@ -12,6 +12,8 @@ enum class EventType(val label: String) {
     LUNCH_END("Lunch ended"),
     STATUS("Status changed"),
     TRACKING("Tracking"),
+    DUTY_START("On duty"),
+    DUTY_END("Back from duty"),
 }
 
 data class AttendanceEvent(

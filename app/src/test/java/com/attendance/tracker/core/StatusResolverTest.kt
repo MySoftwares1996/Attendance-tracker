@@ -93,6 +93,12 @@ class StatusResolverTest {
         assertNotNull(StatusResolver.canStartLunch(at(11), p, flex, LunchState()))
     }
 
+    @Test fun onDutyCountsAsWorking() {
+        val p = plan(at(15), flex, at(10))
+        assertEquals(WorkStatus.ON_DUTY, StatusResolver.resolve(at(15), 0, p, flex, Presence.OUTSIDE, LunchState(), onDuty = true))
+        assertEquals(WorkStatus.IN_OFFICE, StatusResolver.resolve(at(15), 0, p, flex, Presence.INSIDE, LunchState(), onDuty = true))
+    }
+
     @Test fun lunchStatuses() {
         assertEquals(WorkStatus.ON_LUNCH,
             status(at(13), flex, Presence.OUTSIDE, at(10), lunch = LunchState(true, 0), nowMs = 30 * 60_000L))

@@ -12,7 +12,8 @@ object WorkedTime {
     fun workedSec(punches: List<Punch>, closeOpenAtMs: Long): Long {
         var total = 0L
         var inAt: Long? = null
-        for (p in punches.sortedBy { it.timeMs }) {
+        // Same timestamp: OUT before IN, so back-to-back stays (e.g. on-duty right after an OUT) join cleanly.
+        for (p in punches.sortedWith(compareBy<Punch>({ it.timeMs }, { if (it.isIn) 1 else 0 }))) {
             if (p.isIn) {
                 if (inAt == null) inAt = p.timeMs
             } else {

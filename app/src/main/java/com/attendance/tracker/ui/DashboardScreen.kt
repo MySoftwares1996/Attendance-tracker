@@ -5,43 +5,48 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
-import android.os.PowerManager
-import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -54,34 +59,86 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.attendance.tracker.AttendanceController
 import com.attendance.tracker.R
 import com.attendance.tracker.core.DayPlan
-import com.attendance.tracker.core.DayPlanner
+import com.attendance.tracker.core.DayTimeline
 import com.attendance.tracker.core.Presence
-import com.attendance.tracker.core.StatusResolver
-import com.attendance.tracker.core.WorkSchedule
 import com.attendance.tracker.core.WorkStatus
-import com.attendance.tracker.service.TrackingService
+import com.attendance.tracker.core.WorkedTime
+import com.attendance.tracker.data.AttendanceEvent
+import com.attendance.tracker.data.EventType
+import com.attendance.tracker.health.HealthCheck
+import com.attendance.tracker.health.HealthReport
 import com.attendance.tracker.permissions.PermissionsManager
+import com.attendance.tracker.security.TrustChecks
+import com.attendance.tracker.service.TrackingService
 import kotlinx.coroutines.delay
 import java.time.Duration
+import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 private fun granted(ctx: Context, p: String) =
     ContextCompat.checkSelfPermission(ctx, p) == PackageManager.PERMISSION_GRANTED
 
 private val dateFmt = DateTimeFormatter.ofPattern("EEEE, d MMMM")
+private val DUTY_REASONS = listOf("Client visit", "Bank", "Site work", "Training", "Delivery", "Other official work")
+
+private fun clock12(t: LocalDateTime?): String = t?.let {
+    "%d:%02d %s".format(if (it.hour % 12 == 0) 12 else it.hour % 12, it.minute, if (it.hour < 12) "AM" else "PM")
+} ?: "—"
+
+private fun clock12(ms: Long?): String = ms?.let { clock12(LocalDateTime.ofInstant(Instant.ofEpochMilli(it), ZoneId.systemDefault())) } ?: "—"
+
+private fun hms(sec: Long): String = "%d:%02d:%02d".format(sec / 3600, (sec % 3600) / 60, sec % 60)
+
+/** Everything the Today screen shows, recomputed every second from the live state. */
+private data class LiveDay(
+    val now: LocalDateTime,
+    val workedSec: Long,
+    val segments: List<DayTimeline.Segment>,
+    val totals: Map<DayTimeline.Kind, Long>,
+    val dayProgress: Float,
+    val toGoSec: Long?,
+    val overtimeSec: Long,
+)
+
+private fun liveDay(nowMs: Long, plan: DayPlan?, timeline: List<AttendanceEvent>): LiveDay {
+    val zone = ZoneId.systemDefault()
+    val now = LocalDateTime.ofInstant(Instant.ofEpochMilli(nowMs), zone)
+    val worked = WorkedTime.workedSec(AttendanceController.workPunches(timeline), nowMs)
+    val segs = DayTimeline.segments(AttendanceController.timelineEvents(timeline), nowMs)
+    val start = plan?.start
+    val end = plan?.expectedEnd
+    val progress = if (start != null && end != null) {
+        val total = Duration.between(start, end).seconds.coerceAtLeast(1)
+        (Duration.between(start, now).seconds.toFloat() / total).coerceIn(0f, 1f)
+    } else 0f
+    val toGo = end?.let { Duration.between(now, it).seconds }?.takeIf { it > 0 && start != null }
+    val cutoff = plan?.cutoff ?: now
+    val ot = end?.let { if (now.isAfter(it)) Duration.between(it, minOf(now, cutoff)).seconds.coerceAtLeast(0) else 0L } ?: 0L
+    return LiveDay(now, worked, segs, DayTimeline.totals(segs), progress, toGo, ot)
+}
 
 @SuppressLint("BatteryLife")
 @Composable
@@ -94,410 +151,157 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
     var permTick by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) { while (true) { delay(1000); now = System.currentTimeMillis() } }
 
-    val fine = remember(permTick) { granted(ctx, Manifest.permission.ACCESS_FINE_LOCATION) }
-    val background = remember(permTick) {
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || granted(ctx, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-    }
-    val batteryOk = remember(permTick) {
-        (ctx.getSystemService(Context.POWER_SERVICE) as PowerManager).isIgnoringBatteryOptimizations(ctx.packageName)
-    }
-    val bgLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { permTick++ }
-    val fgLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
-        permTick++
-        if (res[Manifest.permission.ACCESS_FINE_LOCATION] != true) {
-            Toast.makeText(ctx, "Precise location is required for accurate attendance", Toast.LENGTH_LONG).show()
-        }
-    }
-    fun requestForeground() {
-        val perms = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
-        if (Build.VERSION.SDK_INT >= 33) perms += Manifest.permission.POST_NOTIFICATIONS
-        fgLauncher.launch(perms.toTypedArray())
+    var health by remember { mutableStateOf<HealthReport?>(null) }
+    LaunchedEffect(permTick, st.trackingOn) {
+        while (true) { health = runCatching { HealthCheck.run(ctx) }.getOrNull(); delay(60_000) }
     }
 
-    val sc = settings.schedule
-    val dt = LocalDateTime.now()
+    val fine = remember(permTick) { granted(ctx, Manifest.permission.ACCESS_FINE_LOCATION) }
+    val fgLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permTick++ }
+    fun startTracking() {
+        when {
+            !fine -> {
+                val perms = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+                if (Build.VERSION.SDK_INT >= 33) perms += Manifest.permission.POST_NOTIFICATIONS
+                fgLauncher.launch(perms.toTypedArray())
+            }
+            settings.office == null -> onOpenSetup()
+            else -> { AttendanceController.settings.userPaused = false; TrackingService.start(ctx) }
+        }
+    }
+
+    val plan = st.plan
+    val live = liveDay(now, plan, st.today.timeline)
+    val stats = remember(st.today.punches.size, now / 60_000) { AttendanceController.workedStats(now) }
+    val usualArrival = remember(LocalDate.now()) { AttendanceController.usualArrivalMin() }
+
+    var markOpen by remember { mutableStateOf(false) }
+    var punchOpen by remember { mutableStateOf(false) }
+    var dutyOpen by remember { mutableStateOf(false) }
+    if (markOpen) DayMarkDialog(LocalDate.now()) { markOpen = false }
+    if (punchOpen) ManualPunchDialog(LocalDate.now()) { punchOpen = false }
+    if (dutyOpen) DutyReasonDialog(onPick = { AttendanceController.confirmPendingDuty(it); dutyOpen = false }, onDismiss = { dutyOpen = false })
 
     Column(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        // ---------- greeting ----------
-        Column(Modifier.padding(top = 20.dp, start = 4.dp)) {
-            Text(dt.format(dateFmt), style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
-            Text(greeting(dt.hour), style = MaterialTheme.typography.headlineMedium, color = c.textPrimary)
-        }
-
-        // ---------- status hero ----------
-        StatusHero(
-            status = st.status,
-            tracking = st.trackingOn,
-            officeName = settings.office?.name,
-            nowMs = now,
-            plan = st.plan,
-        )
-
-        // ---------- setup notices ----------
-        Notices(
-            show = !fine, icon = painterResource(R.drawable.ic_target),
-            text = "Allow precise location to start", action = "Allow",
-            tint = c.accent, bg = c.accentSoft,
-        ) { requestForeground() }
-        Notices(
-            show = fine && !background, icon = rememberVectorPainter(Icons.Filled.LocationOn),
-            text = "Set location to “Allow all the time”", action = "Allow",
-            tint = c.accent, bg = c.accentSoft,
-        ) { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) bgLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION) }
-        Notices(
-            show = !batteryOk, icon = rememberVectorPainter(Icons.Filled.Warning),
-            text = "Turn off battery limits so tracking never pauses", action = "Fix",
-            tint = c.warning, bg = c.warningSoft,
-        ) {
-            runCatching {
-                ctx.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${ctx.packageName}")))
+        // ── header ──
+        Row(Modifier.padding(top = 18.dp, start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(live.now.format(dateFmt), style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
+                Text(greeting(live.now.hour), style = MaterialTheme.typography.headlineMedium, color = c.textPrimary)
             }
-            permTick++
-        }
-        Notices(
-            show = settings.office == null, icon = painterResource(R.drawable.ic_gate),
-            text = "Add your office, gates and hours", action = "Set up",
-            tint = c.accent, bg = c.accentSoft,
-        ) { onOpenSetup() }
-
-        Notices(
-            show = PermissionsManager.autostartNeeded() && !PermissionsManager.autostartConfirmed(ctx) && permTick >= 0,
-            icon = painterResource(R.drawable.ic_system_update),
-            text = "Turn on Autostart so your phone never stops auto-punch", action = "Open",
-            tint = c.warning, bg = c.warningSoft,
-        ) {
-            PermissionsManager.openAutostartSettings(ctx)
-            PermissionsManager.setAutostartConfirmed(ctx)
-            permTick++
-        }
-
-        HealthLine(st.trackingOn, st.lastAcceptedMs, st.lastFix?.timeMs, now)
-
-        // "Was this lunch?" — answered here or from the notification
-        st.pendingLunch?.let { (outMs, inMs) ->
-            SoftCard(color = c.warningSoft, padding = 16.dp) {
-                Text("Were you at lunch?", style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+            Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    "Out ${fmtTime(outMs)} \u2192 back ${fmtTime(inMs)} (${(inMs - outMs) / 60_000} min)",
-                    style = MaterialTheme.typography.bodyMedium, color = c.textSecondary,
+                    "%d:%02d:%02d".format(if (live.now.hour % 12 == 0) 12 else live.now.hour % 12, live.now.minute, live.now.second),
+                    style = MaterialTheme.typography.titleLarge.copy(fontFeatureSettings = "tnum"), color = c.textPrimary,
                 )
-                Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SoftButton("Yes, lunch", { AttendanceController.confirmPendingLunch() }, Modifier.weight(1f),
-                        colors = c.warning.copy(alpha = 0.85f) to c.warning)
-                    SoftGhostButton("No, work", { AttendanceController.dismissPendingLunch() }, Modifier.weight(1f),
-                        tint = c.textSecondary, background = c.card)
+                Text(if (live.now.hour < 12) "AM" else "PM", style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+            }
+        }
+
+        // ── paused / setup problems ──
+        AnimatedVisibility(!st.trackingOn, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+            Row(
+                Modifier.fillMaxWidth().clip(Soft.tileShape).background(c.dangerSoft).padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                PulseDot(c.danger, true, 7.dp)
+                Spacer(Modifier.width(6.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Auto-punch is paused", style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
+                    Text("Your IN and OUT won't be recorded", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+                }
+                Row(
+                    Modifier.clip(Soft.pillShape).background(c.accent).pressScale { startTracking() }.padding(horizontal = 14.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(rememberVectorPainter(Icons.Filled.PlayArrow), null, tint = Color.White, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Start", color = Color.White, style = MaterialTheme.typography.labelLarge)
                 }
             }
         }
-
-        // Leave / WFH / holiday for today
-        var markOpen by remember { mutableStateOf(false) }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                st.plan?.dayOff?.let { "Today: $it" } ?: if (AttendanceController.dayMark(java.time.LocalDate.now()) != null) "Today: Half day" else "Taking leave or working from home today?",
-                Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = c.textSecondary,
-            )
-            MiniAction(if (st.plan?.dayOff != null) "Change" else "Mark today") { markOpen = true }
+        health?.let { h ->
+            AnimatedVisibility(st.trackingOn && h.score < 85, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+                NoticeCard(
+                    rememberVectorPainter(Icons.Filled.Warning),
+                    "Auto-punch health ${h.score}/100 · ${h.problems} thing${if (h.problems == 1) "" else "s"} to fix",
+                    "Fix", c.warning, c.warningSoft,
+                ) { UiChrome.setupPage = "check"; onOpenSetup() }
+            }
         }
-        if (markOpen) DayMarkDialog(java.time.LocalDate.now()) { markOpen = false }
+        if (PermissionsManager.autostartNeeded() && !PermissionsManager.autostartConfirmed(ctx) && permTick >= 0) {
+            NoticeCard(painterResource(R.drawable.ic_system_update), "Turn on Autostart so your phone never stops auto-punch", "Open",
+                c.warning, c.warningSoft) {
+                PermissionsManager.openAutostartSettings(ctx); PermissionsManager.setAutostartConfirmed(ctx); permTick++
+            }
+        }
+
+        // ── questions waiting for you ──
+        st.pendingDutyOut?.let { outMs ->
+            QuestionCard(
+                title = "You left at ${clock12(outMs)} · official work?",
+                text = "On duty time counts as worked hours.",
+                yes = "On duty", no = "Lunch / personal", tint = Color(0xFF6A4FE8),
+                onYes = { dutyOpen = true }, onNo = { AttendanceController.dismissPendingDuty() },
+            )
+        }
+        st.pendingLunch?.let { (outMs, inMs) ->
+            QuestionCard(
+                title = "Were you at lunch?",
+                text = "Out ${clock12(outMs)} → back ${clock12(inMs)} (${(inMs - outMs) / 60_000} min)",
+                yes = "Yes, lunch", no = "No, work", tint = c.warning,
+                onYes = { AttendanceController.confirmPendingLunch() }, onNo = { AttendanceController.dismissPendingLunch() },
+            )
+        }
+
+        // ── live hero ──
+        LiveHero(st.status, st.trackingOn, settings.office?.name, plan, live, st.today.punches.firstOrNull { it.type == EventType.CHECK_IN }?.timeMs)
+
+        // ── quick actions ──
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (st.lunch.active) ActionChip("✓  Back from lunch", c.success, c.successSoft) { AttendanceController.endLunch() }
+            else ActionChip("🍴  Lunch", c.warning, c.warningSoft) {
+                AttendanceController.startLunch()?.let { Toast.makeText(ctx, it, Toast.LENGTH_LONG).show() }
+            }
+            if (st.duty != null) ActionChip("✓  End duty", Color(0xFF6A4FE8), Color(0x1F6A4FE8)) { AttendanceController.endDuty() }
+            else ActionChip("💼  On duty", Color(0xFF6A4FE8), Color(0x1F6A4FE8)) { dutyOpen = true }
+            ActionChip("📅  ${if (plan?.dayOff != null) plan.dayOff else "Mark today"}", c.accent, c.accentSoft) { markOpen = true }
+            ActionChip("✎  Missed punch", c.accent, c.accentSoft) { punchOpen = true }
+            ActionChip("↪  Share today", c.success, c.successSoft) {
+                runCatching { ctx.startActivity(AttendanceController.shareIntent(AttendanceController.summaryText(LocalDate.now()))) }
+            }
+        }
+
+        // ── active lunch / duty ──
+        if (st.lunch.active) ActiveCard(
+            "On lunch since ${clock12(st.lunch.startedAtMs)}",
+            lunchLine(plan, settings.schedule.maxLunchMinutes),
+            hms((now - st.lunch.startedAtMs) / 1000), c.warning, c.warningSoft, "I'm back",
+        ) { AttendanceController.endLunch() }
+        st.duty?.let { (since, reason) ->
+            ActiveCard(
+                "On duty · $reason", "Since ${clock12(since)} · counts as worked time",
+                hms((now - since) / 1000), Color(0xFF6A4FE8), Color(0x1F6A4FE8), "End duty",
+            ) { AttendanceController.endDuty() }
+        }
+
+        // ── live analysis ──
+        LiveAnalysis(live, plan, st, stats, usualArrival, settings.schedule.maxLunchMinutes, settings.schedule.workDays)
+
+        // ── punches ──
+        PunchesCard(st.today.punches, now) { punchOpen = true }
+
+        // ── week ──
+        WeekCard(stats)
+
+        // ── location ──
+        LocationCard(st, settings.accuracy.maxAccuracyM, now)
 
         UpdateBanner()
-
-        // ---------- tracking button ----------
-        AnimatedContent(st.trackingOn, transitionSpec = { fadeIn(tween(250)) togetherWith fadeOut(tween(150)) }, label = "trk") { on ->
-            if (on) {
-                SoftGhostButton(
-                    "Pause tracking", {
-                        AttendanceController.settings.userPaused = true
-                        TrackingService.stop(ctx)
-                    },
-                    tint = c.textSecondary, background = c.cardMuted,
-                )
-            } else {
-                SoftButton(
-                    "Start tracking",
-                    {
-                        if (!fine) requestForeground()
-                        else if (settings.office == null) onOpenSetup()
-                        else {
-                            AttendanceController.settings.userPaused = false
-                            TrackingService.start(ctx)
-                        }
-                    },
-                    icon = rememberVectorPainter(Icons.Filled.PlayArrow),
-                )
-            }
-        }
-
-        // ---------- lunch ----------
-        LunchCard(st.lunch.active, st.lunch.startedAtMs, now, sc, st.plan) { msg ->
-            Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
-        }
-
-        // ---------- punches ----------
-        PunchesCard(st.today.punches, now)
-
-        // ---------- average worked hours ----------
-        val stats = remember(st.today.punches.size, now / 60_000) { AttendanceController.workedStats(now) }
-        WorkedHoursCard(stats)
-
-        // ---------- today stats ----------
-        SectionTitle("Today", Modifier.padding(top = 4.dp))
-        val t = st.today.secondsByStatus
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatTile("First in", fmtTime(st.today.firstInMs), painterResource(R.drawable.ic_gate), c.success, c.successSoft, Modifier.weight(1f))
-            StatTile("Last out", fmtTime(st.today.lastOutMs), painterResource(R.drawable.ic_gate), c.danger, c.dangerSoft, Modifier.weight(1f))
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatTile("In office", fmtDuration(t[WorkStatus.IN_OFFICE.name] ?: 0), painterResource(R.drawable.ic_clock), c.accent, c.accentSoft, Modifier.weight(1f))
-            StatTile("Away (work hrs)", fmtDuration(t[WorkStatus.OUTSIDE_OFFICE.name] ?: 0), painterResource(R.drawable.ic_clock), c.warning, c.warningSoft, Modifier.weight(1f))
-        }
-        val plan = st.plan
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatTile(
-                if ((plan?.extraLunchSec ?: 0L) > 0) "Logout (+${fmtDuration(plan!!.extraLunchSec)} lunch)" else "Expected logout",
-                fmtClock(plan?.expectedEnd), painterResource(R.drawable.ic_gate), c.accent, c.accentSoft, Modifier.weight(1f),
-            )
-            StatTile(
-                "Overtime", fmtDuration(t[WorkStatus.OVERTIME.name] ?: 0),
-                painterResource(R.drawable.ic_clock), Color(0xFF6A4FE8), Color(0x1F6A4FE8), Modifier.weight(1f),
-            )
-        }
-        if (plan?.late == true) {
-            Text(
-                "Arrived late at ${fmtClock(plan.firstIn)}" + (plan.latestStart?.let { " · on time until ${fmtClock(it)}" } ?: ""),
-                Modifier.fillMaxWidth().clip(Soft.tileShape).background(c.warningSoft).padding(14.dp),
-                style = MaterialTheme.typography.bodyMedium, color = c.textPrimary,
-            )
-        }
-
-        // ---------- location quality ----------
-        SectionTitle("Location", Modifier.padding(top = 4.dp))
-        SoftCard {
-            val acc = st.lastFix?.accuracyM?.takeIf { it < 1e6f }
-            val (q, qc, qbg) = when {
-                acc == null -> Triple("Waiting", c.textSecondary, c.cardMuted)
-                acc <= 10f -> Triple("Excellent", c.success, c.successSoft)
-                acc <= 25f -> Triple("Good", c.success, c.successSoft)
-                acc <= settings.accuracy.maxAccuracyM -> Triple("Fair", c.warning, c.warningSoft)
-                else -> Triple("Weak", c.danger, c.dangerSoft)
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f)) {
-                    CardHeader(painterResource(R.drawable.ic_target), "GPS signal", acc?.let { "± ${it.toInt()} m accuracy" } ?: "No fix yet")
-                }
-                Pill(q, qc, qbg)
-            }
-            Spacer(Modifier.height(14.dp))
-            val edge = st.edgeDistanceM
-            InfoLine("Presence", when (st.presence) {
-                Presence.INSIDE -> "Inside premises"
-                Presence.OUTSIDE -> "Outside premises"
-                Presence.UNKNOWN -> "Detecting…"
-            }, when (st.presence) {
-                Presence.INSIDE -> c.success
-                Presence.OUTSIDE -> c.danger
-                Presence.UNKNOWN -> c.textSecondary
-            })
-            InfoLine(
-                "Office boundary",
-                edge?.let { if (it <= 0) "${(-it).toInt()} m inside" else "${it.toInt()} m outside" } ?: "—",
-                if (edge == null) c.textSecondary else if (edge <= 0) c.success else c.warning,
-            )
-            InfoLine("At gate", st.nearGate ?: "—")
-            InfoLine("Last gate used", st.lastGateUsed ?: "—")
-            InfoLine("Last reliable fix", fmtTimeSec(st.lastAcceptedMs))
-            AnimatedVisibility(st.lastReject != null) {
-                Text(
-                    "Skipped a reading: ${st.lastReject ?: ""}",
-                    Modifier.padding(top = 8.dp).clip(Soft.tileShape).background(c.warningSoft).padding(12.dp).fillMaxWidth(),
-                    color = c.textPrimary, style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        }
-
         Spacer(Modifier.height(NavBarClearance))
-    }
-}
-
-/** Live proof that auto-punch is working: when the last location reading arrived. */
-@Composable
-private fun HealthLine(tracking: Boolean, lastAcceptedMs: Long?, lastFixMs: Long?, nowMs: Long) {
-    val c = Soft.colors
-    val last = listOfNotNull(lastAcceptedMs, lastFixMs).maxOrNull()
-    val age = last?.let { ((nowMs - it) / 1000).coerceAtLeast(0) }
-    val (text, color) = when {
-        !tracking -> "Auto-punch is paused" to c.danger
-        age == null -> "Auto-punch on · waiting for first GPS reading" to c.warning
-        age < 120 -> "Auto-punch active · location checked ${if (age < 60) "${age}s" else "${age / 60}m"} ago" to c.success
-        age < 600 -> "Auto-punch active · last reading ${age / 60}m ago" to c.warning
-        else -> "No location for ${age / 60} min — check GPS / battery settings" to c.danger
-    }
-    Row(
-        Modifier.fillMaxWidth().clip(Soft.pillShape).background(color.copy(alpha = 0.12f)).padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        PulseDot(color, tracking && (age ?: 999) < 120, 7.dp)
-        Spacer(Modifier.width(4.dp))
-        Text(text, style = MaterialTheme.typography.labelMedium, color = c.textPrimary)
-    }
-}
-
-/** Average worked hours per day + last 7 days. */
-@Composable
-private fun WorkedHoursCard(stats: AttendanceController.WorkedStats) {
-    val c = Soft.colors
-    val purple = Color(0xFF6A4FE8)
-    SoftCard {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f)) {
-                CardHeader(painterResource(R.drawable.ic_clock), "Worked hours", "Average per day \u00b7 last 30 days", purple, purple.copy(alpha = 0.12f))
-            }
-        }
-        Spacer(Modifier.height(16.dp))
-        Row(verticalAlignment = Alignment.Bottom) {
-            Text(
-                stats.avgSec?.let { fmtDuration(it) } ?: "\u2014",
-                style = MaterialTheme.typography.displaySmall, color = c.textPrimary,
-            )
-            Spacer(Modifier.width(10.dp))
-            Text("per day", Modifier.padding(bottom = 6.dp), style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
-        }
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            stats.avgSec?.let { avg ->
-                val diff = avg - stats.targetSec
-                val (txt, fg, bg) = if (diff >= 0) Triple("+${fmtDuration(diff)} vs ${fmtDuration(stats.targetSec)} target", c.success, c.successSoft)
-                else Triple("\u2212${fmtDuration(-diff)} vs ${fmtDuration(stats.targetSec)} target", c.warning, c.warningSoft)
-                Pill(txt, fg, bg)
-            }
-            Text(
-                if (stats.daysCounted == 0) "No full days yet" else "${stats.daysCounted} day${if (stats.daysCounted == 1) "" else "s"}",
-                style = MaterialTheme.typography.bodySmall, color = c.textSecondary,
-            )
-        }
-
-        // Last 7 days bar chart with target line
-        Spacer(Modifier.height(20.dp))
-        val maxSec = (stats.last7.maxOfOrNull { it.second } ?: 0L).coerceAtLeast(stats.targetSec).coerceAtLeast(1L)
-        val chartH = 110.dp
-        Box(Modifier.fillMaxWidth().height(chartH)) {
-            val targetFrac = stats.targetSec.toFloat() / maxSec
-            Row(Modifier.fillMaxWidth().height(chartH), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
-                stats.last7.forEachIndexed { i, (_, sec) ->
-                    val isToday = i == stats.last7.lastIndex
-                    val frac by androidx.compose.animation.core.animateFloatAsState(
-                        (sec.toFloat() / maxSec).coerceIn(0f, 1f), androidx.compose.animation.core.tween(900), label = "bar$i",
-                    )
-                    val color = when {
-                        sec == 0L -> c.cardMuted
-                        isToday -> c.accent
-                        sec >= stats.targetSec -> c.success
-                        else -> c.warning
-                    }
-                    Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.BottomCenter) {
-                        Box(
-                            Modifier.fillMaxWidth().fillMaxHeight(if (sec == 0L) 0.04f else frac.coerceAtLeast(0.04f))
-                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp)).background(color)
-                        )
-                    }
-                }
-            }
-            // target line
-            Box(
-                Modifier.fillMaxWidth().padding(bottom = chartH * targetFrac).align(Alignment.BottomStart)
-                    .height(1.5.dp).background(c.textSecondary.copy(alpha = 0.5f))
-            )
-        }
-        Spacer(Modifier.height(6.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            stats.last7.forEachIndexed { i, (d, sec) ->
-                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        if (i == stats.last7.lastIndex) "Today" else d.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault()),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (i == stats.last7.lastIndex) c.accent else c.textSecondary,
-                    )
-                    Text(
-                        if (sec == 0L) "\u2014" else "${sec / 3600}h${if ((sec % 3600) / 60 > 0) "${(sec % 3600) / 60}" else ""}",
-                        style = MaterialTheme.typography.labelSmall, color = c.textPrimary,
-                    )
-                }
-            }
-        }
-        stats.weekAvgSec?.let {
-            Spacer(Modifier.height(12.dp))
-            InfoLine("This week average", fmtDuration(it))
-        }
-        InfoLine("Today so far", fmtDuration(stats.todaySec), c.accent)
-    }
-}
-
-/** Every automatic IN / OUT of the day with gate and time spent inside. */
-@Composable
-private fun PunchesCard(punches: List<com.attendance.tracker.data.AttendanceEvent>, nowMs: Long) {
-    val c = Soft.colors
-    SoftCard {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f)) {
-                CardHeader(painterResource(R.drawable.ic_gate), "Punches today", "Recorded automatically at the gate")
-            }
-            Pill("${punches.size}", c.accent, c.accentSoft)
-        }
-        Spacer(Modifier.height(12.dp))
-        var addOpen by remember { mutableStateOf(false) }
-        if (punches.isEmpty()) {
-            Text(
-                "No punches yet. Your first IN is recorded as soon as you enter the office.",
-                style = MaterialTheme.typography.bodyMedium, color = c.textSecondary,
-            )
-        }
-        if (addOpen) ManualPunchDialog(java.time.LocalDate.now()) { addOpen = false }
-        punches.forEachIndexed { i, e ->
-            val isIn = e.type == com.attendance.tracker.data.EventType.CHECK_IN
-            val gate = Regex("via (.+?)( \\(|$| ·)").find(e.detail)?.groupValues?.get(1)
-            val approx = e.detail.contains("approximate")
-            val manual = e.detail.startsWith(AttendanceController.MANUAL_PREFIX)
-            Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    if (isIn) "IN" else "OUT",
-                    Modifier.width(52.dp).clip(Soft.pillShape).background(if (isIn) c.successSoft else c.dangerSoft)
-                        .padding(vertical = 5.dp),
-                    color = if (isIn) c.success else c.danger, style = MaterialTheme.typography.labelMedium,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                )
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text((if (approx) "~" else "") + fmtTime(e.timeMs), style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
-                    Text(
-                        if (manual) e.detail.removePrefix(AttendanceController.MANUAL_PREFIX)
-                        else (gate ?: "Office boundary") + (e.accuracyM?.let { " · ±${it.toInt()} m" } ?: "") + if (approx) " · approximate" else "",
-                        style = MaterialTheme.typography.bodySmall, color = c.textSecondary, maxLines = 2,
-                    )
-                }
-                if (manual) {
-                    Pill("Manual", c.warning, c.warningSoft)
-                    Spacer(Modifier.width(4.dp))
-                    Text("\u2715", Modifier.clip(CircleShape).pressScale { AttendanceController.deleteManualPunch(e) }.padding(8.dp),
-                        color = c.textSecondary, style = MaterialTheme.typography.labelMedium)
-                }
-                if (isIn) {
-                    val outMs = punches.getOrNull(i + 1)?.timeMs
-                    val dur = ((outMs ?: nowMs) - e.timeMs) / 1000
-                    Text(
-                        if (outMs == null) "inside ${fmtDuration(dur)}" else fmtDuration(dur),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (outMs == null) c.success else c.textSecondary,
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.height(10.dp))
-        MiniAction("+ Add missed punch") { addOpen = true }
     }
 }
 
@@ -508,176 +312,441 @@ private fun greeting(hour: Int) = when (hour) {
     else -> "Hello"
 }
 
-@Composable
-private fun Notices(
-    show: Boolean, icon: androidx.compose.ui.graphics.painter.Painter, text: String, action: String,
-    tint: Color, bg: Color, onClick: () -> Unit,
-) {
-    AnimatedVisibility(show, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-        NoticeCard(icon, text, action, tint, bg, onClick)
-    }
+private fun lunchLine(plan: DayPlan?, maxMin: Int): String {
+    val taken = plan?.lunchTakenSec ?: 0
+    val left = maxMin * 60L - taken
+    return if (left >= 0) "${fmtDuration(left)} left of $maxMin min" else "Over by ${fmtDuration(-left)} · added to your logout"
 }
 
+// ───────────────────────────── hero ─────────────────────────────
+
 @Composable
-private fun StatusHero(status: WorkStatus, tracking: Boolean, officeName: String?, nowMs: Long, plan: DayPlan?) {
+private fun LiveHero(status: WorkStatus, tracking: Boolean, officeName: String?, plan: DayPlan?, live: LiveDay, firstInMs: Long?) {
     val (g1, g2) = statusGradient(status)
     val a = animatedColor(g1, "heroA")
     val b = animatedColor(g2, "heroB")
-    val shape = Soft.cardShape
+    val white = Color.White
+    val soft = Color.White.copy(alpha = 0.8f)
     Column(
-        Modifier
-            .fillMaxWidth()
-            .shadow(26.dp, shape, ambientColor = b.copy(alpha = 0.45f), spotColor = b.copy(alpha = 0.45f))
-            .clip(shape)
-            .background(Brush.linearGradient(listOf(a, b)))
-            .padding(24.dp)
+        Modifier.fillMaxWidth()
+            .shadow(26.dp, Soft.cardShape, ambientColor = b.copy(alpha = 0.45f), spotColor = b.copy(alpha = 0.45f))
+            .clip(Soft.cardShape).background(Brush.linearGradient(listOf(a, b))).padding(20.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            PulseDot(Color.White, tracking, 8.dp)
-            Text(
-                if (tracking) "LIVE" else "PAUSED",
-                color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.labelSmall,
-            )
+            PulseDot(white, tracking, 7.dp)
+            AnimatedContent(status, transitionSpec = { fadeIn(tween(300)) togetherWith fadeOut(tween(150)) }, label = "st") { s ->
+                Text(if (s == WorkStatus.DAY_OFF && plan?.dayOff != null) plan.dayOff else s.label,
+                    color = white, style = MaterialTheme.typography.titleSmall)
+            }
             Spacer(Modifier.weight(1f))
-            Text(
-                fmtTime(nowMs),
-                Modifier.clip(Soft.pillShape).background(Color.White.copy(alpha = 0.2f)).padding(horizontal = 12.dp, vertical = 5.dp),
-                color = Color.White, style = MaterialTheme.typography.labelMedium,
-            )
+            Text(officeName ?: "No office set", color = soft, style = MaterialTheme.typography.labelMedium)
         }
-        Spacer(Modifier.height(18.dp))
-        AnimatedContent(status, transitionSpec = { fadeIn(tween(400)) togetherWith fadeOut(tween(200)) }, label = "statusText") { s ->
-            Column {
-                Text(statusShort(s), color = Color.White, style = MaterialTheme.typography.displaySmall)
-                Text(s.label, color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.bodyLarge)
-            }
-        }
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(16.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            androidx.compose.material3.Icon(
-                painterResource(R.drawable.ic_gate), null, tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.size(16.dp)
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(officeName ?: "Office not set up", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.bodyMedium)
-        }
-
-        // Workday progress: actual start → expected logout (incl. extra lunch)
-        Spacer(Modifier.height(22.dp))
-        val now = LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(nowMs), java.time.ZoneId.systemDefault())
-        val start = plan?.start
-        val end = plan?.expectedEnd
-        val white = Color.White.copy(alpha = 0.85f)
-        if (plan != null && start != null && end != null && plan.workDay) {
-            val total = Duration.between(start, end).seconds.coerceAtLeast(1)
-            val done = Duration.between(start, now).seconds.coerceIn(0, total)
-            SoftBar(done.toFloat() / total, Color.White, Color.White.copy(alpha = 0.25f), height = 6.dp)
-            Spacer(Modifier.height(8.dp))
-            val overtime = DayPlanner.overtimeSec(plan, now)
-            Row {
-                Text("In ${fmtClock(start)}", color = white, style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.weight(1f))
-                Text(
-                    when {
-                        overtime > 0 -> "+${fmtDuration(overtime)} overtime"
-                        now < start -> "Starts ${fmtClock(start)}"
-                        else -> "${fmtDuration(total - done)} left"
+            // Ring = progress through the working day (arrival → expected logout)
+            val p by animateFloatAsState(live.dayProgress, tween(800), label = "ring")
+            Box(Modifier.size(148.dp), contentAlignment = Alignment.Center) {
+                Canvas(Modifier.fillMaxSize()) {
+                    val sw = 12.dp.toPx()
+                    val d = size.minDimension - sw
+                    val tl = Offset((size.width - d) / 2, (size.height - d) / 2)
+                    drawArc(Color.White.copy(alpha = 0.22f), 0f, 360f, false, tl, Size(d, d), style = Stroke(sw, cap = StrokeCap.Round))
+                    drawArc(Color.White, -90f, 360f * p, false, tl, Size(d, d), style = Stroke(sw, cap = StrokeCap.Round))
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(hms(live.workedSec), color = white, fontSize = 24.sp, fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleLarge.copy(fontFeatureSettings = "tnum"))
+                    Text("worked", color = soft, style = MaterialTheme.typography.labelMedium)
+                    if (plan?.start != null) Text("${(live.dayProgress * 100).toInt()}% of day", color = soft, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            Spacer(Modifier.width(16.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                HeroStat("IN", firstInMs?.let { clock12(it) } ?: "—", white, soft)
+                HeroStat(
+                    "LOGOUT",
+                    clock12(plan?.expectedEnd),
+                    white, soft,
+                    sub = when {
+                        live.overtimeSec > 0 -> "+${fmtDuration(live.overtimeSec)} overtime"
+                        live.toGoSec != null -> "in ${fmtDuration(live.toGoSec)}"
+                        else -> null
                     },
-                    color = white, style = MaterialTheme.typography.labelMedium,
                 )
-                Spacer(Modifier.weight(1f))
-                Text("Out ${fmtClock(end)}", color = white, style = MaterialTheme.typography.labelMedium)
+                if ((plan?.extraLunchSec ?: 0L) > 0) HeroStat("EXTRA LUNCH", "+${fmtDuration(plan!!.extraLunchSec)}", white, soft)
             }
-            if (plan.extraLunchSec > 0) {
-                Text(
-                    "Logout extended +${fmtDuration(plan.extraLunchSec)} for extra lunch",
-                    Modifier.padding(top = 10.dp).clip(Soft.pillShape).background(Color.White.copy(alpha = 0.2f))
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    color = Color.White, style = MaterialTheme.typography.labelMedium,
-                )
-            }
-        } else if (plan != null && plan.workDay && plan.flexible) {
-            Text(
-                "Your day starts when you arrive · on time until ${fmtClock(plan.latestStart)}",
-                color = white, style = MaterialTheme.typography.labelMedium,
-            )
-        } else if (plan?.dayOff != null) {
-            Text("Marked as ${plan.dayOff} \u00b7 enjoy your day", color = white, style = MaterialTheme.typography.labelMedium)
-        } else {
-            Text("No work scheduled now", color = white, style = MaterialTheme.typography.labelMedium)
         }
+        Spacer(Modifier.height(12.dp))
+        val hint = when {
+            plan?.dayOff != null -> "Marked as ${plan.dayOff} · enjoy your day"
+            plan == null || !plan.workDay -> "No work scheduled today"
+            plan.start == null -> "Your day starts when you arrive · on time until ${clock12(plan.latestStart)}"
+            plan.late -> "Arrived after ${clock12(plan.latestStart)} · marked late"
+            else -> null
+        }
+        if (hint != null) Text(
+            hint,
+            Modifier.clip(Soft.pillShape).background(Color.White.copy(alpha = 0.18f)).padding(horizontal = 12.dp, vertical = 7.dp),
+            color = white, style = MaterialTheme.typography.labelMedium,
+        )
     }
 }
 
 @Composable
-private fun LunchCard(active: Boolean, startedAtMs: Long, nowMs: Long, sc: WorkSchedule, plan: DayPlan?, onError: (String) -> Unit) {
+private fun HeroStat(label: String, value: String, fg: Color, soft: Color, sub: String? = null) {
+    Column {
+        Text(label, color = soft, style = MaterialTheme.typography.labelSmall)
+        Text(value, color = fg, style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"))
+        if (sub != null) Text(sub, color = soft, style = MaterialTheme.typography.labelSmall)
+    }
+}
+
+// ───────────────────────────── live analysis ─────────────────────────────
+
+private val KIND_ORDER = listOf(DayTimeline.Kind.OFFICE, DayTimeline.Kind.LUNCH, DayTimeline.Kind.DUTY, DayTimeline.Kind.OUTSIDE)
+
+@Composable
+private fun kindColor(k: DayTimeline.Kind): Color {
     val c = Soft.colors
-    // Allowance is per day: earlier lunches today count against it.
-    val earlier = ((plan?.lunchTakenSec ?: 0L) - if (active) ((nowMs - startedAtMs) / 1000) else 0).coerceAtLeast(0)
-    val secs = if (active) ((nowMs - startedAtMs) / 1000).coerceAtLeast(0) + earlier else 0L
-    val maxSecs = sc.maxLunchMinutes * 60L
-    val over = active && secs >= maxSecs
-    val ringColor = animatedColor(if (over) c.danger else c.warning, "lunchRing")
+    return when (k) {
+        DayTimeline.Kind.OFFICE -> c.success
+        DayTimeline.Kind.LUNCH -> c.warning
+        DayTimeline.Kind.DUTY -> Color(0xFF6A4FE8)
+        DayTimeline.Kind.OUTSIDE -> c.danger
+    }
+}
+
+private fun kindLabel(k: DayTimeline.Kind) = when (k) {
+    DayTimeline.Kind.OFFICE -> "In office"
+    DayTimeline.Kind.LUNCH -> "Lunch"
+    DayTimeline.Kind.DUTY -> "On duty"
+    DayTimeline.Kind.OUTSIDE -> "Outside"
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun LiveAnalysis(
+    live: LiveDay, plan: DayPlan?, st: com.attendance.tracker.LiveState, stats: AttendanceController.WorkedStats,
+    usualArrival: Int?, maxLunchMin: Int, workDays: Set<java.time.DayOfWeek>,
+) {
+    val c = Soft.colors
     SoftCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            ProgressRing(
-                progress = if (active) secs.toFloat() / maxSecs else 0f,
-                color = ringColor, track = c.warningSoft,
-                modifier = Modifier.size(88.dp), stroke = 9.dp,
+            Text("Live analysis", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+            Row(
+                Modifier.clip(Soft.pillShape).background(c.dangerSoft).padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                androidx.compose.material3.Icon(
-                    painterResource(R.drawable.ic_lunch), null, tint = ringColor, modifier = Modifier.size(28.dp)
-                )
+                PulseDot(c.danger, true, 5.dp)
+                Text("LIVE", style = MaterialTheme.typography.labelSmall, color = c.danger)
             }
-            Spacer(Modifier.width(18.dp))
-            Column(Modifier.weight(1f)) {
-                Text("Lunch break", style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
-                AnimatedContent(active, label = "lunchTxt") { on ->
-                    if (on) {
-                        Column {
-                            Text(
-                                fmtDuration(secs),
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = if (over) c.danger else c.textPrimary,
-                            )
-                            Text(
-                                if (over) "Over by ${fmtDuration(secs - maxSecs)} · logout moves to ${fmtClock(plan?.expectedEnd)}"
-                                else "of ${sc.maxLunchMinutes} min · since ${fmtTime(startedAtMs)}",
-                                style = MaterialTheme.typography.bodySmall, color = c.textSecondary,
-                            )
-                        }
-                    } else {
-                        Column {
-                            Text(
-                                "Take it any time · ${sc.maxLunchMinutes} min allowed today",
-                                style = MaterialTheme.typography.bodySmall, color = c.textSecondary,
-                            )
-                            val taken = plan?.lunchTakenSec ?: 0L
-                            if (taken > 0) Text(
-                                "Taken today ${fmtDuration(taken)}" +
-                                    ((plan?.extraLunchSec ?: 0L).takeIf { it > 0 }?.let { " · +${fmtDuration(it)} added to logout" } ?: ""),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if ((plan?.extraLunchSec ?: 0L) > 0) c.warning else c.textSecondary,
-                            )
-                        }
+        }
+        Spacer(Modifier.height(14.dp))
+
+        // Timeline bar: first IN → expected logout (or now, if later)
+        val segs = live.segments
+        if (segs.isEmpty()) {
+            Text("Your day's timeline appears after your first IN.", style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
+        } else {
+            val startMs = segs.first().startMs
+            val endPlanMs = plan?.expectedEnd?.atZone(ZoneId.systemDefault())?.toInstant()?.toEpochMilli() ?: 0L
+            val nowMs = segs.last().endMs
+            val spanEnd = maxOf(nowMs, endPlanMs)
+            val span = (spanEnd - startMs).coerceAtLeast(1).toFloat()
+            val track = c.cardMuted
+            val colors = segs.map { kindColor(it.kind) }
+            Canvas(Modifier.fillMaxWidth().height(18.dp).clip(Soft.pillShape)) {
+                drawRect(track)
+                segs.forEachIndexed { i, s ->
+                    val x0 = (s.startMs - startMs) / span * size.width
+                    val x1 = (s.endMs - startMs) / span * size.width
+                    drawRect(colors[i], Offset(x0, 0f), Size((x1 - x0).coerceAtLeast(1f), size.height))
+                }
+                // "now" marker
+                val xn = (nowMs - startMs) / span * size.width
+                drawRect(Color.White, Offset((xn - 1.5f).coerceAtLeast(0f), 0f), Size(3f, size.height))
+            }
+            Spacer(Modifier.height(6.dp))
+            Row {
+                Text(clock12(startMs), style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+                Spacer(Modifier.weight(1f))
+                Text("now", style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+                Spacer(Modifier.weight(1f))
+                Text(if (endPlanMs > nowMs) clock12(endPlanMs) else clock12(nowMs), style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+            }
+            Spacer(Modifier.height(10.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                KIND_ORDER.forEach { k ->
+                    val sec = live.totals[k] ?: 0L
+                    if (sec > 0 || k == DayTimeline.Kind.OFFICE) Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(9.dp).clip(CircleShape).background(kindColor(k)))
+                        Spacer(Modifier.width(6.dp))
+                        Text("${kindLabel(k)} ${fmtDuration(sec)}", style = MaterialTheme.typography.bodySmall, color = c.textPrimary)
                     }
                 }
             }
         }
-        Spacer(Modifier.height(16.dp))
-        AnimatedContent(active, transitionSpec = { fadeIn(tween(250)) togetherWith fadeOut(tween(150)) }, label = "lunchBtn") { on ->
-            if (on) {
-                SoftButton(
-                    "I'm back from lunch", { AttendanceController.endLunch() },
-                    colors = c.success.copy(alpha = 0.85f) to c.success,
+
+        Spacer(Modifier.height(14.dp))
+        val insights = mutableListOf<Triple<String, String, Color>>()
+        // 1. pace / finish
+        when {
+            plan?.dayOff != null -> {}
+            live.overtimeSec > 0 && st.presence == Presence.INSIDE ->
+                insights += Triple("⏱", "Overtime: +${fmtDuration(live.overtimeSec)} so far", Color(0xFF6A4FE8))
+            live.toGoSec != null ->
+                insights += Triple("⏱", "Finish at ${clock12(plan?.expectedEnd)} · ${fmtDuration(live.toGoSec)} to go", c.accent)
+            plan?.start == null && plan?.workDay == true ->
+                insights += Triple("\u23F1", "Day not started \u00b7 logout = arrival + ${fmtDuration(stats.targetSec)}", c.textSecondary)
+        }
+        // 2. away right now
+        if (st.status == WorkStatus.OUTSIDE_OFFICE) {
+            val lastOut = st.today.punches.lastOrNull()?.takeIf { it.type == EventType.CHECK_OUT }?.timeMs
+            if (lastOut != null) insights += Triple("🚶", "Outside for ${fmtDuration((System.currentTimeMillis() - lastOut) / 1000)} · not counted as worked", c.danger)
+        }
+        // 3. arrival vs usual
+        val firstIn = st.today.punches.firstOrNull { it.type == EventType.CHECK_IN }?.timeMs
+        if (firstIn != null && usualArrival != null) {
+            val t = LocalDateTime.ofInstant(Instant.ofEpochMilli(firstIn), ZoneId.systemDefault())
+            val diff = (t.hour * 60 + t.minute) - usualArrival
+            val usual = clock12(LocalDate.now().atStartOfDay().plusMinutes(usualArrival.toLong()))
+            insights += when {
+                diff <= -5 -> Triple("🌅", "Arrived ${-diff} min earlier than your usual $usual", c.success)
+                diff >= 5 -> Triple("🌅", "Arrived $diff min later than your usual $usual", c.warning)
+                else -> Triple("🌅", "Arrived right on your usual time ($usual)", c.success)
+            }
+        }
+        // 4. lunch
+        if (plan?.start != null && plan.dayOff == null) {
+            val taken = plan.lunchTakenSec
+            insights += when {
+                taken == 0L && !st.lunch.active -> Triple("🍴", "Lunch not taken yet · $maxLunchMin min available", c.textSecondary)
+                taken <= maxLunchMin * 60L -> Triple("🍴", "Lunch ${fmtDuration(taken)} · ${fmtDuration(maxLunchMin * 60L - taken)} left", c.warning)
+                else -> Triple("🍴", "Lunch over by ${fmtDuration(taken - maxLunchMin * 60L)} · logout moved later", c.danger)
+            }
+        }
+        // 5. week progress
+        val monday = LocalDate.now().minusDays((LocalDate.now().dayOfWeek.value - 1).toLong())
+        val week = stats.last7.filter { !it.first.isBefore(monday) }
+        val weekWorked = week.sumOf { it.second }
+        val weekTarget = week.count { it.first.dayOfWeek in workDays } * stats.targetSec
+        if (weekTarget > 0) insights += Triple("📈",
+            "This week ${fmtDuration(weekWorked)} of ${fmtDuration(weekTarget)} (${(weekWorked * 100 / weekTarget)}%)", c.accent)
+        // 6. average
+        stats.avgSec?.let { insights += Triple("⚖", "30-day average ${fmtDuration(it)} per day · target ${fmtDuration(stats.targetSec)}",
+            if (it >= stats.targetSec) c.success else c.warning) }
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            insights.forEach { (icon, text, color) ->
+                Row(
+                    Modifier.fillMaxWidth().clip(Soft.tileShape).background(color.copy(alpha = 0.08f)).padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(icon, Modifier.width(26.dp), style = MaterialTheme.typography.titleSmall)
+                    Text(text, style = MaterialTheme.typography.bodyMedium, color = c.textPrimary)
+                }
+            }
+        }
+    }
+}
+
+// ───────────────────────────── small cards ─────────────────────────────
+
+@Composable
+private fun ActionChip(label: String, fg: Color, bg: Color, onClick: () -> Unit) {
+    Text(
+        label,
+        Modifier.clip(Soft.pillShape).background(bg).pressScale(onClick).padding(horizontal = 14.dp, vertical = 11.dp),
+        style = MaterialTheme.typography.labelLarge, color = fg, maxLines = 1,
+    )
+}
+
+@Composable
+private fun QuestionCard(title: String, text: String, yes: String, no: String, tint: Color, onYes: () -> Unit, onNo: () -> Unit) {
+    val c = Soft.colors
+    SoftCard(color = tint.copy(alpha = 0.10f), padding = 16.dp) {
+        Text(title, style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            SoftButton(yes, onYes, Modifier.weight(1f), colors = tint.copy(alpha = 0.85f) to tint)
+            SoftGhostButton(no, onNo, Modifier.weight(1f), tint = c.textSecondary, background = c.card)
+        }
+    }
+}
+
+@Composable
+private fun ActiveCard(title: String, sub: String, timer: String, tint: Color, bg: Color, action: String, onAction: () -> Unit) {
+    val c = Soft.colors
+    SoftCard(color = bg, padding = 16.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+                Text(sub, style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+            }
+            Text(timer, style = MaterialTheme.typography.titleLarge.copy(fontFeatureSettings = "tnum"), color = tint)
+        }
+        Spacer(Modifier.height(10.dp))
+        SoftButton(action, onAction, colors = tint.copy(alpha = 0.85f) to tint)
+    }
+}
+
+@Composable
+private fun DutyReasonDialog(onPick: (String) -> Unit, onDismiss: () -> Unit) {
+    val c = Soft.colors
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("On duty — what for?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Time out on official work counts as worked hours.", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+                DUTY_REASONS.forEach { r ->
+                    Text(r, Modifier.fillMaxWidth().clip(Soft.tileShape).background(c.cardMuted).pressScale { onPick(r) }.padding(14.dp),
+                        style = MaterialTheme.typography.bodyLarge, color = c.textPrimary)
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        shape = RoundedCornerShape(28.dp), containerColor = c.card,
+    )
+}
+
+/** Every IN / OUT of the day with gate, verified badge and time spent inside. */
+@Composable
+private fun PunchesCard(punches: List<AttendanceEvent>, nowMs: Long, onAdd: () -> Unit) {
+    val c = Soft.colors
+    SoftCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) { CardHeader(painterResource(R.drawable.ic_gate), "Punches today", "Recorded automatically at the gate") }
+            Pill("${punches.size}", c.accent, c.accentSoft)
+        }
+        Spacer(Modifier.height(10.dp))
+        if (punches.isEmpty()) {
+            Text("No punches yet. Your first IN is recorded as soon as you enter the office.",
+                style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
+        }
+        punches.forEachIndexed { i, e ->
+            val isIn = e.type == EventType.CHECK_IN
+            val manual = e.detail.startsWith(AttendanceController.MANUAL_PREFIX)
+            val verified = e.detail.contains(TrustChecks.VERIFIED)
+            val unverified = e.detail.contains(TrustChecks.NOT_VERIFIED)
+            val gate = Regex("via (.+?)( \\(|$| ·)").find(e.detail)?.groupValues?.get(1)
+            val approx = e.detail.contains("approximate")
+            Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (isIn) "IN" else "OUT",
+                    Modifier.width(50.dp).clip(Soft.pillShape).background(if (isIn) c.successSoft else c.dangerSoft).padding(vertical = 5.dp),
+                    color = if (isIn) c.success else c.danger, style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center,
                 )
-            } else {
-                SoftGhostButton(
-                    "Start lunch break",
-                    { AttendanceController.startLunch()?.let(onError) },
-                    tint = c.warning, background = c.warningSoft,
-                    icon = painterResource(R.drawable.ic_lunch),
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text((if (approx) "~" else "") + clock12(e.timeMs), style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+                    Text(
+                        when {
+                            manual -> e.detail.removePrefix(AttendanceController.MANUAL_PREFIX)
+                            else -> (gate ?: "Office boundary") + (e.accuracyM?.let { " · ±${it.toInt()} m" } ?: "")
+                        },
+                        style = MaterialTheme.typography.bodySmall, color = c.textSecondary, maxLines = 2,
+                    )
+                    when {
+                        manual -> Text("Manual", style = MaterialTheme.typography.labelSmall, color = c.warning)
+                        verified -> Text("✓ Verified", style = MaterialTheme.typography.labelSmall, color = c.success)
+                        unverified -> Text("⚠ " + e.detail.substringAfter(TrustChecks.NOT_VERIFIED),
+                            style = MaterialTheme.typography.labelSmall, color = c.warning, maxLines = 2)
+                    }
+                }
+                if (isIn) {
+                    val outMs = punches.getOrNull(i + 1)?.timeMs
+                    val dur = ((outMs ?: nowMs) - e.timeMs) / 1000
+                    Text(if (outMs == null) "inside\n${hms(dur)}" else fmtDuration(dur),
+                        style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+                        color = if (outMs == null) c.success else c.textSecondary, textAlign = TextAlign.End)
+                }
+                if (manual) Text("✕", Modifier.clip(CircleShape).pressScale { AttendanceController.deleteManualPunch(e) }.padding(8.dp),
+                    color = c.textSecondary, style = MaterialTheme.typography.labelMedium)
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        MiniAction("+ Add missed punch", onAdd)
+    }
+}
+
+/** Last 7 days, scaled so a full day fills ~80% of the height, with the target line. */
+@Composable
+private fun WeekCard(stats: AttendanceController.WorkedStats) {
+    val c = Soft.colors
+    SoftCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) { CardHeader(painterResource(R.drawable.ic_clock), "Last 7 days", "Hours worked per day", Color(0xFF6A4FE8), Color(0x1F6A4FE8)) }
+            stats.avgSec?.let { Pill("avg ${fmtDuration(it)}", c.accent, c.accentSoft) }
+        }
+        Spacer(Modifier.height(18.dp))
+        val chartH = 120.dp
+        val maxSec = maxOf(stats.last7.maxOfOrNull { it.second } ?: 0L, stats.targetSec).coerceAtLeast(1L) * 1.1f
+        val targetFrac = (stats.targetSec / maxSec).coerceIn(0f, 1f)
+        Box(Modifier.fillMaxWidth().height(chartH)) {
+            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
+                stats.last7.forEachIndexed { i, (_, sec) ->
+                    val isToday = i == stats.last7.lastIndex
+                    val f by animateFloatAsState((sec / maxSec).coerceIn(0f, 1f), tween(900), label = "w$i")
+                    val color = when {
+                        sec == 0L -> c.cardMuted
+                        isToday -> c.accent
+                        sec >= stats.targetSec -> c.success
+                        else -> c.warning
+                    }
+                    Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.Bottom, horizontalAlignment = Alignment.CenterHorizontally) {
+                        if (sec > 0) Text("${sec / 3600}:${"%02d".format((sec % 3600) / 60)}", style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+                        Box(Modifier.fillMaxWidth().fillMaxHeight(if (sec == 0L) 0.03f else (f * 0.85f).coerceAtLeast(0.05f))
+                            .clip(RoundedCornerShape(8.dp)).background(color))
+                    }
+                }
+            }
+            Box(Modifier.fillMaxWidth().align(Alignment.BottomStart).padding(bottom = chartH * targetFrac * 0.85f)
+                .height(1.5.dp).background(c.textSecondary.copy(alpha = 0.45f)))
+        }
+        Spacer(Modifier.height(6.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            stats.last7.forEachIndexed { i, (d, _) ->
+                Text(
+                    if (i == stats.last7.lastIndex) "Today" else d.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault()),
+                    Modifier.weight(1f), textAlign = TextAlign.Center, maxLines = 1, fontSize = 10.sp,
+                    color = if (i == stats.last7.lastIndex) c.accent else c.textSecondary,
                 )
             }
         }
+        Spacer(Modifier.height(6.dp))
+        Text("Line = your ${fmtDuration(stats.targetSec)} daily target", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+    }
+}
+
+@Composable
+private fun LocationCard(st: com.attendance.tracker.LiveState, maxAcc: Float, nowMs: Long) {
+    val c = Soft.colors
+    SoftCard(padding = 16.dp) {
+        val acc = st.lastFix?.accuracyM?.takeIf { it < 1e6f }
+        val (q, qc, qbg) = when {
+            acc == null -> Triple("Waiting", c.textSecondary, c.cardMuted)
+            acc <= 10f -> Triple("Excellent", c.success, c.successSoft)
+            acc <= 25f -> Triple("Good", c.success, c.successSoft)
+            acc <= maxAcc -> Triple("Fair", c.warning, c.warningSoft)
+            else -> Triple("Weak", c.danger, c.dangerSoft)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) {
+                CardHeader(painterResource(R.drawable.ic_target), "Location", acc?.let { "GPS ±${it.toInt()} m" } ?: "No GPS reading yet")
+            }
+            Pill(q, qc, qbg)
+        }
+        Spacer(Modifier.height(8.dp))
+        val edge = st.edgeDistanceM
+        InfoLine("Office boundary", edge?.let { if (it <= 0) "${(-it).toInt()} m inside" else "${it.toInt()} m outside" } ?: "—",
+            if (edge == null) c.textSecondary else if (edge <= 0) c.success else c.warning)
+        InfoLine("Office Wi-Fi", if (AttendanceController.onOfficeWifi) "Connected" else "Not connected",
+            if (AttendanceController.onOfficeWifi) c.success else c.textSecondary)
+        val last = listOfNotNull(st.lastAcceptedMs, st.lastFix?.timeMs).maxOrNull()
+        InfoLine("Last check", last?.let { "${((nowMs - it) / 1000).coerceAtLeast(0)}s ago" } ?: "—")
+        st.lastGateUsed?.let { InfoLine("Last gate used", it) }
     }
 }

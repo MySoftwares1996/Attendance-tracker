@@ -35,6 +35,8 @@ data class DaySummary(
     val secondsByStatus: Map<String, Long> = emptyMap(),
     /** Every IN / OUT punch of the day, in order. */
     val punches: List<com.attendance.tracker.data.AttendanceEvent> = emptyList(),
+    /** Punches + lunch + duty events (for the live timeline). */
+    val timeline: List<com.attendance.tracker.data.AttendanceEvent> = emptyList(),
 )
 
 data class LiveState(
@@ -54,6 +56,10 @@ data class LiveState(
     val plan: DayPlan? = null,
     /** An afternoon OUT → IN waiting for "Was this lunch?" (outMs to inMs). */
     val pendingLunch: Pair<Long, Long>? = null,
+    /** On duty since (ms) with reason, or null. */
+    val duty: Pair<Long, String>? = null,
+    /** Left during work hours, waiting for "Official work?" (OUT time). */
+    val pendingDutyOut: Long? = null,
 )
 
 /**
@@ -103,7 +109,15 @@ object AttendanceController {
         val res = engine.process(sample, s.office, s.accuracy, nowMs, onOfficeWifi = officeWifiSince > 0)
         var st = _state.value.copy(lastFix = sample)
         when (res) {
-            is PresenceEngine.Result.Rejected -> st = st.copy(lastReject = res.reason)
+            is PresenceEngine.Result.Rejected -> {
+                st = st.copy(lastReject = res.reason)
+                if (sample.isMock) {
+                    com.attendance.tracker.security.TrustChecks.recordMock(app, nowMs)
+                    if (settings.firstTime("mock_${nowMs / 3_600_000}")) {
+                        notify(4301, "Fake-GPS app detected", "Location readings are ignored until it is turned off. Punches today are marked Not verified.")
+                    }
+                }
+            }
             is PresenceEngine.Result.Accepted -> {
                 st = st.copy(
                     lastReject = null, lastAcceptedMs = sample.timeMs,
@@ -118,15 +132,16 @@ object AttendanceController {
                     when (t.to) {
                         Presence.INSIDE -> {
                             val first = if (t.from == Presence.UNKNOWN) " (already inside when tracking started)" else ""
-                            db.insertEvent(t.atMs, EventType.CHECK_IN, "Entered ${s.office?.name}$gateTxt$first$gapTxt",
+                            db.insertEvent(t.atMs, EventType.CHECK_IN, "Entered ${s.office?.name}$gateTxt$first$gapTxt${trustStamp()}",
                                 sample.lat, sample.lng, sample.accuracyM)
                             punchAlert(true, t.atMs, t.gate?.name, t.gapBeforeSec >= GAP_NOTE_SEC)
                             if (t.from == Presence.OUTSIDE) onReturnInside(t.atMs)
                         }
                         Presence.OUTSIDE -> if (t.from == Presence.INSIDE) {
-                            db.insertEvent(t.atMs, EventType.CHECK_OUT, "Left ${s.office?.name}$gateTxt$gapTxt",
+                            db.insertEvent(t.atMs, EventType.CHECK_OUT, "Left ${s.office?.name}$gateTxt$gapTxt${trustStamp()}",
                                 sample.lat, sample.lng, sample.accuracyM)
                             punchAlert(false, t.atMs, t.gate?.name, t.gapBeforeSec >= GAP_NOTE_SEC)
+                            maybeAskDuty(t.atMs)
                         }
                         Presence.UNKNOWN -> Unit
                     }
@@ -148,6 +163,7 @@ object AttendanceController {
             db.addDuration(dayKey(lastTickMs), prev.name, delta)
         }
         lastTickMs = nowMs
+        com.attendance.tracker.security.TrustChecks.saveClockBaseline(app)
         refresh(nowMs)
     }
 
@@ -180,7 +196,7 @@ object AttendanceController {
             if (engine.presence == Presence.UNKNOWN || !gpsFresh || nearEdge) {
                 engine.wifiCheckIn(nowMs)?.let { t ->
                     settings.presence = Presence.INSIDE
-                    db.insertEvent(nowMs, EventType.CHECK_IN, "Entered ${settings.settings.value.office?.name} (via office Wi-Fi)")
+                    db.insertEvent(nowMs, EventType.CHECK_IN, "Entered ${settings.settings.value.office?.name} (via office Wi-Fi)${trustStamp()}")
                     punchAlert(true, nowMs, null, false)
                     if (t.from == Presence.OUTSIDE) onReturnInside(nowMs)
                     refresh(nowMs)
@@ -274,6 +290,8 @@ object AttendanceController {
         val day = LocalDateTime.ofInstant(Instant.ofEpochMilli(inMs), zone()).toLocalDate()
         val from = day.atStartOfDay(zone()).toInstant().toEpochMilli()
         val events = db.events(from, inMs + 1)
+        if (settings.dutyStartMs > 0) { endDuty(inMs, auto = true); return }
+        dismissPendingDutySilently()
         val lastOut = events.lastOrNull { it.type == EventType.CHECK_OUT && it.timeMs < inMs } ?: return
         val l = settings.lunch
         if (l.active) {
@@ -400,12 +418,13 @@ object AttendanceController {
             lunch = LunchState(); settings.lunch = lunch
             dayPlan = plan(nowMs)
         }
-        val status = StatusResolver.resolve(now, nowMs, dayPlan, s.schedule, engine.presence, lunch)
+        val status = StatusResolver.resolve(now, nowMs, dayPlan, s.schedule, engine.presence, lunch, onDuty = settings.dutyStartMs > 0)
         val old = lastStatus
         if (old != null && old != status) {
             db.insertEvent(nowMs, EventType.STATUS, "${old.label} → ${status.label}")
-            if (status == WorkStatus.OUTSIDE_OFFICE || status == WorkStatus.LATE || status == WorkStatus.DAY_COMPLETE) {
-                alert(status, dayPlan)
+            if (status == WorkStatus.LATE || status == WorkStatus.DAY_COMPLETE) alert(status, dayPlan)
+            if (status == WorkStatus.DAY_COMPLETE && settings.autoSummary && settings.firstTime("eod_${dayPlan.date}")) {
+                notifySummary(dayPlan.date)
             }
         }
         lastStatus = status
@@ -415,6 +434,8 @@ object AttendanceController {
             status = status, presence = engine.presence, lunch = lunch,
             trackingOn = settings.trackingEnabled, today = summary(now.toLocalDate()), plan = dayPlan,
             pendingLunch = pl,
+            duty = settings.dutyStartMs.takeIf { it > 0 }?.let { it to settings.dutyReason },
+            pendingDutyOut = settings.pendingDutyOutMs.takeIf { it > 0 },
         )
         runCatching { com.attendance.tracker.widget.AttendanceWidget.updateIfChanged(app) }
     }
@@ -428,6 +449,7 @@ object AttendanceController {
             lastOutMs = ev.lastOrNull { it.type == EventType.CHECK_OUT }?.timeMs,
             secondsByStatus = db.durations(day.toString()),
             punches = ev.filter { it.type == EventType.CHECK_IN || it.type == EventType.CHECK_OUT },
+            timeline = ev.filter { it.type in TIMELINE_TYPES },
         )
     }
 
@@ -452,8 +474,7 @@ object AttendanceController {
         }
         fun dayWorked(d: LocalDate): Long {
             val ev = byDay[d] ?: return 0
-            val punches = ev.filter { it.type == EventType.CHECK_IN || it.type == EventType.CHECK_OUT }
-                .map { com.attendance.tracker.core.WorkedTime.Punch(it.timeMs, it.type == EventType.CHECK_IN) }
+            val punches = workPunches(ev)
             // Open stay: today → now; past day → last thing recorded that day.
             val close = if (d == today) nowMs else ev.maxOf { it.timeMs }
             return com.attendance.tracker.core.WorkedTime.workedSec(punches, close)
@@ -469,6 +490,171 @@ object AttendanceController {
         val last7 = (6L downTo 0L).map { today.minusDays(it) }.map { it to if (it == today) todaySec else dayWorked(it) }
         return WorkedStats(todaySec, avg, counted, weekAvg, last7, settings.settings.value.schedule.requiredMinutes * 60L)
     }
+
+    /** IN/OUT punches plus on-duty time (counted as worked) for worked-time maths. */
+    fun workPunches(ev: List<com.attendance.tracker.data.AttendanceEvent>): List<com.attendance.tracker.core.WorkedTime.Punch> =
+        ev.mapNotNull {
+            when (it.type) {
+                EventType.CHECK_IN, EventType.DUTY_START -> com.attendance.tracker.core.WorkedTime.Punch(it.timeMs, true)
+                EventType.CHECK_OUT, EventType.DUTY_END -> com.attendance.tracker.core.WorkedTime.Punch(it.timeMs, false)
+                else -> null
+            }
+        }
+
+    private fun trustStamp(): String = runCatching { com.attendance.tracker.security.TrustChecks.stamp(app) }.getOrDefault("")
+
+    // ───────────── on duty ─────────────
+
+    /** Left during work hours (not at lunch): ask "Official work?". */
+    private fun maybeAskDuty(outMs: Long) {
+        if (!settings.askDuty || settings.lunch.active || settings.dutyStartMs > 0) return
+        val p = plan(outMs)
+        val now = LocalDateTime.ofInstant(Instant.ofEpochMilli(outMs), zone())
+        val end = p.expectedEnd ?: return
+        if (!p.workDay || p.dayOff != null || p.start == null || now >= end) return
+        settings.pendingDutyOutMs = outMs
+        val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        fun action(a: String, req: Int) = PendingIntent.getBroadcast(
+            app, req, Intent(app, DutyActionReceiver::class.java).setAction(a), PendingIntent.FLAG_IMMUTABLE
+        )
+        runCatching {
+            nm.notify(DUTY_ASK_ID, NotificationCompat.Builder(app, AttendanceApp.CHANNEL_REMINDERS)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle("You left at ${clock(outMs)} \u00b7 official work?")
+                .setContentText("On duty time counts as worked hours.")
+                .addAction(0, "On duty", action(DutyActionReceiver.ON_DUTY, 71))
+                .addAction(0, "Lunch / personal", action(DutyActionReceiver.PERSONAL, 72))
+                .setContentIntent(PendingIntent.getActivity(app, 8, Intent(app, com.attendance.tracker.ui.MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE))
+                .setAutoCancel(true).build())
+        }
+        refresh()
+    }
+
+    /** Start on-duty now, or from the pending OUT time if there is one. */
+    @Synchronized
+    fun confirmPendingDuty(reason: String) {
+        val from = settings.pendingDutyOutMs.takeIf { it > 0 } ?: System.currentTimeMillis()
+        startDuty(reason, from)
+    }
+
+    @Synchronized
+    fun startDuty(reason: String, fromMs: Long = System.currentTimeMillis()) {
+        if (settings.dutyStartMs > 0) { setDutyReason(reason); return }
+        settings.dutyStartMs = fromMs
+        settings.dutyReason = reason
+        db.insertEvent(fromMs, EventType.DUTY_START, "On duty \u00b7 $reason")
+        dismissPendingDutySilently()
+        refresh()
+    }
+
+    fun setDutyReason(reason: String) {
+        settings.dutyReason = reason
+        refresh()
+    }
+
+    @Synchronized
+    fun endDuty(atMs: Long = System.currentTimeMillis(), auto: Boolean = false) {
+        val start = settings.dutyStartMs
+        if (start <= 0) return
+        val mins = (atMs - start) / 60_000
+        db.insertEvent(atMs, EventType.DUTY_END, "Back from duty \u00b7 ${settings.dutyReason} \u00b7 $mins min counted as work")
+        settings.dutyStartMs = 0L
+        if (auto) notify(4102, "Welcome back \u2014 duty ended", "$mins min of ${settings.dutyReason} counted as work.")
+        refresh()
+    }
+
+    @Synchronized
+    fun dismissPendingDuty() { dismissPendingDutySilently(); refresh() }
+
+    private fun dismissPendingDutySilently() {
+        settings.pendingDutyOutMs = 0L
+        (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(DUTY_ASK_ID)
+    }
+
+    // ───────────── end-of-day summary ─────────────
+
+    fun summaryText(day: LocalDate): String {
+        val from = day.atStartOfDay(zone()).toInstant().toEpochMilli()
+        val to = day.plusDays(1).atStartOfDay(zone()).toInstant().toEpochMilli()
+        val ev = db.events(from, to)
+        val now = System.currentTimeMillis()
+        val close = if (day == LocalDate.now()) now else ev.maxOfOrNull { it.timeMs } ?: from
+        val worked = com.attendance.tracker.core.WorkedTime.workedSec(workPunches(ev), close)
+        val segs = com.attendance.tracker.core.DayTimeline.segments(timelineEvents(ev), close)
+        val totals = com.attendance.tracker.core.DayTimeline.totals(segs)
+        fun hm(sec: Long) = "${sec / 3600}h ${"%02d".format((sec % 3600) / 60)}m"
+        val gate = Regex("via (.+?)( \\(|$| \u00b7)")
+        val lines = mutableListOf("\uD83D\uDCCB Attendance \u2013 ${day.format(java.time.format.DateTimeFormatter.ofPattern("EEE, d MMM yyyy"))}")
+        ev.filter { it.type == EventType.CHECK_IN || it.type == EventType.CHECK_OUT }.forEach { e ->
+            val g = gate.find(e.detail)?.groupValues?.get(1)?.let { " ($it)" } ?: ""
+            val m = if (e.detail.startsWith(MANUAL_PREFIX)) " (manual)" else ""
+            lines += "${if (e.type == EventType.CHECK_IN) "IN " else "OUT"} ${clock(e.timeMs)}$g$m"
+        }
+        lines += "Worked ${hm(worked)}" + (totals[com.attendance.tracker.core.DayTimeline.Kind.LUNCH]?.let { " \u00b7 Lunch ${hm(it)}" } ?: "")
+        totals[com.attendance.tracker.core.DayTimeline.Kind.DUTY]?.let { lines += "On duty ${hm(it)}" }
+        val p = plan(close)
+        if (p.late) lines += "Late arrival"
+        db.dayMark(day.toString())?.let { lines += it.label }
+        return lines.joinToString("\n")
+    }
+
+    fun timelineEvents(ev: List<com.attendance.tracker.data.AttendanceEvent>): List<com.attendance.tracker.core.DayTimeline.Event> =
+        ev.mapNotNull {
+            val k = when (it.type) {
+                EventType.CHECK_IN -> com.attendance.tracker.core.DayTimeline.Ev.IN
+                EventType.CHECK_OUT -> com.attendance.tracker.core.DayTimeline.Ev.OUT
+                EventType.LUNCH_START -> com.attendance.tracker.core.DayTimeline.Ev.LUNCH_START
+                EventType.LUNCH_END -> com.attendance.tracker.core.DayTimeline.Ev.LUNCH_END
+                EventType.DUTY_START -> com.attendance.tracker.core.DayTimeline.Ev.DUTY_START
+                EventType.DUTY_END -> com.attendance.tracker.core.DayTimeline.Ev.DUTY_END
+                else -> null
+            }
+            k?.let { com.attendance.tracker.core.DayTimeline.Event(it.timeMs, k) }
+        }
+
+    fun shareIntent(text: String): Intent = Intent.createChooser(
+        Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), "Share today's attendance"
+    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+    /** Opens WhatsApp to the manager's number with the text filled in (you still tap Send). */
+    fun managerIntent(text: String): Intent? {
+        val digits = settings.managerPhone.filter { it.isDigit() }
+        if (digits.length < 8) return null
+        return Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://wa.me/$digits?text=" + java.net.URLEncoder.encode(text, "UTF-8")))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+    private fun notifySummary(day: LocalDate) {
+        val text = summaryText(day)
+        val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val share = PendingIntent.getActivity(app, 81, shareIntent(text), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val b = NotificationCompat.Builder(app, AttendanceApp.CHANNEL_REMINDERS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Day complete \u00b7 " + text.lines().firstOrNull { it.startsWith("Worked") }.orEmpty())
+            .setContentText("Tap Share to send today's summary")
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .addAction(0, "Share", share)
+            .setAutoCancel(true)
+        managerIntent(text)?.let {
+            b.addAction(0, "Send to manager", PendingIntent.getActivity(app, 82, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+        }
+        runCatching { nm.notify(4401, b.build()) }
+    }
+
+    /** Average first-IN time (minutes after midnight) over the last 30 days, or null. */
+    fun usualArrivalMin(): Int? {
+        val today = LocalDate.now()
+        val from = today.minusDays(30).atStartOfDay(zone()).toInstant().toEpochMilli()
+        val to = today.atStartOfDay(zone()).toInstant().toEpochMilli()
+        val firsts = db.events(from, to).filter { it.type == EventType.CHECK_IN }
+            .groupBy { Instant.ofEpochMilli(it.timeMs).atZone(zone()).toLocalDate() }
+            .map { (_, v) -> Instant.ofEpochMilli(v.minOf { it.timeMs }).atZone(zone()).toLocalTime().let { it.hour * 60 + it.minute } }
+        return if (firsts.isEmpty()) null else firsts.sum() / firsts.size
+    }
+
+    private const val DUTY_ASK_ID = 4110
+    private val TIMELINE_TYPES = setOf(EventType.CHECK_IN, EventType.CHECK_OUT, EventType.LUNCH_START,
+        EventType.LUNCH_END, EventType.DUTY_START, EventType.DUTY_END)
 
     /** Declare lunch break. Returns an error message or null on success. */
     @Synchronized

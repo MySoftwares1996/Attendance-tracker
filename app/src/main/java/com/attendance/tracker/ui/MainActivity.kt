@@ -171,6 +171,8 @@ object UiChrome {
     var fullScreen by mutableStateOf(false)
     /** Text shared into the app from Google Maps (Share → Attendance Tracker). */
     var sharedLink by mutableStateOf<String?>(null)
+    /** Setup page to open next ("check"), e.g. from the health notice on Today. */
+    var setupPage by mutableStateOf<String?>(null)
     /** "office" or "gate" once the user picked what the shared location is for. */
     var sharedTarget by mutableStateOf<String?>(null)
 }

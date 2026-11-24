@@ -30,6 +30,8 @@ object StatusResolver {
         schedule: WorkSchedule,
         presence: Presence,
         lunch: LunchState,
+        /** Out of the office on official work: counts as working. */
+        onDuty: Boolean = false,
     ): WorkStatus {
         if (plan.dayOff != null) return WorkStatus.DAY_OFF
         if (!plan.workDay || now >= plan.cutoff) return WorkStatus.OUTSIDE_WORKING_HOURS
@@ -39,6 +41,7 @@ object StatusResolver {
             val over = mins >= schedule.maxLunchMinutes || plan.lunchTakenSec >= schedule.maxLunchMinutes * 60L
             return if (over) WorkStatus.LUNCH_EXCEEDED else WorkStatus.ON_LUNCH
         }
+        if (onDuty && presence != Presence.INSIDE) return WorkStatus.ON_DUTY
         val start = plan.start
         if (start == null) {
             // Flexible day and you haven't arrived yet.

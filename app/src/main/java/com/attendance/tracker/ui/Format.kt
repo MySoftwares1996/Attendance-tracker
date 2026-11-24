@@ -34,6 +34,7 @@ fun statusGradient(s: WorkStatus): Pair<Color, Color> = when (s) {
     WorkStatus.OVERTIME -> Color(0xFF9F8CFF) to Color(0xFF6A4FE8)
     WorkStatus.DAY_COMPLETE -> Color(0xFF6FD6C8) to Color(0xFF26A69A)
     WorkStatus.DAY_OFF -> Color(0xFFC3A6F5) to Color(0xFF8E63E0)
+    WorkStatus.ON_DUTY -> Color(0xFF9F8CFF) to Color(0xFF5B45D6)
 }
 
 fun statusColor(s: WorkStatus): Color = statusGradient(s).second
@@ -50,6 +51,7 @@ fun statusShort(s: WorkStatus): String = when (s) {
     WorkStatus.OVERTIME -> "Overtime"
     WorkStatus.DAY_COMPLETE -> "Day done"
     WorkStatus.DAY_OFF -> "Day off"
+    WorkStatus.ON_DUTY -> "On duty"
 }
 
 fun fmtClock(t: java.time.LocalDateTime?): String = t?.let { "%02d:%02d".format(it.hour, it.minute) } ?: "—"

@@ -24,7 +24,8 @@ object ReportExporter {
     private fun hm(sec: Long) = if (sec <= 0) "" else "%d:%02d".format(sec / 3600, (sec % 3600) / 60)
     private fun punchList(r: DayReport) = r.punches.joinToString(" | ") {
         (if (it.type.name == "CHECK_IN") "IN " else "OUT ") + t(it.timeMs) +
-            if (it.detail.startsWith(AttendanceController.MANUAL_PREFIX)) " (manual)" else ""
+            (if (it.detail.startsWith(AttendanceController.MANUAL_PREFIX)) " (manual)" else "") +
+            (if (it.detail.contains(com.attendance.tracker.security.TrustChecks.NOT_VERIFIED)) " (not verified)" else "")
     }
 
     private fun dir(ctx: Context) = File(ctx.cacheDir, "reports").apply { mkdirs() }

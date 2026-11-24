@@ -54,7 +54,7 @@ object MonthReports {
             val ev = events[date].orEmpty()
             val punches = ev.filter { it.type == EventType.CHECK_IN || it.type == EventType.CHECK_OUT }
             val close = if (date == today) nowMs else ev.maxOfOrNull { it.timeMs } ?: 0L
-            val worked = WorkedTime.workedSec(punches.map { WorkedTime.Punch(it.timeMs, it.type == EventType.CHECK_IN) }, close)
+            val worked = WorkedTime.workedSec(AttendanceController.workPunches(ev), close)
             var lunch = 0L; var open: Long? = null
             ev.forEach {
                 if (it.type == EventType.LUNCH_START) open = it.timeMs

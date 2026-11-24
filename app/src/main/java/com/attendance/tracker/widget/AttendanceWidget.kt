@@ -55,8 +55,7 @@ class AttendanceWidget : AppWidgetProvider() {
             fun clock(ms: Long) = Instant.ofEpochMilli(ms).atZone(zone).toLocalTime()
                 .let { "%d:%02d %s".format(if (it.hour % 12 == 0) 12 else it.hour % 12, it.minute, if (it.hour < 12) "AM" else "PM") }
 
-            val punches = st.today.punches.map { WorkedTime.Punch(it.timeMs, it.type == EventType.CHECK_IN) }
-            val worked = WorkedTime.workedSec(punches, now)
+            val worked = WorkedTime.workedSec(AttendanceController.workPunches(st.today.timeline), now)
             val plan = st.plan
             val end = plan?.expectedEnd
             val target = AttendanceController.settings.settings.value.schedule.requiredMinutes * 60L
@@ -68,6 +67,7 @@ class AttendanceWidget : AppWidgetProvider() {
                 WorkStatus.OUTSIDE_OFFICE -> "● Outside office" to 0xFFF0506E.toInt()
                 WorkStatus.LATE -> "● Running late" to 0xFFF2694A.toInt()
                 WorkStatus.DAY_OFF -> "● ${plan?.dayOff ?: "Day off"}" to 0xFF8E63E0.toInt()
+                WorkStatus.ON_DUTY -> "● On duty" to 0xFF6A4FE8.toInt()
                 WorkStatus.DAY_COMPLETE -> "● Day done" to 0xFF26A69A.toInt()
                 WorkStatus.NOT_STARTED -> "● Not started" to 0xFF3D9BE0.toInt()
                 else -> "● ${st.status.label}" to 0xFF7A8099.toInt()

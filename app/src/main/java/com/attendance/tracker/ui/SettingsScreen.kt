@@ -93,7 +93,7 @@ import java.time.DayOfWeek
 import java.util.Locale
 import java.util.UUID
 
-private enum class Page { SUMMARY, OFFICE, GATES, HOURS, LUNCH, UPDATES, ADVANCED, WIFI, BACKUP }
+private enum class Page { SUMMARY, OFFICE, GATES, HOURS, LUNCH, UPDATES, ADVANCED, WIFI, BACKUP, CHECK }
 
 private val WIZARD = listOf(Page.OFFICE, Page.GATES, Page.HOURS, Page.LUNCH)
 
@@ -167,6 +167,11 @@ fun SettingsScreen() {
     }
     LaunchedEffect(incoming) { if (incoming == null) UiChrome.sharedTarget = null }
 
+    // Opened from the health notice on Today
+    LaunchedEffect(UiChrome.setupPage) {
+        if (UiChrome.setupPage == "check") { wizardStep = -1; page = Page.CHECK; UiChrome.setupPage = null }
+    }
+
     // Map pages are full screen: hide the bottom tabs and draw under the status bar.
     val fullScreen = shown == Page.OFFICE || shown == Page.GATES
     LaunchedEffect(fullScreen) { UiChrome.fullScreen = fullScreen }
@@ -208,6 +213,7 @@ fun SettingsScreen() {
                     Page.UPDATES -> SoftCard { UpdateControls() }
                     Page.ADVANCED -> AdvancedStep(settings)
                     Page.WIFI -> WifiStep()
+                    Page.CHECK -> HealthStep { page = it }
                     Page.BACKUP -> BackupStep()
                 }
                 if (inWizard) {
@@ -317,6 +323,15 @@ private fun Summary(s: AppSettings, open: (Page) -> Unit) {
     }
     val o = s.office
     val sc = s.schedule
+    val ctxH = LocalContext.current
+    var health by remember { mutableStateOf<com.attendance.tracker.health.HealthReport?>(null) }
+    LaunchedEffect(Unit) { health = runCatching { com.attendance.tracker.health.HealthCheck.run(ctxH) }.getOrNull() }
+    SoftCard(padding = 8.dp) {
+        val h = health
+        SummaryRow(painterResource(R.drawable.ic_shield), "Auto-punch health",
+            h?.let { if (it.problems == 0) "${it.score}/100 \u00b7 all good" else "${it.score}/100 \u00b7 ${it.problems} to fix" } ?: "Checking\u2026",
+            (h?.score ?: 100) >= 85) { open(Page.CHECK) }
+    }
     SoftCard(padding = 8.dp) {
         SummaryRow(painterResource(R.drawable.ic_gate), "Office",
             o?.let { if (it.hasPolygon) "${it.name} · area drawn on map" else "${it.name} · ${sizeLabel(it.radiusM)} circle — tap to draw exact area" }
@@ -739,6 +754,92 @@ private fun LunchStep(s: AppSettings) {
     }
 }
 
+// ───────────────────────────── health check ─────────────────────────────
+
+@Composable
+private fun HealthStep(open: (Page) -> Unit) {
+    val ctx = LocalContext.current
+    val c = Soft.colors
+    val scope = rememberCoroutineScope()
+    var report by remember { mutableStateOf<com.attendance.tracker.health.HealthReport?>(null) }
+    var tick by remember { mutableIntStateOf(0) }
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) { tick++; onPauseOrDispose { } }
+    LaunchedEffect(tick) { report = com.attendance.tracker.health.HealthCheck.run(ctx) }
+    val pm = com.attendance.tracker.permissions.PermissionsManager
+    fun go(i: android.content.Intent) { runCatching { ctx.startActivity(i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } }
+    fun fix(f: com.attendance.tracker.health.Fix) {
+        when (f) {
+            com.attendance.tracker.health.Fix.APP_SETTINGS, com.attendance.tracker.health.Fix.BACKGROUND -> go(pm.appSettingsIntent(ctx))
+            com.attendance.tracker.health.Fix.LOCATION_ON -> go(android.content.Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+            com.attendance.tracker.health.Fix.BATTERY -> go(pm.batteryIntent(ctx))
+            com.attendance.tracker.health.Fix.NOTIFICATIONS -> go(pm.notificationSettingsIntent(ctx))
+            com.attendance.tracker.health.Fix.UNUSED -> go(pm.unusedAppIntent(ctx))
+            com.attendance.tracker.health.Fix.AUTOSTART -> { pm.openAutostartSettings(ctx); pm.setAutostartConfirmed(ctx) }
+            com.attendance.tracker.health.Fix.OFFICE -> open(Page.OFFICE)
+            com.attendance.tracker.health.Fix.GATES -> open(Page.GATES)
+            com.attendance.tracker.health.Fix.WIFI -> open(Page.WIFI)
+            com.attendance.tracker.health.Fix.DATE_SETTINGS -> go(android.content.Intent(android.provider.Settings.ACTION_DATE_SETTINGS))
+            com.attendance.tracker.health.Fix.START_TRACKING -> {
+                AttendanceController.settings.userPaused = false
+                runCatching { TrackingService.start(ctx) }
+                tick++
+            }
+        }
+    }
+
+    StepTitle("Auto-punch health", "Everything automatic IN/OUT depends on, checked live.")
+    val r = report
+    SoftCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            val score = r?.score ?: 0
+            val col = when { score >= 85 -> c.success; score >= 60 -> c.warning; else -> c.danger }
+            ProgressRing(score / 100f, col, col.copy(alpha = 0.15f), Modifier.size(84.dp), stroke = 9.dp) {
+                Text(if (r == null) "\u2026" else "$score", style = MaterialTheme.typography.headlineSmall, color = c.textPrimary)
+            }
+            Spacer(Modifier.width(16.dp))
+            Column {
+                Text(
+                    when { r == null -> "Checking\u2026"; r.problems == 0 -> "All good"; else -> "${r.problems} thing${if (r.problems == 1) "" else "s"} to fix" },
+                    style = MaterialTheme.typography.titleLarge, color = c.textPrimary,
+                )
+                Text("Score out of 100", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+            }
+        }
+    }
+    r?.let { rep ->
+        SoftCard(padding = 12.dp) {
+            rep.checks.sortedBy { it.level.ordinal.let { o -> listOf(3, 1, 0, 2)[o] } }.forEach { ch ->
+                val (sym, col) = when (ch.level) {
+                    com.attendance.tracker.health.Level.OK -> "\u2713" to c.success
+                    com.attendance.tracker.health.Level.WARN -> "!" to c.warning
+                    com.attendance.tracker.health.Level.FAIL -> "\u2715" to c.danger
+                    com.attendance.tracker.health.Level.TIP -> "i" to c.accent
+                }
+                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp, horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(26.dp).clip(CircleShape).background(col), contentAlignment = Alignment.Center) {
+                        Text(sym, color = Color.White, style = MaterialTheme.typography.labelLarge)
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(ch.title, style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
+                        Text(ch.detail, style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+                    }
+                    val f = ch.fix
+                    if (f != null && ch.level != com.attendance.tracker.health.Level.OK) {
+                        Spacer(Modifier.width(8.dp))
+                        Text("Fix", Modifier.clip(Soft.pillShape).background(col).pressScale { fix(f) }.padding(horizontal = 14.dp, vertical = 8.dp),
+                            color = Color.White, style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+            }
+        }
+    }
+    SoftGhostButton("Re-check", { tick++ })
+    SoftButton("Share diagnostics", { scope.launch { com.attendance.tracker.health.HealthCheck.shareDiagnostics(ctx) } })
+    Text("The diagnostics file lists your setup and the last 7 days of punches, so a problem can be traced. Share it only with someone you trust.",
+        style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+}
+
 // ───────────────────────────── office Wi-Fi ─────────────────────────────
 
 @Composable
@@ -893,6 +994,17 @@ private fun AdvancedStep(s: AppSettings) {
         SoftSwitchRow("15 min before logout", null, a2) { a2 = it; st.remindBeforeLogout = it }
         SoftSwitchRow("Hours complete", "\u201cYou can leave now\u201d", a3) { a3 = it; st.remindHoursDone = it }
         SoftSwitchRow("Lunch running over", null, a4) { a4 = it; st.remindLunchOver = it }
+        var a5 by remember { mutableStateOf(st.askDuty) }
+        var a6 by remember { mutableStateOf(st.autoSummary) }
+        SoftSwitchRow("Ask \u201cofficial work?\u201d when I leave", "Mark outings as On duty so they count as worked time", a5) { a5 = it; st.askDuty = it }
+        SoftSwitchRow("End-of-day summary", "When your day is done, ready to share", a6) { a6 = it; st.autoSummary = it }
+        var phone by remember { mutableStateOf(st.managerPhone) }
+        Spacer(Modifier.height(6.dp))
+        SoftField("Manager's WhatsApp number (optional)", phone, keyboard = KeyboardType.Phone) {
+            phone = it.filter { ch -> ch.isDigit() || ch == '+' }; st.managerPhone = phone
+        }
+        Text("With country code, e.g. 919876543210. Adds a \u201cSend to manager\u201d button to the summary.",
+            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
     }
     SoftCard {
         CardHeader(rememberVectorPainter(Icons.Filled.Notifications), "Punch sound")

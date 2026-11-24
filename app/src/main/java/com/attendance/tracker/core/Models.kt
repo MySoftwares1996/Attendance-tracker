@@ -99,6 +99,7 @@ enum class WorkStatus(val label: String) {
     LATE("Not in office — late"),
     OVERTIME("Overtime in office"),
     DAY_OFF("Day off"),
+    ON_DUTY("On duty (official work outside)"),
     DAY_COMPLETE("Work day complete"),
     IN_OFFICE("In office"),
     OUTSIDE_OFFICE("Outside office (working hours)"),

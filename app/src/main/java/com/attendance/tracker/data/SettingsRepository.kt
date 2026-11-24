@@ -149,6 +149,16 @@ class SettingsRepository(context: Context) {
             prefs.edit().putString("officeWifi", a.toString()).apply()
         }
 
+    // ---- on duty (official work outside the office) ----
+    var dutyStartMs: Long get() = prefs.getLong("dutyStart", 0L); set(v) = prefs.edit().putLong("dutyStart", v).apply()
+    var dutyReason: String get() = prefs.getString("dutyReason", "Official work")!!; set(v) = prefs.edit().putString("dutyReason", v).apply()
+    var pendingDutyOutMs: Long get() = prefs.getLong("pendingDutyOut", 0L); set(v) = prefs.edit().putLong("pendingDutyOut", v).apply()
+    var askDuty: Boolean get() = flag("askDuty"); set(v) = setFlag("askDuty", v)
+
+    // ---- end-of-day summary ----
+    var autoSummary: Boolean get() = flag("autoSummary"); set(v) = setFlag("autoSummary", v)
+    var managerPhone: String get() = prefs.getString("managerPhone", "")!!; set(v) = prefs.edit().putString("managerPhone", v).apply()
+
     /** OUT / IN times of an afternoon break waiting for "Was this lunch?" (0 = none). */
     var pendingLunchOut: Long get() = prefs.getLong("pendingLunchOut", 0L); set(v) = prefs.edit().putLong("pendingLunchOut", v).apply()
     var pendingLunchIn: Long get() = prefs.getLong("pendingLunchIn", 0L); set(v) = prefs.edit().putLong("pendingLunchIn", v).apply()

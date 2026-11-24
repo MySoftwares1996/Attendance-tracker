@@ -26,6 +26,12 @@ class WorkedTimeTest {
         assertEquals(8 * 3600L, WorkedTime.workedSec(p, 24 * h))
     }
 
+    @Test fun dutyTimeOutsideCountsWhenMergedAsStay() {
+        // IN 10:00, OUT 14:00 (client visit), duty 14:00→15:30 recorded as a stay, IN 15:30, OUT 19:00
+        val p = listOf(inAt(10 * h), inAt(14 * h), outAt(14 * h), inAt(15 * h + 30 * m), outAt(15 * h + 30 * m), outAt(19 * h))
+        assertEquals(9 * 3600L, WorkedTime.workedSec(p, 24 * h))
+    }
+
     @Test fun averageSkipsDaysOff() {
         assertEquals(8 * 3600L + 30 * 60, WorkedTime.averageSec(listOf(0, 8 * 3600L, 9 * 3600L, 0)))
         assertNull(WorkedTime.averageSec(listOf(0, 0)))
