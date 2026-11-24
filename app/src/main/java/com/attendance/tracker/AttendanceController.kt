@@ -245,6 +245,45 @@ object AttendanceController {
         )
     }
 
+    data class WorkedStats(
+        val todaySec: Long,
+        /** Average per worked day over the last 30 days (today excluded unless it's the only day). */
+        val avgSec: Long?,
+        val daysCounted: Int,
+        val weekAvgSec: Long?,
+        /** Last 7 days, oldest first, today last. */
+        val last7: List<Pair<LocalDate, Long>>,
+        val targetSec: Long,
+    )
+
+    /** Worked time per day from the IN / OUT punches, and the averages shown on Today. */
+    fun workedStats(nowMs: Long = System.currentTimeMillis()): WorkedStats {
+        val today = LocalDateTime.ofInstant(Instant.ofEpochMilli(nowMs), zone()).toLocalDate()
+        val from = today.minusDays(30).atStartOfDay(zone()).toInstant().toEpochMilli()
+        val to = today.plusDays(1).atStartOfDay(zone()).toInstant().toEpochMilli()
+        val byDay = db.events(from, to).groupBy {
+            Instant.ofEpochMilli(it.timeMs).atZone(zone()).toLocalDate()
+        }
+        fun dayWorked(d: LocalDate): Long {
+            val ev = byDay[d] ?: return 0
+            val punches = ev.filter { it.type == EventType.CHECK_IN || it.type == EventType.CHECK_OUT }
+                .map { com.attendance.tracker.core.WorkedTime.Punch(it.timeMs, it.type == EventType.CHECK_IN) }
+            // Open stay: today → now; past day → last thing recorded that day.
+            val close = if (d == today) nowMs else ev.maxOf { it.timeMs }
+            return com.attendance.tracker.core.WorkedTime.workedSec(punches, close)
+        }
+        val past = (1L..30L).map { dayWorked(today.minusDays(it)) }
+        val todaySec = dayWorked(today)
+        val avg = com.attendance.tracker.core.WorkedTime.averageSec(past)
+            ?: com.attendance.tracker.core.WorkedTime.averageSec(listOf(todaySec))
+        val counted = past.count { it > 0 }.let { if (it == 0 && todaySec > 0) 1 else it }
+        // This week = Monday..today
+        val weekDays = (0L..((today.dayOfWeek.value - 1).toLong())).map { today.minusDays(it) }
+        val weekAvg = com.attendance.tracker.core.WorkedTime.averageSec(weekDays.map { if (it == today) todaySec else dayWorked(it) })
+        val last7 = (6L downTo 0L).map { today.minusDays(it) }.map { it to if (it == today) todaySec else dayWorked(it) }
+        return WorkedStats(todaySec, avg, counted, weekAvg, last7, settings.settings.value.schedule.requiredMinutes * 60L)
+    }
+
     /** Declare lunch break. Returns an error message or null on success. */
     @Synchronized
     fun startLunch(nowMs: Long = System.currentTimeMillis()): String? {

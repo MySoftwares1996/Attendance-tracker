@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -209,6 +210,10 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
         // ---------- punches ----------
         PunchesCard(st.today.punches, now)
 
+        // ---------- average worked hours ----------
+        val stats = remember(st.today.punches.size, now / 60_000) { AttendanceController.workedStats(now) }
+        WorkedHoursCard(stats)
+
         // ---------- today stats ----------
         SectionTitle("Today", Modifier.padding(top = 4.dp))
         val t = st.today.secondsByStatus
@@ -308,6 +313,96 @@ private fun HealthLine(tracking: Boolean, lastAcceptedMs: Long?, lastFixMs: Long
         PulseDot(color, tracking && (age ?: 999) < 120, 7.dp)
         Spacer(Modifier.width(4.dp))
         Text(text, style = MaterialTheme.typography.labelMedium, color = c.textPrimary)
+    }
+}
+
+/** Average worked hours per day + last 7 days. */
+@Composable
+private fun WorkedHoursCard(stats: AttendanceController.WorkedStats) {
+    val c = Soft.colors
+    val purple = Color(0xFF6A4FE8)
+    SoftCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) {
+                CardHeader(painterResource(R.drawable.ic_clock), "Worked hours", "Average per day \u00b7 last 30 days", purple, purple.copy(alpha = 0.12f))
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                stats.avgSec?.let { fmtDuration(it) } ?: "\u2014",
+                style = MaterialTheme.typography.displaySmall, color = c.textPrimary,
+            )
+            Spacer(Modifier.width(10.dp))
+            Text("per day", Modifier.padding(bottom = 6.dp), style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            stats.avgSec?.let { avg ->
+                val diff = avg - stats.targetSec
+                val (txt, fg, bg) = if (diff >= 0) Triple("+${fmtDuration(diff)} vs ${fmtDuration(stats.targetSec)} target", c.success, c.successSoft)
+                else Triple("\u2212${fmtDuration(-diff)} vs ${fmtDuration(stats.targetSec)} target", c.warning, c.warningSoft)
+                Pill(txt, fg, bg)
+            }
+            Text(
+                if (stats.daysCounted == 0) "No full days yet" else "${stats.daysCounted} day${if (stats.daysCounted == 1) "" else "s"}",
+                style = MaterialTheme.typography.bodySmall, color = c.textSecondary,
+            )
+        }
+
+        // Last 7 days bar chart with target line
+        Spacer(Modifier.height(20.dp))
+        val maxSec = (stats.last7.maxOfOrNull { it.second } ?: 0L).coerceAtLeast(stats.targetSec).coerceAtLeast(1L)
+        val chartH = 110.dp
+        Box(Modifier.fillMaxWidth().height(chartH)) {
+            val targetFrac = stats.targetSec.toFloat() / maxSec
+            Row(Modifier.fillMaxWidth().height(chartH), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
+                stats.last7.forEachIndexed { i, (_, sec) ->
+                    val isToday = i == stats.last7.lastIndex
+                    val frac by androidx.compose.animation.core.animateFloatAsState(
+                        (sec.toFloat() / maxSec).coerceIn(0f, 1f), androidx.compose.animation.core.tween(900), label = "bar$i",
+                    )
+                    val color = when {
+                        sec == 0L -> c.cardMuted
+                        isToday -> c.accent
+                        sec >= stats.targetSec -> c.success
+                        else -> c.warning
+                    }
+                    Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.BottomCenter) {
+                        Box(
+                            Modifier.fillMaxWidth().fillMaxHeight(if (sec == 0L) 0.04f else frac.coerceAtLeast(0.04f))
+                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp)).background(color)
+                        )
+                    }
+                }
+            }
+            // target line
+            Box(
+                Modifier.fillMaxWidth().padding(bottom = chartH * targetFrac).align(Alignment.BottomStart)
+                    .height(1.5.dp).background(c.textSecondary.copy(alpha = 0.5f))
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            stats.last7.forEachIndexed { i, (d, sec) ->
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        if (i == stats.last7.lastIndex) "Today" else d.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault()),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (i == stats.last7.lastIndex) c.accent else c.textSecondary,
+                    )
+                    Text(
+                        if (sec == 0L) "\u2014" else "${sec / 3600}h${if ((sec % 3600) / 60 > 0) "${(sec % 3600) / 60}" else ""}",
+                        style = MaterialTheme.typography.labelSmall, color = c.textPrimary,
+                    )
+                }
+            }
+        }
+        stats.weekAvgSec?.let {
+            Spacer(Modifier.height(12.dp))
+            InfoLine("This week average", fmtDuration(it))
+        }
+        InfoLine("Today so far", fmtDuration(stats.todaySec), c.accent)
     }
 }
 
