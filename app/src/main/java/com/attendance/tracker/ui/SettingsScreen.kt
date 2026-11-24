@@ -207,6 +207,8 @@ fun SettingsScreen(modifier: Modifier) {
             SwitchRow("Reject fake / mock locations", rejectMock) { rejectMock = it }
         }
 
+        Section("App updates") { UpdateControls() }
+
         Button(
             onClick = {
                 val la = lat.toDoubleOrNull(); val ln = lng.toDoubleOrNull(); val r = radius.toDoubleOrNull()

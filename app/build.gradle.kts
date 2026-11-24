@@ -4,6 +4,12 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// CI sets these so every build gets a higher versionCode (required for OTA updates).
+val ciBuildNumber = (System.getenv("BUILD_NUMBER") ?: "1").toInt()
+val updateManifestUrl = System.getenv("UPDATE_MANIFEST_URL")
+    ?: "https://github.com/MySoftwares1996/Attendance-tracker/releases/latest/download/update.json"
+val releaseKeystore = System.getenv("RELEASE_KEYSTORE_PATH")?.let { file(it) }?.takeIf { it.exists() }
+
 android {
     namespace = "com.attendance.tracker"
     compileSdk = 35
@@ -12,17 +18,30 @@ android {
         applicationId = "com.attendance.tracker"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = ciBuildNumber
+        versionName = "1.0.$ciBuildNumber"
+        buildConfigField("String", "UPDATE_MANIFEST_URL", "\"$updateManifestUrl\"")
+    }
+
+    signingConfigs {
+        // A FIXED signing key is mandatory for OTA: Android only installs an
+        // update signed with the same key as the installed app.
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = releaseKeystore
+                storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Signed with the debug key so the APK is installable out of the box.
-            // Replace with your own signingConfig before publishing to Play Store.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (releaseKeystore != null) signingConfigs.getByName("release")
+            else signingConfigs.getByName("debug")
         }
     }
 
@@ -35,6 +54,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     testOptions {
         unitTests.isReturnDefaultValues = true

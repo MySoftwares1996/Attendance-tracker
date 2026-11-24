@@ -22,6 +22,7 @@ import com.attendance.tracker.core.LocationSample
 import com.attendance.tracker.core.StatusResolver
 import com.attendance.tracker.data.EventType
 import com.attendance.tracker.ui.MainActivity
+import com.attendance.tracker.update.UpdateManager
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.Granularity
 import com.google.android.gms.location.LocationCallback
@@ -87,6 +88,7 @@ class TrackingService : LifecycleService() {
                     AttendanceController.tick()
                     applyLocationMode(force = false)
                     updateNotification()
+                    runCatching { UpdateManager.checkIfDue(applicationContext) }
                     delay(TICK_MS)
                 }
             }

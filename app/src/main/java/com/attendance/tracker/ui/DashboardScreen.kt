@@ -111,6 +111,8 @@ fun DashboardScreen(modifier: Modifier, onOpenSetup: () -> Unit) {
             }
         }
 
+        UpdateBanner()
+
         // ---------- setup warnings ----------
         if (!fine) Warning("Precise location permission is needed.", "Grant") { requestForeground() }
         else if (!background) Warning(

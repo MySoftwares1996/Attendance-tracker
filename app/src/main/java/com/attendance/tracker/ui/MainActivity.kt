@@ -23,7 +23,10 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.lifecycleScope
 import com.attendance.tracker.AttendanceController
+import com.attendance.tracker.update.UpdateManager
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -58,5 +61,6 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         AttendanceController.refresh()
+        lifecycleScope.launch { UpdateManager.checkIfDue(applicationContext) }
     }
 }
