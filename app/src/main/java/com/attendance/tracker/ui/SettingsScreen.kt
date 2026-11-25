@@ -364,9 +364,9 @@ private fun Summary(s: AppSettings, open: (Page) -> Unit) {
         SummaryRow(rememberVectorPainter(Icons.Filled.Home), "Home (commute)",
             if (stg.hasHome) "Set \u00b7 commute is measured" else "Optional \u00b7 measure travel time", stg.hasHome) { open(Page.HOME) }
         Divider()
-        SummaryRow(painterResource(R.drawable.ic_shield), "Salary & overtime",
-            if (stg.monthlySalary > 0f) "\u20B9 %,.0f / month \u00b7 OT \u20B9 %,.0f / h".format(stg.monthlySalary, stg.overtimeRate) else "Optional \u00b7 see estimated pay",
-            stg.monthlySalary > 0f) { open(Page.PAY) }
+        SummaryRow(painterResource(R.drawable.ic_rupee), "Salary & deductions",
+            stg.salaryRules.let { r -> if (r.monthlyGross > 0) "\u20B9 %,.0f / month \u00b7 opens the Salary tab".format(r.monthlyGross) else "Optional \u00b7 opens the Salary tab" },
+            stg.salaryRules.monthlyGross > 0) { UiChrome.requestTab = 4 }
         Divider()
         val wifi = AttendanceController.settings.officeWifi
         SummaryRow(painterResource(R.drawable.ic_target), "Office Wi-Fi",

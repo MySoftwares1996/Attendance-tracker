@@ -1,0 +1,41 @@
+package com.attendance.tracker.core
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Test
+
+class PayslipTest {
+    private fun line(p: Payslip, label: String) = (p.earnings + p.deductions).firstOrNull { it.label.startsWith(label) }?.amount
+
+    @Test fun fullMonthWithPfCapAndNoEsi() {
+        val r = SalaryRules(monthlyGross = 45_000.0, basicPercent = 50.0, overtimeRatePerHour = 300.0,
+            professionalTax = 200.0, tds = 1_500.0, loanEmi = 2_000.0)
+        val p = PayCalculator.payslip(r, workingDays = 25, overtimeSec = 10 * 3600L, absentDays = 0, halfDays = 0)
+        assertEquals(3_000.0, line(p, "Overtime")!!, 0.01)
+        assertEquals(1_800.0, line(p, "Provident Fund")!!, 0.01)   // 12% of capped ₹15,000
+        assertNull(line(p, "ESI"))                                   // gross above ₹21,000
+        assertEquals(48_000.0, p.gross, 0.01)
+        assertEquals(1_800.0 + 200 + 1_500 + 2_000, p.totalDeductions, 0.01)
+        assertEquals(48_000.0 - 5_500, p.net, 0.01)
+    }
+
+    @Test fun lossOfPayAndEsi() {
+        val r = SalaryRules(monthlyGross = 20_000.0, basicPercent = 50.0, pfCapOn = false,
+            otherDeductions = listOf("Canteen" to 300.0), otherEarnings = listOf("Incentive" to 1_000.0))
+        val p = PayCalculator.payslip(r, workingDays = 25, overtimeSec = 0, absentDays = 2, halfDays = 1)
+        assertEquals(1_600.0, line(p, "Loss of pay – absent")!!, 0.01)   // 2 × 800
+        assertEquals(400.0, line(p, "Loss of pay – half")!!, 0.01)
+        // earned = 18,000 → basic 9,000 → PF 1,080; ESI 0.75% of 18,000 = 135
+        assertEquals(1_080.0, line(p, "Provident Fund")!!, 0.01)
+        assertEquals(135.0, line(p, "ESI")!!, 0.01)
+        assertEquals(300.0, line(p, "Canteen")!!, 0.01)
+        assertEquals(21_000.0, p.gross, 0.01)
+        assertEquals(21_000.0 - (1_600 + 400 + 1_080 + 135 + 300), p.net, 0.01)
+    }
+
+    @Test fun switchedOffDeductions() {
+        val r = SalaryRules(monthlyGross = 30_000.0, pfEnabled = false, esiEnabled = false, deductAbsent = false, deductHalfDay = false)
+        val p = PayCalculator.payslip(r, 26, 0, absentDays = 3, halfDays = 2)
+        assertEquals(30_000.0, p.net, 0.01)
+    }
+}

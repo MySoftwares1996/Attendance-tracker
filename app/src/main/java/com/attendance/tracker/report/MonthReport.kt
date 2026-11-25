@@ -43,15 +43,13 @@ data class MonthReport(
     val absentDays: Int = 0,
     val halfDays: Int = 0,
 ) {
-    /** Estimated pay with the user's pay rules, or null when no salary is set. */
-    fun pay(): com.attendance.tracker.core.Insights.Pay? {
-        val s = AttendanceController.settings
-        if (s.monthlySalary <= 0f) return null
-        return com.attendance.tracker.core.Insights.pay(
-            com.attendance.tracker.core.Insights.PayRules(s.monthlySalary.toDouble(), s.overtimeRate.toDouble(), s.deductAbsent, s.deductHalfDay),
-            workingDays, overtimeSec, absentDays, halfDays,
-        )
+    /** This month's payslip with all earnings and deductions, or null when no salary is set. */
+    fun payslip(): com.attendance.tracker.core.Payslip? {
+        val r = AttendanceController.settings.salaryRules
+        if (r.monthlyGross <= 0.0) return null
+        return com.attendance.tracker.core.PayCalculator.payslip(r, workingDays, overtimeSec, absentDays, halfDays)
     }
+
 }
 
 /** Builds the month view / report from the attendance log. */

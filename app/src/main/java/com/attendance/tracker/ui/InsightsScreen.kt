@@ -140,7 +140,7 @@ fun InsightsScreen(onOpenSetup: (String) -> Unit) {
             Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = c.accent) }
         } else {
             StreakCard(d)
-            PayCard(d.thisMonth) { onOpenSetup("pay") }
+            PayCard(d.thisMonth) { onOpenSetup("salary") }
             MonthCompareCard(d)
             ArrivalCard(d)
             CommuteCard(d) { onOpenSetup("home") }
@@ -177,28 +177,20 @@ private fun StreakCard(d: InsightsData) {
 }
 
 @Composable
-private fun PayCard(r: MonthReport, onSetup: () -> Unit) {
+private fun PayCard(r: MonthReport, onOpenSalary: () -> Unit) {
     val c = Soft.colors
     val month = r.month.month.getDisplayName(TextStyle.FULL, Locale.getDefault())
-    SoftCard {
-        CardHeader(painterResource(R.drawable.ic_shield), "$month pay estimate", "Based on your attendance so far", c.success, c.successSoft)
+    SoftCard(onClick = onOpenSalary) {
+        CardHeader(painterResource(R.drawable.ic_rupee), "$month take-home", "Estimate \u00b7 tap for full breakdown", c.success, c.successSoft)
         Spacer(Modifier.height(12.dp))
-        val p = r.pay()
+        val p = r.payslip()
         if (p == null) {
-            Text("Add your monthly salary and overtime rate to see your estimated pay and overtime earnings.",
+            Text("Set up your salary and deductions in the Salary tab to see your take-home pay.",
                 style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
-            Spacer(Modifier.height(12.dp))
-            SoftButton("Set my pay", onSetup)
         } else {
-            Text("₹ %,.0f".format(p.total), style = MaterialTheme.typography.displaySmall, color = c.textPrimary)
-            Spacer(Modifier.height(8.dp))
-            InfoLine("Salary", "₹ %,.0f".format(p.base))
-            InfoLine("Overtime ${fmtDuration(r.overtimeSec)}", "+ ₹ %,.0f".format(p.overtimePay), c.success)
-            if (p.deductions > 0) InfoLine("Deductions (${r.absentDays} absent, ${r.halfDays} half day)", "− ₹ %,.0f".format(p.deductions), c.danger)
-            InfoLine("Working days this month", "${r.workingDays}")
-            Text("Estimate only — your payslip may differ.", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-            Spacer(Modifier.height(6.dp))
-            MiniAction("Change pay rules", onSetup)
+            Text("\u20B9 %,.0f".format(p.net), style = MaterialTheme.typography.displaySmall, color = c.textPrimary)
+            Text("Gross \u20B9 %,.0f \u2212 deductions \u20B9 %,.0f".format(p.gross, p.totalDeductions),
+                style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
         }
     }
 }

@@ -45,7 +45,13 @@ object ReportExporter {
         sb.append("\"Days present\",${r.presentDays}\n\"Average per day\",\"${hm(r.avgSec ?: 0)}\"\n")
         sb.append("\"Total worked\",\"${hm(r.totalSec)}\"\n\"Overtime\",\"${hm(r.overtimeSec)}\"\n")
         sb.append("\"Leave days\",${r.leaveDays}\n\"Holidays\",${r.holidayDays}\n")
-        r.pay()?.let { p -> sb.append("\"Estimated pay\",\"%.0f\"\n\"Overtime pay\",\"%.0f\"\n\"Deductions\",\"%.0f\"\n".format(p.total, p.overtimePay, p.deductions)) }
+        r.payslip()?.let { p ->
+            sb.append("\n\"Earnings\"\n")
+            p.earnings.forEach { sb.append("\"${it.label}\",\"%.2f\"\n".format(it.amount)) }
+            sb.append("\"Deductions\"\n")
+            p.deductions.forEach { sb.append("\"${it.label}\",\"%.2f\"\n".format(it.amount)) }
+            sb.append("\"Gross\",\"%.2f\"\n\"Total deductions\",\"%.2f\"\n\"Take-home (estimate)\",\"%.2f\"\n".format(p.gross, p.totalDeductions, p.net))
+        }
         f.writeText(sb.toString())
         share(ctx, f, "text/csv", "Attendance ${r.month.format(monthFmt)}")
     }
@@ -77,7 +83,7 @@ object ReportExporter {
                 val stats = listOf(
                     "Days present" to "${r.presentDays}", "Average / day" to hm(r.avgSec ?: 0).ifBlank { "—" },
                     "Total worked" to hm(r.totalSec).ifBlank { "0:00" }, "Overtime" to hm(r.overtimeSec).ifBlank { "0:00" },
-                    "Leave days" to "${r.leaveDays}", r.pay()?.let { "Est. pay" to "\u20B9 %,.0f".format(it.total) } ?: ("Holidays" to "${r.holidayDays}"),
+                    "Leave days" to "${r.leaveDays}", r.payslip()?.let { "Take-home" to "\u20B9 %,.0f".format(it.net) } ?: ("Holidays" to "${r.holidayDays}"),
                 )
                 stats.forEachIndexed { i, (k, v) ->
                     val x = M + (i % 3) * 175f; val yy = y + (i / 3) * 30f

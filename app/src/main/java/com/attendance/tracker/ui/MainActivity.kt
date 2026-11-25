@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
 import com.attendance.tracker.AttendanceController
@@ -139,6 +140,7 @@ private fun MainContent() {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     // A shared Google Maps location opens Setup.
     LaunchedEffect(UiChrome.sharedLink) { if (UiChrome.sharedLink != null) tab = 2 }
+    LaunchedEffect(UiChrome.requestTab) { UiChrome.requestTab?.let { tab = it; UiChrome.requestTab = null } }
     Box(Modifier.fillMaxSize().background(Soft.colors.background)) {
         AnimatedContent(
             targetState = tab,
@@ -153,7 +155,8 @@ private fun MainContent() {
             when (t) {
                 0 -> DashboardScreen(onOpenSetup = { tab = 2 })
                 1 -> HistoryScreen()
-                3 -> InsightsScreen(onOpenSetup = { page -> UiChrome.setupPage = page; tab = 2 })
+                3 -> InsightsScreen(onOpenSetup = { page -> if (page == "salary") tab = 4 else { UiChrome.setupPage = page; tab = 2 } })
+                4 -> SalaryScreen()
                 else -> SettingsScreen()
             }
         }
@@ -173,6 +176,8 @@ object UiChrome {
     var fullScreen by mutableStateOf(false)
     /** Text shared into the app from Google Maps (Share → Attendance Tracker). */
     var sharedLink by mutableStateOf<String?>(null)
+    /** Ask the app to switch to a bottom tab (0 Today, 1 History, 2 Setup, 3 Insights, 4 Salary). */
+    var requestTab by mutableStateOf<Int?>(null)
     /** Setup page to open next ("check"), e.g. from the health notice on Today. */
     var setupPage by mutableStateOf<String?>(null)
     /** "office" or "gate" once the user picked what the shared location is for. */
@@ -188,7 +193,7 @@ private fun SoftNavBar(selected: Int, onSelect: (Int) -> Unit, modifier: Modifie
     Row(
         modifier
             .navigationBarsPadding()
-            .padding(horizontal = 24.dp, vertical = 14.dp)
+            .padding(horizontal = 14.dp, vertical = 14.dp)
             .fillMaxWidth()
             .height(68.dp)
             .shadow(24.dp, Soft.pillShape, ambientColor = c.shadow, spotColor = c.shadow)
@@ -198,15 +203,16 @@ private fun SoftNavBar(selected: Int, onSelect: (Int) -> Unit, modifier: Modifie
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        NavItem(Icons.Filled.Home, "Today", selected == 0, Modifier.weight(1f)) { onSelect(0) }
-        NavItem(Icons.Filled.DateRange, "History", selected == 1, Modifier.weight(1f)) { onSelect(1) }
-        NavItem(Icons.Filled.Star, "Insights", selected == 3, Modifier.weight(1f)) { onSelect(3) }
-        NavItem(Icons.Filled.Settings, "Setup", selected == 2, Modifier.weight(1f)) { onSelect(2) }
+        NavItem(rememberVectorPainter(Icons.Filled.Home), "Today", selected == 0, Modifier.weight(if (selected == 0) 2f else 1f)) { onSelect(0) }
+        NavItem(rememberVectorPainter(Icons.Filled.DateRange), "History", selected == 1, Modifier.weight(if (selected == 1) 2f else 1f)) { onSelect(1) }
+        NavItem(rememberVectorPainter(Icons.Filled.Star), "Insights", selected == 3, Modifier.weight(if (selected == 3) 2f else 1f)) { onSelect(3) }
+        NavItem(androidx.compose.ui.res.painterResource(com.attendance.tracker.R.drawable.ic_rupee), "Salary", selected == 4, Modifier.weight(if (selected == 4) 2f else 1f)) { onSelect(4) }
+        NavItem(rememberVectorPainter(Icons.Filled.Settings), "Setup", selected == 2, Modifier.weight(if (selected == 2) 2f else 1f)) { onSelect(2) }
     }
 }
 
 @Composable
-private fun NavItem(icon: ImageVector, label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun NavItem(icon: androidx.compose.ui.graphics.painter.Painter, label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val c = Soft.colors
     val bg = animatedColor(if (selected) c.accentSoft else c.card, "navBg")
     val fg = animatedColor(if (selected) c.accent else c.textSecondary, "navFg")

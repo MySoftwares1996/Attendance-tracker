@@ -206,7 +206,46 @@ class SettingsRepository(context: Context) {
         set(v) { if (v == null) prefs.edit().remove("atHome").apply() else prefs.edit().putBoolean("atHome", v).apply() }
     var lastAtHomeMs: Long get() = prefs.getLong("lastAtHome", 0L); set(v) = prefs.edit().putLong("lastAtHome", v).apply()
 
-    // ---- pay ----
+    // ---- salary rules (all earnings & deductions) ----
+    var salaryRules: com.attendance.tracker.core.SalaryRules
+        get() {
+            val json = prefs.getString("salaryRules", null)
+            if (json == null) {
+                // Carry over the simple pay settings from earlier versions.
+                return com.attendance.tracker.core.SalaryRules(
+                    monthlyGross = monthlySalary.toDouble(), overtimeRatePerHour = overtimeRate.toDouble(),
+                    deductAbsent = deductAbsent, deductHalfDay = deductHalfDay,
+                )
+            }
+            return runCatching {
+                val o = JSONObject(json)
+                fun list(key: String) = o.optJSONArray(key)?.let { a -> (0 until a.length()).map { i -> a.getJSONArray(i).let { it.getString(0) to it.getDouble(1) } } } ?: emptyList()
+                val d = com.attendance.tracker.core.SalaryRules()
+                com.attendance.tracker.core.SalaryRules(
+                    monthlyGross = o.optDouble("gross", 0.0), basicPercent = o.optDouble("basicPct", d.basicPercent),
+                    overtimeRatePerHour = o.optDouble("otRate", 0.0),
+                    pfEnabled = o.optBoolean("pf", d.pfEnabled), pfPercent = o.optDouble("pfPct", d.pfPercent),
+                    pfCapOn = o.optBoolean("pfCap", d.pfCapOn), pfCapBasic = o.optDouble("pfCapBasic", d.pfCapBasic),
+                    esiEnabled = o.optBoolean("esi", d.esiEnabled), esiPercent = o.optDouble("esiPct", d.esiPercent),
+                    esiGrossLimit = o.optDouble("esiLimit", d.esiGrossLimit),
+                    professionalTax = o.optDouble("pt", 0.0), tds = o.optDouble("tds", 0.0), loanEmi = o.optDouble("loan", 0.0),
+                    deductAbsent = o.optBoolean("lopAbsent", d.deductAbsent), deductHalfDay = o.optBoolean("lopHalf", d.deductHalfDay),
+                    otherDeductions = list("otherDed"), otherEarnings = list("otherEarn"),
+                )
+            }.getOrDefault(com.attendance.tracker.core.SalaryRules())
+        }
+        set(r) {
+            fun arr(l: List<Pair<String, Double>>) = JSONArray().apply { l.forEach { put(JSONArray().put(it.first).put(it.second)) } }
+            val o = JSONObject().put("gross", r.monthlyGross).put("basicPct", r.basicPercent).put("otRate", r.overtimeRatePerHour)
+                .put("pf", r.pfEnabled).put("pfPct", r.pfPercent).put("pfCap", r.pfCapOn).put("pfCapBasic", r.pfCapBasic)
+                .put("esi", r.esiEnabled).put("esiPct", r.esiPercent).put("esiLimit", r.esiGrossLimit)
+                .put("pt", r.professionalTax).put("tds", r.tds).put("loan", r.loanEmi)
+                .put("lopAbsent", r.deductAbsent).put("lopHalf", r.deductHalfDay)
+                .put("otherDed", arr(r.otherDeductions)).put("otherEarn", arr(r.otherEarnings))
+            prefs.edit().putString("salaryRules", o.toString()).apply()
+        }
+
+    // ---- pay (older simple settings; kept for migration) ----
     var monthlySalary: Float get() = prefs.getFloat("salary", 0f); set(v) = prefs.edit().putFloat("salary", v).apply()
     var overtimeRate: Float get() = prefs.getFloat("otRate", 0f); set(v) = prefs.edit().putFloat("otRate", v).apply()
     var deductAbsent: Boolean get() = flag("dedAbsent"); set(v) = setFlag("dedAbsent", v)

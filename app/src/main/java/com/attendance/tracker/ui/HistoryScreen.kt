@@ -207,7 +207,7 @@ private fun MonthSummary(r: MonthReport, onPdf: () -> Unit, onCsv: () -> Unit) {
         InfoLine("Overtime", fmtDuration(r.overtimeSec))
         InfoLine("Leave days", "${r.leaveDays}")
         if (r.holidayDays > 0) InfoLine("Holidays", "${r.holidayDays}")
-        r.pay()?.let { p -> InfoLine("Estimated pay", "\u20B9 %,.0f".format(p.total), c.success) }
+        r.payslip()?.let { p -> InfoLine("Take-home (estimate)", "\u20B9 %,.0f".format(p.net), c.success) }
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             SoftButton("Share PDF", onPdf, Modifier.weight(1f))
