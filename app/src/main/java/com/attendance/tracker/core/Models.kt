@@ -127,6 +127,10 @@ enum class DayMark(val label: String, val fullDayOff: Boolean) {
     WFH("Work from home", true),
     HOLIDAY("Holiday", true),
     HALF_DAY("Half day", false),
+    /** Counted as a full day worked (e.g. days before you started using the app). */
+    PRESENT("Present", false),
+    /** Counted as absent (loss of pay), whatever was recorded. */
+    ABSENT("Absent", false),
 }
 
 data class LunchState(val active: Boolean = false, val startedAtMs: Long = 0L)

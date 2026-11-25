@@ -108,6 +108,15 @@ fun HistoryScreen() {
                 val (d, sum, ev) = remember(selected, st.today, st.status) { dayData(selected) }
                 key(selected) { DayCard(d, sum, ev, expandedByDefault = true) }
             }
+            item {
+                var pastOpen by remember { mutableStateOf(false) }
+                if (pastOpen) MarkPastDaysDialog(month.atDay(1).coerceAtMost(LocalDate.now().minusDays(1))) { pastOpen = false }
+                SoftCard(onClick = { pastOpen = true }) {
+                    Text("Mark past days", style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+                    Text("Days before you started using the app: set them Present or Absent in one go.",
+                        style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+                }
+            }
             item { MonthSummary(report, onPdf = { ReportExporter.sharePdf(ctx, report) }, onCsv = { ReportExporter.shareCsv(ctx, report) }) }
         } else {
             if (days.isEmpty()) item {
@@ -207,6 +216,8 @@ private fun MonthSummary(r: MonthReport, onPdf: () -> Unit, onCsv: () -> Unit) {
         InfoLine("Overtime", fmtDuration(r.overtimeSec))
         InfoLine("Leave days", "${r.leaveDays}")
         if (r.holidayDays > 0) InfoLine("Holidays", "${r.holidayDays}")
+        if (r.absentDays > 0) InfoLine("Absent days", "${r.absentDays}", c.danger)
+        if (r.permissionMin > 0) InfoLine("Permission used", fmtDuration(r.permissionMin * 60L))
         r.payslip()?.let { p -> InfoLine("Take-home (estimate)", "\u20B9 %,.0f".format(p.net), c.success) }
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -222,7 +233,10 @@ private fun DayCard(day: LocalDate, sum: com.attendance.tracker.DaySummary, even
     var expanded by remember { mutableStateOf(expandedByDefault) }
     var markOpen by remember { mutableStateOf(false) }
     var addOpen by remember { mutableStateOf(false) }
+    var permOpen by remember { mutableStateOf(false) }
     val mark = remember(day, markOpen) { AttendanceController.dayMark(day) }
+    val perm = remember(day, permOpen) { AttendanceController.permissionMin(day) }
+    if (permOpen) PermissionDialog(day) { permOpen = false }
     if (markOpen) DayMarkDialog(day) { markOpen = false }
     if (addOpen) ManualPunchDialog(day) { addOpen = false }
     val t = sum.secondsByStatus
@@ -259,12 +273,17 @@ private fun DayCard(day: LocalDate, sum: com.attendance.tracker.DaySummary, even
             Spacer(Modifier.height(6.dp))
             Legend(Color(0xFF6A4FE8), "Overtime ${fmtDuration(overtime)}")
         }
-        AnimatedVisibility(expanded && events.isNotEmpty(), enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+        if (perm > 0) {
+            Spacer(Modifier.height(6.dp))
+            Legend(Color(0xFF0E8C8C), "Permission ${fmtDuration(perm * 60L)} (counted as worked)")
+        }
+        AnimatedVisibility(expanded && !day.isAfter(LocalDate.now()), enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
             Column(Modifier.padding(top = 16.dp)) {
                 events.forEachIndexed { i, e -> TimelineRow(e, last = i == events.lastIndex) }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     MiniAction("+ Missed punch") { addOpen = true }
                     MiniAction(if (mark == null) "Mark day" else "Change mark") { markOpen = true }
+                    MiniAction(if (perm > 0) "Permission" else "+ Permission") { permOpen = true }
                 }
             }
         }

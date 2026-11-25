@@ -142,9 +142,10 @@ private fun liveDay(nowMs: Long, plan: DayPlan?, timeline: List<AttendanceEvent>
     val today = now.toLocalDate()
     val allowance = AttendanceController.lunchAllowanceSec(today)
     val target = AttendanceController.netTargetSec(today)
+    val perm = AttendanceController.permissionMin(today) * 60L
     val net = if (plan?.expectedEnd?.let { now.isBefore(it) } == true)
-        WorkedTime.liveNetSec(office, duty, lunch, allowance, target)
-    else WorkedTime.netSec(office, duty, lunch, allowance)
+        WorkedTime.liveNetSec(office, duty + perm, lunch, allowance, target)
+    else WorkedTime.netSec(office, duty + perm, lunch, allowance)
     val start = plan?.start
     val end = plan?.expectedEnd
     val progress = if (start != null && end != null) {
@@ -196,6 +197,8 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
     var markOpen by remember { mutableStateOf(false) }
     var punchOpen by remember { mutableStateOf(false) }
     var dutyOpen by remember { mutableStateOf(false) }
+    var permOpen by remember { mutableStateOf(false) }
+    if (permOpen) PermissionDialog(LocalDate.now()) { permOpen = false }
     if (markOpen) DayMarkDialog(LocalDate.now()) { markOpen = false }
     if (punchOpen) ManualPunchDialog(LocalDate.now()) { punchOpen = false }
     if (dutyOpen) DutyReasonDialog(onPick = { AttendanceController.confirmPendingDuty(it); dutyOpen = false }, onDismiss = { dutyOpen = false })
@@ -286,6 +289,9 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
             }
             if (st.duty != null) ActionChip("✓  End duty", Color(0xFF6A4FE8), Color(0x1F6A4FE8)) { AttendanceController.endDuty() }
             else ActionChip("💼  On duty", Color(0xFF6A4FE8), Color(0x1F6A4FE8)) { dutyOpen = true }
+            val permToday = AttendanceController.permissionMin(LocalDate.now())
+            ActionChip(if (permToday > 0) "⏱  Permission ${if (permToday % 60 == 0) "${permToday / 60}h" else "${permToday / 60}h ${permToday % 60}m"}" else "⏱  Permission",
+                Color(0xFF0E8C8C), Color(0x1F0E8C8C)) { permOpen = true }
             ActionChip("📅  ${if (plan?.dayOff != null) plan.dayOff else "Mark today"}", c.accent, c.accentSoft) { markOpen = true }
             ActionChip("✎  Missed punch", c.accent, c.accentSoft) { punchOpen = true }
             ActionChip("↪  Share today", c.success, c.successSoft) {

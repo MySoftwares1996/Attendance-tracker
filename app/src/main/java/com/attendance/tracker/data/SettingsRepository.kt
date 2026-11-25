@@ -173,6 +173,29 @@ class SettingsRepository(context: Context) {
     var pendingDutyOutMs: Long get() = prefs.getLong("pendingDutyOut", 0L); set(v) = prefs.edit().putLong("pendingDutyOut", v).apply()
     var askDuty: Boolean get() = flag("askDuty"); set(v) = setFlag("askDuty", v)
 
+    // ---- permission (short leave that counts as worked time) ----
+    /** Permission you're allowed per month, in minutes (default 2 hours). */
+    var permissionMonthMin: Int
+        get() = prefs.getInt("permMonthMin", 120)
+        set(v) = prefs.edit().putInt("permMonthMin", v.coerceIn(0, 24 * 60)).apply()
+
+    /** Permission minutes per day, keyed yyyy-MM-dd. */
+    var permissions: Map<String, Int>
+        get() = runCatching {
+            val o = JSONObject(prefs.getString("permDays", "{}")!!)
+            o.keys().asSequence().associateWith { o.getInt(it) }
+        }.getOrDefault(emptyMap())
+        set(v) {
+            val o = JSONObject(); v.filterValues { it > 0 }.forEach { (k, m) -> o.put(k, m) }
+            prefs.edit().putString("permDays", o.toString()).apply()
+        }
+
+    fun permissionMin(day: String): Int = permissions[day] ?: 0
+
+    /** Minutes of permission used in the month of [day] (yyyy-MM-dd), optionally leaving one day out. */
+    fun permissionUsedInMonth(day: String, except: String? = null): Int =
+        permissions.filterKeys { it.take(7) == day.take(7) && it != except }.values.sum()
+
     // ---- end-of-day summary ----
     var autoSummary: Boolean get() = flag("autoSummary"); set(v) = setFlag("autoSummary", v)
     var managerPhone: String get() = prefs.getString("managerPhone", "")!!; set(v) = prefs.edit().putString("managerPhone", v).apply()

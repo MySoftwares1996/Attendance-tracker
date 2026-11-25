@@ -98,8 +98,10 @@ object AttendanceController {
         val today = LocalDate.now()
         if (keepToday) {
             db.clearRecords(today.atStartOfDay(zone()).toInstant().toEpochMilli(), today.toString())
+            settings.permissions = settings.permissions.filterKeys { it >= today.toString() }
         } else {
             db.clearRecords(null, null)
+            settings.permissions = emptyMap()
             settings.lunch = LunchState()
             settings.dutyStartMs = 0L
             settings.pendingDutyOutMs = 0L
@@ -330,6 +332,9 @@ object AttendanceController {
         val mark = db.dayMark(now.toLocalDate().toString())
         var sched = settings.settings.value.schedule
         if (mark == DayMark.HALF_DAY) sched = sched.copy(netMinutes = sched.netMinutes / 2, maxLunchMinutes = 0)
+        // Permission: that much less to be in the office, so logout moves earlier.
+        val perm = settings.permissionMin(now.toLocalDate().toString())
+        if (perm > 0) sched = sched.copy(netMinutes = (sched.netMinutes - perm).coerceAtLeast(0))
         val p = DayPlanner.plan(now, sched, ::firstCheckIn) { lunchTakenSec(it, nowMs) }
         if (mark?.fullDayOff == true) return p.copy(workDay = false, dayOff = mark.label)
         // Public / company holiday (a day mark set by you always wins)
@@ -341,6 +346,45 @@ object AttendanceController {
 
     fun setDayMark(day: LocalDate, mark: DayMark?) {
         db.setDayMark(day.toString(), mark)
+        refresh()
+    }
+
+    /**
+     * Marks every working day from [from] to [to] that has no punches and no mark yet
+     * (e.g. the days before you installed the app). Returns how many days were marked.
+     */
+    fun markEmptyDays(from: LocalDate, to: LocalDate, mark: DayMark): Int {
+        if (to.isBefore(from)) return 0
+        val sched = settings.settings.value.schedule
+        val marks = db.dayMarks(from.toString(), to.toString())
+        val punchDays = db.events(from.atStartOfDay(zone()).toInstant().toEpochMilli(), to.plusDays(1).atStartOfDay(zone()).toInstant().toEpochMilli())
+            .filter { it.type == EventType.CHECK_IN || it.type == EventType.CHECK_OUT }
+            .map { Instant.ofEpochMilli(it.timeMs).atZone(zone()).toLocalDate() }.toSet()
+        var n = 0
+        var d = from
+        while (!d.isAfter(to)) {
+            if (d.dayOfWeek in sched.workDays && d !in punchDays && marks[d.toString()] == null &&
+                com.attendance.tracker.data.Holidays.name(d) == null) {
+                db.setDayMark(d.toString(), mark); n++
+            }
+            d = d.plusDays(1)
+        }
+        refresh()
+        return n
+    }
+
+    // ───────────── permission ─────────────
+
+    fun permissionMin(day: LocalDate): Int = settings.permissionMin(day.toString())
+
+    /** Minutes still available this month for [day] (its own permission not counted as used). */
+    fun permissionLeftMin(day: LocalDate): Int =
+        (settings.permissionMonthMin - settings.permissionUsedInMonth(day.toString(), except = day.toString())).coerceAtLeast(0)
+
+    fun setPermission(day: LocalDate, minutes: Int) {
+        settings.permissions = settings.permissions.toMutableMap().apply {
+            if (minutes > 0) put(day.toString(), minutes) else remove(day.toString())
+        }
         refresh()
     }
 
@@ -608,7 +652,9 @@ object AttendanceController {
      * Net from office / duty / lunch seconds. Today, before logout time, the live rule is used
      * so the number counts up from arrival; otherwise the untaken lunch allowance is fully deducted.
      */
-    fun netFrom(office: Long, duty: Long, lunch: Long, closeMs: Long, day: LocalDate): Long {
+    fun netFrom(office: Long, dutyOnly: Long, lunch: Long, closeMs: Long, day: LocalDate): Long {
+        // Permission counts as worked time.
+        val duty = dutyOnly + permissionMin(day) * 60L
         val allowance = lunchAllowanceSec(day)
         val today = LocalDateTime.ofInstant(Instant.ofEpochMilli(System.currentTimeMillis()), zone()).toLocalDate()
         val end = if (day == today) runCatching { plan(closeMs).expectedEnd }.getOrNull() else null

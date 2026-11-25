@@ -72,6 +72,8 @@ fun DayMarkDialog(day: LocalDate, onDismiss: () -> Unit) {
                     when (selected) {
                         null -> "Normal day: late arrival and short hours are tracked."
                         DayMark.HALF_DAY -> "Half day: your hours to work are halved."
+                        DayMark.PRESENT -> "Present: counted as a full day worked, even with no punches (e.g. before you used this app)."
+                        DayMark.ABSENT -> "Absent: counted as absent (loss of pay), even if punches were recorded."
                         else -> "Not counted as late or absent, and left out of your average hours."
                     },
                     style = MaterialTheme.typography.bodySmall, color = c.textSecondary,
@@ -80,6 +82,131 @@ fun DayMarkDialog(day: LocalDate, onDismiss: () -> Unit) {
         },
         confirmButton = {
             TextButton(onClick = { AttendanceController.setDayMark(day, selected); onDismiss() }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        shape = RoundedCornerShape(28.dp), containerColor = c.card,
+    )
+}
+
+private fun hm(min: Int): String = when {
+    min <= 0 -> "0m"
+    min % 60 == 0 -> "${min / 60}h"
+    min < 60 -> "${min}m"
+    else -> "${min / 60}h ${min % 60}m"
+}
+
+/**
+ * Permission: a short leave (e.g. leaving early after lunch) that counts as worked time,
+ * up to your monthly allowance. Logout moves earlier by the same amount.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun PermissionDialog(day: LocalDate, onDismiss: () -> Unit) {
+    val c = Soft.colors
+    val settings = AttendanceController.settings
+    var allowance by remember { mutableIntStateOf(settings.permissionMonthMin) }
+    val usedElsewhere = remember { settings.permissionUsedInMonth(day.toString(), except = day.toString()) }
+    val left = (allowance - usedElsewhere).coerceAtLeast(0)
+    var minutes by remember { mutableIntStateOf(AttendanceController.permissionMin(day)) }
+    if (minutes > left) minutes = left
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Permission · " + if (day == LocalDate.now()) "today" else day.format(DateTimeFormatter.ofPattern("d MMM"))) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Counts as worked time and brings your logout earlier by the same amount.",
+                    style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(0, 30, 60, 90, 120, 180, 240).filter { it == 0 || it <= left || it == minutes }.forEach { m ->
+                        val sel = m == minutes
+                        Text(
+                            if (m == 0) "None" else hm(m),
+                            Modifier.clip(Soft.pillShape).background(if (sel) c.accent else c.cardMuted)
+                                .pressScale { minutes = m }.padding(horizontal = 14.dp, vertical = 9.dp),
+                            color = if (sel) Color.White else c.textPrimary, style = MaterialTheme.typography.labelLarge,
+                        )
+                    }
+                }
+                Column(Modifier.fillMaxWidth().clip(Soft.tileShape).background(c.accentSoft).padding(14.dp)) {
+                    Text("This month: ${hm(usedElsewhere + minutes)} used of ${hm(allowance)} · ${hm((left - minutes).coerceAtLeast(0))} left",
+                        style = MaterialTheme.typography.bodyMedium, color = c.textPrimary)
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Monthly allowance", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = c.accent)
+                        MiniAction("−") { allowance = (allowance - 30).coerceAtLeast(0) }
+                        Text(hm(allowance), Modifier.padding(horizontal = 10.dp), style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
+                        MiniAction("+") { allowance = (allowance + 30).coerceAtMost(24 * 60) }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                settings.permissionMonthMin = allowance
+                AttendanceController.setPermission(day, minutes); onDismiss()
+            }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        shape = RoundedCornerShape(28.dp), containerColor = c.card,
+    )
+}
+
+/**
+ * Fill in the days before you started using the app: every working day in the range with
+ * no punches and no mark becomes Present (or Absent). Each day can still be changed later.
+ */
+@Composable
+fun MarkPastDaysDialog(initialFrom: LocalDate, onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    val c = Soft.colors
+    val yesterday = LocalDate.now().minusDays(1)
+    var from by remember { mutableStateOf(initialFrom) }
+    var to by remember { mutableStateOf(yesterday) }
+    var present by remember { mutableStateOf(true) }
+    fun pick(d: LocalDate, set: (LocalDate) -> Unit) =
+        android.app.DatePickerDialog(ctx, { _, y, m, dd -> set(LocalDate.of(y, m + 1, dd)) }, d.year, d.monthValue - 1, d.dayOfMonth)
+            .apply { datePicker.maxDate = System.currentTimeMillis() - 86_400_000L }.show()
+    val fmt = DateTimeFormatter.ofPattern("EEE, d MMM yyyy")
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Mark past days") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("For days before you used the app. Only working days with no punches and no mark are changed; holidays and weekends are skipped.",
+                    style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    listOf("From" to from, "To" to to).forEach { (label, d) ->
+                        Column(
+                            Modifier.weight(1f).clip(Soft.tileShape).background(c.accentSoft)
+                                .pressScale { if (label == "From") pick(from) { from = it } else pick(to) { to = it } }.padding(12.dp),
+                        ) {
+                            Text(label, style = MaterialTheme.typography.labelMedium, color = c.accent)
+                            Text(d.format(fmt), style = MaterialTheme.typography.bodyMedium, color = c.textPrimary)
+                        }
+                    }
+                }
+                Row(Modifier.fillMaxWidth().height(48.dp).clip(Soft.pillShape).background(c.cardMuted).padding(4.dp)) {
+                    listOf(true to "Present", false to "Absent").forEach { (v, label) ->
+                        val sel = v == present
+                        Box(
+                            Modifier.weight(1f).fillMaxWidth().height(40.dp).clip(Soft.pillShape)
+                                .background(if (sel) (if (v) c.success else c.danger) else c.cardMuted)
+                                .pressScale { present = v },
+                            contentAlignment = Alignment.Center,
+                        ) { Text(label, color = if (sel) Color.White else c.textSecondary, style = MaterialTheme.typography.labelLarge) }
+                    }
+                }
+                Text("Tip: mark all as Present, then tap single days in the calendar to change them to Absent or Leave.",
+                    style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                if (to.isBefore(from)) { Toast.makeText(ctx, "“To” is before “From”", Toast.LENGTH_SHORT).show(); return@TextButton }
+                val n = AttendanceController.markEmptyDays(from, to, if (present) DayMark.PRESENT else DayMark.ABSENT)
+                Toast.makeText(ctx, "$n day${if (n == 1) "" else "s"} marked ${if (present) "Present" else "Absent"}", Toast.LENGTH_SHORT).show()
+                onDismiss()
+            }) { Text("Mark") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
         shape = RoundedCornerShape(28.dp), containerColor = c.card,
