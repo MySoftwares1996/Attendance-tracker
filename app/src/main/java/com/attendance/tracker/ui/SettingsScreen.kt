@@ -341,7 +341,7 @@ private fun Summary(s: AppSettings, open: (Page) -> Unit) {
             o?.gates?.takeIf { it.isNotEmpty() }?.joinToString { it.name } ?: "None added", !o?.gates.isNullOrEmpty()) { open(Page.GATES) }
         Divider()
         SummaryRow(painterResource(R.drawable.ic_clock), "Work hours",
-            "${hoursLabel(sc.requiredMinutes)} from arrival · ${daysLabel(sc.workDays)}", true) { open(Page.HOURS) }
+            "${hoursLabel(sc.netMinutes).removeSuffix(" per day")} net + ${sc.maxLunchMinutes}m lunch · ${daysLabel(sc.workDays)}", true) { open(Page.HOURS) }
         Divider()
         SummaryRow(painterResource(R.drawable.ic_lunch), "Lunch", "${sc.maxLunchMinutes} min per day", true) { open(Page.LUNCH) }
         Divider()
@@ -696,15 +696,15 @@ private fun HoursStep(s: AppSettings) {
                     TimeTile("To", sc.latestStartMin, Modifier.weight(1f)) { pick(sc.latestStartMin) { v -> save { it.copy(latestStartMin = v) } } }
                 }
                 Spacer(Modifier.height(18.dp))
-                Text("Hours I work each day (with lunch)", style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
+                Text("Net working hours per day (lunch not included)", style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
                 Spacer(Modifier.height(10.dp))
                 Choices(
-                    listOf("8h" to 480, "8½h" to 510, "9h" to 540, "9½h" to 570, "10h" to 600),
-                    sc.requiredMinutes,
-                ) { v -> save { it.copy(requiredMinutes = v) } }
-                val r = sc.requiredMinutes
+                    listOf("7½h" to 450, "8h" to 480, "8½h" to 510, "9h" to 540, "9½h" to 570),
+                    sc.netMinutes,
+                ) { v -> save { it.copy(netMinutes = v) } }
+                val r = sc.requiredMinutes // net + lunch = time at the office
                 Text(
-                    "In at 9 AM → out ${fmt12((540 + r) % 1440)}  ·  10 AM → ${fmt12((600 + r) % 1440)}  ·  11 AM → ${fmt12((660 + r) % 1440)}",
+                    "${hoursLabel(sc.netMinutes).removeSuffix(" per day")} net + ${sc.maxLunchMinutes}m lunch = ${hoursLabel(r).removeSuffix(" per day")} at the office\nIn at 9 AM → out ${fmt12((540 + r) % 1440)}  ·  10 AM → ${fmt12((600 + r) % 1440)}  ·  11 AM → ${fmt12((660 + r) % 1440)}",
                     Modifier.padding(top = 12.dp).fillMaxWidth().clip(Soft.tileShape).background(c.accentSoft).padding(12.dp),
                     style = MaterialTheme.typography.bodySmall, color = c.accent,
                 )
@@ -741,14 +741,16 @@ private fun HoursStep(s: AppSettings) {
 private fun LunchStep(s: AppSettings) {
     val ctx = LocalContext.current
     val c = Soft.colors
-    StepTitle("Lunch break", "How much lunch time is allowed per day? Take it any time.")
+    StepTitle("Lunch break", "How much lunch is deducted from your day? Take it any time.")
     SoftCard {
         Choices(listOf("30 min" to 30, "45 min" to 45, "1 hour" to 60, "1½ hours" to 90), s.schedule.maxLunchMinutes) { v ->
             persist(ctx, current().copy(schedule = current().schedule.copy(maxLunchMinutes = v)))
         }
         Spacer(Modifier.height(14.dp))
         Text(
-            "Tap “Start lunch break” on the Today screen whenever you go. If you take longer than this, the extra time is added to your logout time automatically.",
+            "This much lunch is always deducted from your working hours \u2014 even if you don't take lunch. " +
+                "If you take longer, the longer lunch is deducted and your logout moves later by the extra time. " +
+                "Your net hours stay the same (${hoursLabel(s.schedule.netMinutes).removeSuffix(" per day")}).",
             style = MaterialTheme.typography.bodyMedium, color = c.textSecondary,
         )
     }

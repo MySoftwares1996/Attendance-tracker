@@ -257,7 +257,7 @@ object AttendanceController {
         val now = LocalDateTime.ofInstant(Instant.ofEpochMilli(nowMs), zone())
         val mark = db.dayMark(now.toLocalDate().toString())
         var sched = settings.settings.value.schedule
-        if (mark == DayMark.HALF_DAY) sched = sched.copy(requiredMinutes = sched.requiredMinutes / 2)
+        if (mark == DayMark.HALF_DAY) sched = sched.copy(netMinutes = sched.netMinutes / 2, maxLunchMinutes = 0)
         val p = DayPlanner.plan(now, sched, ::firstCheckIn) { lunchTakenSec(it, nowMs) }
         return if (mark?.fullDayOff == true) p.copy(workDay = false, dayOff = mark.label) else p
     }
@@ -367,8 +367,8 @@ object AttendanceController {
             }
         }
         if (status == WorkStatus.OVERTIME && settings.remindHoursDone && settings.firstTime("done_$day")) {
-            val req = settings.settings.value.schedule.requiredMinutes
-            notify(4202, "Your ${req / 60}h${if (req % 60 > 0) " ${req % 60}m" else ""} are complete \u2014 you can leave \uD83C\uDF89",
+            val req = settings.settings.value.schedule.netMinutes
+            notify(4202, "Your ${req / 60}h${if (req % 60 > 0) " ${req % 60}m" else ""} net hours are complete \u2014 you can leave \uD83C\uDF89",
                 "Time in office from now counts as overtime.")
         }
         if (lunch.active && settings.remindLunchOver) {
@@ -477,7 +477,8 @@ object AttendanceController {
             val punches = workPunches(ev)
             // Open stay: today → now; past day → last thing recorded that day.
             val close = if (d == today) nowMs else ev.maxOf { it.timeMs }
-            return com.attendance.tracker.core.WorkedTime.workedSec(punches, close)
+            if (punches.isEmpty()) return 0
+            return netWorkedSec(ev, close, d)
         }
         val past = (1L..30L).map { dayWorked(today.minusDays(it)) }
         val todaySec = dayWorked(today)
@@ -488,7 +489,7 @@ object AttendanceController {
         val weekDays = (0L..((today.dayOfWeek.value - 1).toLong())).map { today.minusDays(it) }
         val weekAvg = com.attendance.tracker.core.WorkedTime.averageSec(weekDays.map { if (it == today) todaySec else dayWorked(it) })
         val last7 = (6L downTo 0L).map { today.minusDays(it) }.map { it to if (it == today) todaySec else dayWorked(it) }
-        return WorkedStats(todaySec, avg, counted, weekAvg, last7, settings.settings.value.schedule.requiredMinutes * 60L)
+        return WorkedStats(todaySec, avg, counted, weekAvg, last7, settings.settings.value.schedule.netMinutes * 60L)
     }
 
     /** IN/OUT punches plus on-duty time (counted as worked) for worked-time maths. */
@@ -500,6 +501,32 @@ object AttendanceController {
                 else -> null
             }
         }
+
+    /** Time in office + on duty (lunch excluded), before the lunch deduction. */
+    fun presenceSec(ev: List<com.attendance.tracker.data.AttendanceEvent>, closeMs: Long): Triple<Long, Long, Long> {
+        val t = com.attendance.tracker.core.DayTimeline.totals(com.attendance.tracker.core.DayTimeline.segments(timelineEvents(ev), closeMs))
+        return Triple(
+            t[com.attendance.tracker.core.DayTimeline.Kind.OFFICE] ?: 0L,
+            t[com.attendance.tracker.core.DayTimeline.Kind.DUTY] ?: 0L,
+            t[com.attendance.tracker.core.DayTimeline.Kind.LUNCH] ?: 0L,
+        )
+    }
+
+    /** Lunch allowance that is always deducted on [day] (none on a half day). */
+    fun lunchAllowanceSec(day: LocalDate): Long =
+        if (db.dayMark(day.toString()) == DayMark.HALF_DAY) 0L else settings.settings.value.schedule.maxLunchMinutes * 60L
+
+    /** Net target for [day]: e.g. 8h 30m, halved on a half day. */
+    fun netTargetSec(day: LocalDate): Long {
+        val net = settings.settings.value.schedule.netMinutes * 60L
+        return if (db.dayMark(day.toString()) == DayMark.HALF_DAY) net / 2 else net
+    }
+
+    /** Net worked on [day]: office + on duty, minus lunch (at least the allowance, even if skipped). */
+    fun netWorkedSec(ev: List<com.attendance.tracker.data.AttendanceEvent>, closeMs: Long, day: LocalDate): Long {
+        val (office, duty, lunch) = presenceSec(ev, closeMs)
+        return com.attendance.tracker.core.WorkedTime.netSec(office, duty, lunch, lunchAllowanceSec(day))
+    }
 
     private fun trustStamp(): String = runCatching { com.attendance.tracker.security.TrustChecks.stamp(app) }.getOrDefault("")
 
@@ -579,9 +606,11 @@ object AttendanceController {
         val ev = db.events(from, to)
         val now = System.currentTimeMillis()
         val close = if (day == LocalDate.now()) now else ev.maxOfOrNull { it.timeMs } ?: from
-        val worked = com.attendance.tracker.core.WorkedTime.workedSec(workPunches(ev), close)
+        val worked = netWorkedSec(ev, close, day)
         val segs = com.attendance.tracker.core.DayTimeline.segments(timelineEvents(ev), close)
         val totals = com.attendance.tracker.core.DayTimeline.totals(segs)
+        val lunchTaken = totals[com.attendance.tracker.core.DayTimeline.Kind.LUNCH] ?: 0L
+        val lunchDeducted = maxOf(lunchTaken, lunchAllowanceSec(day))
         fun hm(sec: Long) = "${sec / 3600}h ${"%02d".format((sec % 3600) / 60)}m"
         val gate = Regex("via (.+?)( \\(|$| \u00b7)")
         val lines = mutableListOf("\uD83D\uDCCB Attendance \u2013 ${day.format(java.time.format.DateTimeFormatter.ofPattern("EEE, d MMM yyyy"))}")
@@ -590,7 +619,8 @@ object AttendanceController {
             val m = if (e.detail.startsWith(MANUAL_PREFIX)) " (manual)" else ""
             lines += "${if (e.type == EventType.CHECK_IN) "IN " else "OUT"} ${clock(e.timeMs)}$g$m"
         }
-        lines += "Worked ${hm(worked)}" + (totals[com.attendance.tracker.core.DayTimeline.Kind.LUNCH]?.let { " \u00b7 Lunch ${hm(it)}" } ?: "")
+        lines += "Net worked ${hm(worked)} of ${hm(netTargetSec(day))}"
+        lines += "Lunch deducted ${hm(lunchDeducted)}" + if (lunchTaken == 0L) " (not taken)" else ""
         totals[com.attendance.tracker.core.DayTimeline.Kind.DUTY]?.let { lines += "On duty ${hm(it)}" }
         val p = plan(close)
         if (p.late) lines += "Late arrival"

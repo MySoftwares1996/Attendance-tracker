@@ -134,7 +134,7 @@ object HealthCheck {
         val o = s.settings.value.office
         sb.appendLine().appendLine("Office: ${o?.name ?: "-"} · polygon ${o?.polygon?.size ?: 0} pts · gates ${o?.gates?.size ?: 0} · radius ${o?.radiusM?.toInt() ?: 0} m")
         val sc = s.settings.value.schedule
-        sb.appendLine("Hours: arrive ${sc.earliestStartMin / 60}:${"%02d".format(sc.earliestStartMin % 60)}–${sc.latestStartMin / 60}:${"%02d".format(sc.latestStartMin % 60)}, ${sc.requiredMinutes} min/day, lunch ${sc.maxLunchMinutes} min")
+        sb.appendLine("Hours: arrive ${sc.earliestStartMin / 60}:${"%02d".format(sc.earliestStartMin % 60)}–${sc.latestStartMin / 60}:${"%02d".format(sc.latestStartMin % 60)}, ${sc.netMinutes} min net/day + ${sc.maxLunchMinutes} min lunch (always deducted)")
         sb.appendLine("Accuracy: max ±${s.settings.value.accuracy.maxAccuracyM.toInt()} m, ${s.settings.value.accuracy.confirmSamples} readings to confirm")
         sb.appendLine().appendLine("Events, last 7 days:")
         AttendanceController.db.events(now - 7 * 86_400_000L, now).filter { it.type != EventType.STATUS }.forEach {

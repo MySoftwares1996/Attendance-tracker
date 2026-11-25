@@ -54,14 +54,14 @@ object MonthReports {
             val ev = events[date].orEmpty()
             val punches = ev.filter { it.type == EventType.CHECK_IN || it.type == EventType.CHECK_OUT }
             val close = if (date == today) nowMs else ev.maxOfOrNull { it.timeMs } ?: 0L
-            val worked = WorkedTime.workedSec(AttendanceController.workPunches(ev), close)
+            val worked = if (punches.isEmpty()) 0L else AttendanceController.netWorkedSec(ev, close, date)
             var lunch = 0L; var open: Long? = null
             ev.forEach {
                 if (it.type == EventType.LUNCH_START) open = it.timeMs
                 if (it.type == EventType.LUNCH_END) { open?.let { s -> lunch += (it.timeMs - s) / 1000 }; open = null }
             }
             val mark = marks[date.toString()]
-            val required = (if (mark == DayMark.HALF_DAY) sched.requiredMinutes / 2 else sched.requiredMinutes) * 60L
+            val required = (if (mark == DayMark.HALF_DAY) sched.netMinutes / 2 else sched.netMinutes) * 60L
             val firstIn = punches.firstOrNull { it.type == EventType.CHECK_IN }?.timeMs
             val lastOut = punches.lastOrNull { it.type == EventType.CHECK_OUT }?.timeMs
             val late = firstIn != null && mark?.fullDayOff != true && Instant.ofEpochMilli(firstIn).atZone(zone).toLocalTime()
@@ -89,7 +89,7 @@ object MonthReports {
             overtimeSec = days.sumOf { it.overtimeSec },
             lateDays = days.count { it.late },
             leaveDays = days.count { it.mark?.fullDayOff == true },
-            targetSec = sched.requiredMinutes * 60L,
+            targetSec = sched.netMinutes * 60L,
         )
     }
 }

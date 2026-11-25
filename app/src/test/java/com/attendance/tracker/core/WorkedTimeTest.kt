@@ -32,6 +32,24 @@ class WorkedTimeTest {
         assertEquals(9 * 3600L, WorkedTime.workedSec(p, 24 * h))
     }
 
+    @Test fun lunchAlwaysDeducted() {
+        val a = 60 * 60L
+        // In 10:00 → out 19:30 with 45 min lunch outside: 8h45 in office − 15m unused = 8h30
+        assertEquals(510 * 60L, WorkedTime.netSec(525 * 60L, 0, 45 * 60L, a))
+        // Same day, lunch not taken at all: 9h30 in office − 60m = 8h30
+        assertEquals(510 * 60L, WorkedTime.netSec(570 * 60L, 0, 0, a))
+        // Long lunch 75 min (already outside office time): nothing more deducted
+        assertEquals(510 * 60L, WorkedTime.netSec(510 * 60L, 0, 75 * 60L, a))
+        // On-duty counts; early morning never goes negative
+        assertEquals(90 * 60L, WorkedTime.netSec(120 * 60L, 30 * 60L, 0, a))
+        assertEquals(0L, WorkedTime.netSec(20 * 60L, 0, 0, a))
+    }
+
+    @Test fun dayLengthIsNetPlusLunch() {
+        val s = WorkSchedule(netMinutes = 510, maxLunchMinutes = 60)
+        assertEquals(570, s.requiredMinutes)
+    }
+
     @Test fun averageSkipsDaysOff() {
         assertEquals(8 * 3600L + 30 * 60, WorkedTime.averageSec(listOf(0, 8 * 3600L, 9 * 3600L, 0)))
         assertNull(WorkedTime.averageSec(listOf(0, 0)))

@@ -65,11 +65,14 @@ data class WorkSchedule(
     val earliestStartMin: Int = 8 * 60,
     /** Flexible: arriving after this is marked late. */
     val latestStartMin: Int = 11 * 60,
-    /** Flexible: length of the working day, including the allowed lunch. */
-    val requiredMinutes: Int = 9 * 60,
+    /** Net working time per day, lunch NOT included (e.g. 8h 30m). */
+    val netMinutes: Int = 8 * 60 + 30,
     /** Overtime is counted while in office until this time (day shifts). */
     val overtimeUntilMin: Int = 23 * 60,
-)
+) {
+    /** Length of the day at the office = net hours + the lunch that is always deducted. */
+    val requiredMinutes: Int get() = netMinutes + maxLunchMinutes
+}
 
 /** Filters that decide whether a GPS fix is trustworthy enough to use. */
 data class AccuracyConfig(

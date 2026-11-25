@@ -115,7 +115,14 @@ private fun hms(sec: Long): String = "%d:%02d:%02d".format(sec / 3600, (sec % 36
 /** Everything the Today screen shows, recomputed every second from the live state. */
 private data class LiveDay(
     val now: LocalDateTime,
+    /** Time in office + on duty right now (lunch excluded), ticking live. */
     val workedSec: Long,
+    /** Net worked = presence − lunch (at least the allowance). */
+    val netSec: Long,
+    val netTargetSec: Long,
+    /** Lunch that is / will be deducted today and how much of it was actually taken. */
+    val lunchDeductSec: Long,
+    val lunchTakenSec: Long,
     val segments: List<DayTimeline.Segment>,
     val totals: Map<DayTimeline.Kind, Long>,
     val dayProgress: Float,
@@ -126,8 +133,15 @@ private data class LiveDay(
 private fun liveDay(nowMs: Long, plan: DayPlan?, timeline: List<AttendanceEvent>): LiveDay {
     val zone = ZoneId.systemDefault()
     val now = LocalDateTime.ofInstant(Instant.ofEpochMilli(nowMs), zone)
-    val worked = WorkedTime.workedSec(AttendanceController.workPunches(timeline), nowMs)
     val segs = DayTimeline.segments(AttendanceController.timelineEvents(timeline), nowMs)
+    val tot = DayTimeline.totals(segs)
+    val office = tot[DayTimeline.Kind.OFFICE] ?: 0L
+    val duty = tot[DayTimeline.Kind.DUTY] ?: 0L
+    val lunch = tot[DayTimeline.Kind.LUNCH] ?: 0L
+    val worked = office + duty
+    val today = now.toLocalDate()
+    val allowance = AttendanceController.lunchAllowanceSec(today)
+    val net = WorkedTime.netSec(office, duty, lunch, allowance)
     val start = plan?.start
     val end = plan?.expectedEnd
     val progress = if (start != null && end != null) {
@@ -137,7 +151,8 @@ private fun liveDay(nowMs: Long, plan: DayPlan?, timeline: List<AttendanceEvent>
     val toGo = end?.let { Duration.between(now, it).seconds }?.takeIf { it > 0 && start != null }
     val cutoff = plan?.cutoff ?: now
     val ot = end?.let { if (now.isAfter(it)) Duration.between(it, minOf(now, cutoff)).seconds.coerceAtLeast(0) else 0L } ?: 0L
-    return LiveDay(now, worked, segs, DayTimeline.totals(segs), progress, toGo, ot)
+    return LiveDay(now, worked, net, AttendanceController.netTargetSec(today), maxOf(lunch, allowance), lunch,
+        segs, tot, progress, toGo, ot)
 }
 
 @SuppressLint("BatteryLife")
@@ -356,8 +371,8 @@ private fun LiveHero(status: WorkStatus, tracking: Boolean, officeName: String?,
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(hms(live.workedSec), color = white, fontSize = 24.sp, fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleLarge.copy(fontFeatureSettings = "tnum"))
-                    Text("worked", color = soft, style = MaterialTheme.typography.labelMedium)
-                    if (plan?.start != null) Text("${(live.dayProgress * 100).toInt()}% of day", color = soft, style = MaterialTheme.typography.labelSmall)
+                    Text("in office", color = soft, style = MaterialTheme.typography.labelMedium)
+                    Text("net ${fmtDuration(live.netSec)} / ${fmtDuration(live.netTargetSec)}", color = white, style = MaterialTheme.typography.labelMedium)
                 }
             }
             Spacer(Modifier.width(16.dp))
@@ -489,6 +504,14 @@ private fun LiveAnalysis(
 
         Spacer(Modifier.height(14.dp))
         val insights = mutableListOf<Triple<String, String, Color>>()
+        if (plan?.dayOff == null && segs.isNotEmpty()) {
+            val left = (live.netTargetSec - live.netSec).coerceAtLeast(0)
+            insights += Triple("\u2705",
+                "Net worked ${fmtDuration(live.netSec)} of ${fmtDuration(live.netTargetSec)}" +
+                    (if (left > 0) " \u00b7 ${fmtDuration(left)} to go" else " \u00b7 target reached") +
+                    "\n${fmtDuration(live.lunchDeductSec)} lunch deducted" + if (live.lunchTakenSec == 0L) " (even if not taken)" else "",
+                if (left == 0L) c.success else c.accent)
+        }
         // 1. pace / finish
         when {
             plan?.dayOff != null -> {}
@@ -497,7 +520,7 @@ private fun LiveAnalysis(
             live.toGoSec != null ->
                 insights += Triple("⏱", "Finish at ${clock12(plan?.expectedEnd)} · ${fmtDuration(live.toGoSec)} to go", c.accent)
             plan?.start == null && plan?.workDay == true ->
-                insights += Triple("\u23F1", "Day not started \u00b7 logout = arrival + ${fmtDuration(stats.targetSec)}", c.textSecondary)
+                insights += Triple("\u23F1", "Day not started \u00b7 logout = arrival + ${fmtDuration(stats.targetSec)} net + ${AttendanceController.settings.settings.value.schedule.maxLunchMinutes}m lunch", c.textSecondary)
         }
         // 2. away right now
         if (st.status == WorkStatus.OUTSIDE_OFFICE) {
@@ -533,7 +556,7 @@ private fun LiveAnalysis(
         if (weekTarget > 0) insights += Triple("📈",
             "This week ${fmtDuration(weekWorked)} of ${fmtDuration(weekTarget)} (${(weekWorked * 100 / weekTarget)}%)", c.accent)
         // 6. average
-        stats.avgSec?.let { insights += Triple("⚖", "30-day average ${fmtDuration(it)} per day · target ${fmtDuration(stats.targetSec)}",
+        stats.avgSec?.let { insights += Triple("⚖", "30-day average ${fmtDuration(it)} net per day · target ${fmtDuration(stats.targetSec)}",
             if (it >= stats.targetSec) c.success else c.warning) }
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -678,7 +701,7 @@ private fun WeekCard(stats: AttendanceController.WorkedStats) {
     val c = Soft.colors
     SoftCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f)) { CardHeader(painterResource(R.drawable.ic_clock), "Last 7 days", "Hours worked per day", Color(0xFF6A4FE8), Color(0x1F6A4FE8)) }
+            Box(Modifier.weight(1f)) { CardHeader(painterResource(R.drawable.ic_clock), "Last 7 days", "Net hours per day (lunch deducted)", Color(0xFF6A4FE8), Color(0x1F6A4FE8)) }
             stats.avgSec?.let { Pill("avg ${fmtDuration(it)}", c.accent, c.accentSoft) }
         }
         Spacer(Modifier.height(18.dp))
@@ -717,7 +740,7 @@ private fun WeekCard(stats: AttendanceController.WorkedStats) {
             }
         }
         Spacer(Modifier.height(6.dp))
-        Text("Line = your ${fmtDuration(stats.targetSec)} daily target", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+        Text("Line = your ${fmtDuration(stats.targetSec)} net daily target", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
     }
 }
 

@@ -25,6 +25,15 @@ object WorkedTime {
         return total / 1000
     }
 
+    /**
+     * Net worked time. Lunch is always deducted: the allowance (e.g. 60 min) even if no lunch
+     * was taken, or the actual lunch if it was longer.
+     * Lunch time is already outside [officeSec], so only the unused part of the allowance is
+     * taken off here.
+     */
+    fun netSec(officeSec: Long, dutySec: Long, lunchSec: Long, allowanceSec: Long): Long =
+        (officeSec + dutySec - (allowanceSec - lunchSec).coerceAtLeast(0)).coerceAtLeast(0)
+
     /** Average over days that have any worked time; null if there are none. */
     fun averageSec(dailySec: List<Long>): Long? {
         val worked = dailySec.filter { it > 0 }

@@ -58,7 +58,7 @@ class StatusResolverTest {
 
     // ---------------- flexible hours ----------------
     private val flex = WorkSchedule(flexible = true, earliestStartMin = 8 * 60, latestStartMin = 11 * 60,
-        requiredMinutes = 9 * 60, maxLunchMinutes = 60, overtimeUntilMin = 23 * 60)
+        netMinutes = 8 * 60, maxLunchMinutes = 60, overtimeUntilMin = 23 * 60)
 
     @Test fun flexibleLogoutFollowsArrival() {
         assertEquals(at(18), plan(at(12), flex, at(9)).expectedEnd)

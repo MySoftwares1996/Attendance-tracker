@@ -50,7 +50,7 @@ class SettingsRepository(context: Context) {
             .putInt("lunchStartMin", sc.lunchStartMin).putInt("lunchEndMin", sc.lunchEndMin)
             .putInt("maxLunch", sc.maxLunchMinutes).putBoolean("restrictLunch", sc.restrictLunchToWindow)
             .putBoolean("flexible", sc.flexible).putInt("earliestStart", sc.earliestStartMin)
-            .putInt("latestStart", sc.latestStartMin).putInt("requiredMin", sc.requiredMinutes)
+            .putInt("latestStart", sc.latestStartMin).putInt("netMin", sc.netMinutes)
             .putInt("overtimeUntil", sc.overtimeUntilMin)
         val a = s.accuracy
         e.putFloat("maxAcc", a.maxAccuracyM).putInt("confirm", a.confirmSamples)
@@ -92,7 +92,12 @@ class SettingsRepository(context: Context) {
             flexible = true,
             earliestStartMin = prefs.getInt("earliestStart", d.earliestStartMin),
             latestStartMin = prefs.getInt("latestStart", d.latestStartMin),
-            requiredMinutes = prefs.getInt("requiredMin", d.requiredMinutes),
+            // Older versions stored the whole day incl. lunch ("requiredMin"); convert once to net hours.
+            netMinutes = when {
+                prefs.contains("netMin") -> prefs.getInt("netMin", d.netMinutes)
+                prefs.contains("requiredMin") -> (prefs.getInt("requiredMin", d.requiredMinutes) - prefs.getInt("maxLunch", d.maxLunchMinutes)).coerceAtLeast(60)
+                else -> d.netMinutes
+            },
             overtimeUntilMin = prefs.getInt("overtimeUntil", d.overtimeUntilMin),
         )
         val da = AccuracyConfig()

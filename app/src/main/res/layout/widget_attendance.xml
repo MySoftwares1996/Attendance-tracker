@@ -58,7 +58,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="worked today"
+                android:text="net worked today"
                 android:textColor="@color/widget_text2"
                 android:textSize="11sp" />
         </LinearLayout>

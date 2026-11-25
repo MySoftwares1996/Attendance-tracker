@@ -55,10 +55,11 @@ class AttendanceWidget : AppWidgetProvider() {
             fun clock(ms: Long) = Instant.ofEpochMilli(ms).atZone(zone).toLocalTime()
                 .let { "%d:%02d %s".format(if (it.hour % 12 == 0) 12 else it.hour % 12, it.minute, if (it.hour < 12) "AM" else "PM") }
 
-            val worked = WorkedTime.workedSec(AttendanceController.workPunches(st.today.timeline), now)
+            val today = java.time.LocalDate.now()
+            val worked = if (st.today.punches.isEmpty()) 0L else AttendanceController.netWorkedSec(st.today.timeline, now, today)
             val plan = st.plan
             val end = plan?.expectedEnd
-            val target = AttendanceController.settings.settings.value.schedule.requiredMinutes * 60L
+            val target = AttendanceController.netTargetSec(today)
             val (label, color) = when (st.status) {
                 WorkStatus.IN_OFFICE -> "● In office" to 0xFF12B886.toInt()
                 WorkStatus.OVERTIME -> "● Overtime" to 0xFF6A4FE8.toInt()

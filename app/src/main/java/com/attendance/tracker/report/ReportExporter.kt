@@ -33,7 +33,7 @@ object ReportExporter {
     fun shareCsv(ctx: Context, r: MonthReport) {
         val f = File(dir(ctx), "attendance-${r.month}.csv")
         val sb = StringBuilder("﻿") // BOM so Excel reads UTF-8 correctly
-        sb.append("Date,Day,First IN,Last OUT,Worked (h:mm),Lunch (h:mm),Overtime (h:mm),Late,Day mark,Punches\n")
+        sb.append("Date,Day,First IN,Last OUT,Net worked (h:mm),Lunch (h:mm),Overtime (h:mm),Late,Day mark,Punches\n")
         r.days.filter { it.workedSec > 0 || it.mark != null || it.punches.isNotEmpty() }.forEach { d ->
             fun q(s: String) = "\"" + s.replace("\"", "\"\"") + "\""
             sb.append(listOf(
@@ -58,7 +58,7 @@ object ReportExporter {
         val sub = Paint().apply { textSize = 9.5f; color = Color.rgb(122, 128, 153) }
         val line = Paint().apply { color = Color.rgb(232, 234, 242); strokeWidth = 0.8f }
         val cols = floatArrayOf(M, M + 78, M + 140, M + 202, M + 252, M + 296, M + 344, M + 378)
-        val headers = listOf("Date", "First IN", "Last OUT", "Worked", "Lunch", "Overtime", "Late", "Mark / note")
+        val headers = listOf("Date", "First IN", "Last OUT", "Net", "Lunch", "Overtime", "Late", "Mark / note")
         val office = AttendanceController.settings.settings.value.office?.name ?: "Office"
 
         var pageNo = 0
