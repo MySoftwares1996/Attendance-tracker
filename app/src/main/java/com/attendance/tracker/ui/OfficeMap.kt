@@ -235,11 +235,11 @@ fun OfficeMap(
                 m.overlays.add(myLoc)
                 m.overlays.add(copyright)
                 // Touch handlers go last so they get first look at each touch.
-                cornerDrag.enabled = editableCorners && !drawMode
+                cornerDrag.active = editableCorners && !drawMode
                 cornerDrag.markers = cornerMarkers
                 cornerDrag.polygon = poly
                 m.overlays.add(cornerDrag)
-                freehand.enabled = drawMode
+                freehand.active = drawMode
                 m.overlays.add(freehand)
                 m.invalidate()
             },

@@ -19,7 +19,7 @@ import kotlin.math.hypot
  * On release the stroke is simplified to a few clean corners.
  */
 class FreehandOverlay(private val density: Float, private val onDone: (List<LatLng>) -> Unit) : Overlay() {
-    var enabled = false
+    var active = false
     private val pts = mutableListOf<PointF>()
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeWidth = 5f * density
@@ -33,7 +33,7 @@ class FreehandOverlay(private val density: Float, private val onDone: (List<LatL
     }
 
     override fun onTouchEvent(e: MotionEvent, map: MapView): Boolean {
-        if (!enabled) return false
+        if (!active) return false
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> { pts.clear(); pts += PointF(e.x, e.y) }
             MotionEvent.ACTION_MOVE -> { for (i in 0 until e.historySize) pts += PointF(e.getHistoricalX(i), e.getHistoricalY(i)); pts += PointF(e.x, e.y) }
@@ -55,13 +55,13 @@ class FreehandOverlay(private val density: Float, private val onDone: (List<LatL
  * corner fall through, so the map still pans and zooms normally.
  */
 class CornerDragOverlay(private val density: Float, private val onMoved: (Int, LatLng) -> Unit) : Overlay() {
-    var enabled = false
+    var active = false
     var markers: List<Marker> = emptyList()
     var polygon: Polygon? = null
     private var dragging = -1
 
     override fun onTouchEvent(e: MotionEvent, map: MapView): Boolean {
-        if (!enabled) return false
+        if (!active) return false
         val proj = map.projection
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
