@@ -515,86 +515,109 @@ private fun LiveAnalysis(
             }
         }
 
-        Spacer(Modifier.height(14.dp))
-        val insights = mutableListOf<Triple<String, String, Color>>()
+        Spacer(Modifier.height(12.dp))
+        // ── tiles: short label, big value, one line of detail; two per row ──
+        data class Tile(val icon: String, val label: String, val value: String, val sub: String, val color: Color, val onClick: (() -> Unit)? = null)
+        val tiles = mutableListOf<Tile>()
+        val banners = mutableListOf<Triple<String, String, Color>>()
+        var permDialog by remember { mutableStateOf(false) }
+        if (permDialog) PermissionDialog(LocalDate.now()) { permDialog = false }
+        val deductAt = AttendanceController.settings.lunchDeductAtMin.let { m -> "%d:%02d %s".format(if ((m / 60) % 12 == 0) 12 else (m / 60) % 12, m % 60, if (m < 720) "AM" else "PM") }
+
         if (plan?.dayOff == null && segs.isNotEmpty()) {
             val left = (live.netTargetSec - live.netSec).coerceAtLeast(0)
-            insights += Triple("\u2705",
-                "Net worked ${fmtDuration(live.netSec)} of ${fmtDuration(live.netTargetSec)}" +
-                    (if (left > 0) " \u00b7 ${fmtDuration(left)} to go" else " \u00b7 target reached") +
-                    (if (live.lunchTakenSec == 0L && live.netSec >= live.workedSec)
-                        "\n${fmtDuration(live.lunchDeductSec)} lunch comes off at ${AttendanceController.settings.lunchDeductAtMin.let { m -> "%d:%02d %s".format(if ((m / 60) % 12 == 0) 12 else (m / 60) % 12, m % 60, if (m < 720) "AM" else "PM") }} if not taken"
-                    else "\n${fmtDuration(live.lunchDeductSec)} lunch deducted" + if (live.lunchTakenSec == 0L) " (even if not taken)" else ""),
+            tiles += Tile("\u2705", "Net worked", fmtDuration(live.netSec),
+                "of ${fmtDuration(live.netTargetSec)} \u00b7 " + if (left > 0) "${fmtDuration(left)} to go" else "done \uD83C\uDF89",
                 if (left == 0L) c.success else c.accent)
         }
-        // 1. pace / finish
         when {
             plan?.dayOff != null -> {}
             live.overtimeSec > 0 && st.presence == Presence.INSIDE ->
-                insights += Triple("⏱", "Overtime: +${fmtDuration(live.overtimeSec)} so far", Color(0xFF6A4FE8))
+                tiles += Tile("\u23F1", "Overtime", "+${fmtDuration(live.overtimeSec)}", "logout was ${clock12(plan?.expectedEnd)}", Color(0xFF6A4FE8))
             live.toGoSec != null ->
-                insights += Triple("⏱", "Finish at ${clock12(plan?.expectedEnd)} · ${fmtDuration(live.toGoSec)} to go", c.accent)
+                tiles += Tile("\uD83C\uDFC1", "Logout", clock12(plan?.expectedEnd), "${fmtDuration(live.toGoSec)} to go", c.accent)
             plan?.start == null && plan?.workDay == true ->
-                insights += Triple("\u23F1", "Day not started \u00b7 logout = arrival + ${fmtDuration(stats.targetSec)} net + ${AttendanceController.settings.settings.value.schedule.maxLunchMinutes}m lunch", c.textSecondary)
+                banners += Triple("\u23F1", "Day not started \u00b7 logout = arrival + ${fmtDuration(stats.targetSec)} net + ${AttendanceController.settings.settings.value.schedule.maxLunchMinutes}m lunch", c.textSecondary)
         }
-        // 2. away right now
-        if (st.status == WorkStatus.OUTSIDE_OFFICE) {
-            val lastOut = st.today.punches.lastOrNull()?.takeIf { it.type == EventType.CHECK_OUT }?.timeMs
-            if (lastOut != null) insights += Triple("🚶", "Outside for ${fmtDuration((System.currentTimeMillis() - lastOut) / 1000)} · not counted as worked", c.danger)
-        }
-        // 3. arrival vs usual
-        val firstIn = st.today.punches.firstOrNull { it.type == EventType.CHECK_IN }?.timeMs
-        if (firstIn != null && usualArrival != null) {
-            val t = LocalDateTime.ofInstant(Instant.ofEpochMilli(firstIn), ZoneId.systemDefault())
-            val diff = (t.hour * 60 + t.minute) - usualArrival
-            val usual = clock12(LocalDate.now().atStartOfDay().plusMinutes(usualArrival.toLong()))
-            insights += when {
-                diff <= -5 -> Triple("🌅", "Arrived ${-diff} min earlier than your usual $usual", c.success)
-                diff >= 5 -> Triple("🌅", "Arrived $diff min later than your usual $usual", c.warning)
-                else -> Triple("🌅", "Arrived right on your usual time ($usual)", c.success)
-            }
-        }
-        // commute
-        AttendanceController.commute(LocalDate.now())?.let { (min, left) ->
-            insights += Triple("\uD83D\uDE97", "Commute today $min min \u00b7 left home ${clock12(left)}", c.textSecondary)
-        }
-        // 4. lunch
         if (plan?.start != null && plan.dayOff == null) {
             val taken = plan.lunchTakenSec
-            insights += when {
-                taken == 0L && !st.lunch.active -> Triple("🍴", "Lunch not taken yet · $maxLunchMin min available", c.textSecondary)
-                taken <= maxLunchMin * 60L -> Triple("🍴", "Lunch ${fmtDuration(taken)} · ${fmtDuration(maxLunchMin * 60L - taken)} left", c.warning)
-                else -> Triple("🍴", "Lunch over by ${fmtDuration(taken - maxLunchMin * 60L)} · logout moved later", c.danger)
+            tiles += when {
+                st.lunch.active -> Tile("\uD83C\uDF74", "Lunch", "On break", "${fmtDuration(taken)} so far", c.warning)
+                taken == 0L -> Tile("\uD83C\uDF74", "Lunch", "Not taken", "${maxLunchMin}m comes off at $deductAt", c.textSecondary)
+                taken <= maxLunchMin * 60L -> Tile("\uD83C\uDF74", "Lunch", fmtDuration(taken), "unused ${fmtDuration(maxLunchMin * 60L - taken)} deducted", c.warning)
+                else -> Tile("\uD83C\uDF74", "Lunch", "+${fmtDuration(taken - maxLunchMin * 60L)} over", "logout moved later", c.danger)
             }
         }
-        // 5. week progress
+        run {
+            val allowance = AttendanceController.settings.permissionMonthMin
+            if (allowance > 0) {
+                val used = AttendanceController.settings.permissionUsedInMonth(LocalDate.now().toString())
+                val left = (allowance - used).coerceAtLeast(0)
+                tiles += Tile("\u23F3", "Permission", "${fmtDuration(left * 60L)} left", "of ${fmtDuration(allowance * 60L)} this month \u00b7 tap",
+                    if (left == 0) c.danger else Color(0xFF0E8C8C)) { permDialog = true }
+            }
+        }
         val monday = LocalDate.now().minusDays((LocalDate.now().dayOfWeek.value - 1).toLong())
         val week = stats.last7.filter { !it.first.isBefore(monday) }
         val weekWorked = week.sumOf { it.second }
         val weekTarget = week.count { it.first.dayOfWeek in workDays } * stats.targetSec
-        if (weekTarget > 0) insights += Triple("📈",
-            "This week ${fmtDuration(weekWorked)} of ${fmtDuration(weekTarget)} (${(weekWorked * 100 / weekTarget)}%)", c.accent)
-        // 5b. weekly balance: extra time on earlier days offsets today
+        if (weekTarget > 0) tiles += Tile("\uD83D\uDCC8", "This week", fmtDuration(weekWorked),
+            "of ${fmtDuration(weekTarget)} \u00b7 ${weekWorked * 100 / weekTarget}%", c.accent)
         val balance = remember(LocalDate.now(), st.today.punches.size) { AttendanceController.weekBalanceSec() }
         if (kotlin.math.abs(balance) >= 60) {
             val end = plan?.expectedEnd
-            insights += if (balance > 0) Triple("\u2696", "Week balance +${fmtDuration(balance)}" +
-                (if (end != null && plan?.dayOff == null) " \u00b7 you could leave at ${clock12(end.minusSeconds(balance))} and still be even" else ""), c.success)
-            else Triple("\u2696", "Week balance \u2212${fmtDuration(-balance)} \u00b7 stay a little longer this week to catch up", c.warning)
+            tiles += if (balance > 0) Tile("\u2696", "Week balance", "+${fmtDuration(balance)}",
+                if (end != null && plan?.dayOff == null) "could leave ${clock12(end.minusSeconds(balance))}" else "ahead this week", c.success)
+            else Tile("\u2696", "Week balance", "\u2212${fmtDuration(-balance)}", "behind this week", c.warning)
         }
-        // 6. average
-        stats.avgSec?.let { insights += Triple("⚖", "30-day average ${fmtDuration(it)} net per day · target ${fmtDuration(stats.targetSec)}",
+        stats.avgSec?.let { tiles += Tile("\uD83D\uDCCA", "30-day average", fmtDuration(it), "target ${fmtDuration(stats.targetSec)}",
             if (it >= stats.targetSec) c.success else c.warning) }
+        val firstIn = st.today.punches.firstOrNull { it.type == EventType.CHECK_IN }?.timeMs
+        if (firstIn != null) {
+            val t = LocalDateTime.ofInstant(Instant.ofEpochMilli(firstIn), ZoneId.systemDefault())
+            val diff = usualArrival?.let { (t.hour * 60 + t.minute) - it }
+            tiles += Tile("\uD83C\uDF05", "Arrived", clock12(t), when {
+                diff == null -> "first IN today"
+                diff <= -5 -> "${-diff} min earlier than usual"
+                diff >= 5 -> "$diff min later than usual"
+                else -> "your usual time"
+            }, if ((diff ?: 0) >= 5) c.warning else c.success)
+        }
+        AttendanceController.commute(LocalDate.now())?.let { (min, left) ->
+            tiles += Tile("\uD83D\uDE97", "Commute", "$min min", "left home ${clock12(left)}", c.textSecondary)
+        }
+        if (st.status == WorkStatus.OUTSIDE_OFFICE) {
+            val lastOut = st.today.punches.lastOrNull()?.takeIf { it.type == EventType.CHECK_OUT }?.timeMs
+            if (lastOut != null) banners += Triple("\uD83D\uDEB6", "Outside for ${fmtDuration((System.currentTimeMillis() - lastOut) / 1000)} \u00b7 not counted as worked", c.danger)
+        }
 
-        PermissionMeter()
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            insights.forEach { (icon, text, color) ->
-                Row(
-                    Modifier.fillMaxWidth().clip(Soft.tileShape).background(color.copy(alpha = 0.08f)).padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(icon, Modifier.width(26.dp), style = MaterialTheme.typography.titleSmall)
+            banners.forEach { (icon, text, color) ->
+                Row(Modifier.fillMaxWidth().clip(Soft.tileShape).background(color.copy(alpha = 0.10f)).padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text(icon, Modifier.width(24.dp), style = MaterialTheme.typography.titleSmall)
                     Text(text, style = MaterialTheme.typography.bodyMedium, color = c.textPrimary)
+                }
+            }
+            tiles.chunked(2).forEach { pair ->
+                Row(Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    pair.forEach { t ->
+                        Column(
+                            Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(18.dp)).background(t.color.copy(alpha = 0.09f))
+                                .then(if (t.onClick != null) Modifier.pressScale(t.onClick) else Modifier)
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(t.icon, style = MaterialTheme.typography.labelLarge)
+                                Spacer(Modifier.width(6.dp))
+                                Text(t.label, style = MaterialTheme.typography.labelMedium, color = c.textSecondary, maxLines = 1)
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Text(t.value, style = MaterialTheme.typography.titleLarge, color = c.textPrimary, maxLines = 1)
+                            Text(t.sub, style = MaterialTheme.typography.bodySmall, color = c.textSecondary, maxLines = 2)
+                        }
+                    }
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
                 }
             }
         }
