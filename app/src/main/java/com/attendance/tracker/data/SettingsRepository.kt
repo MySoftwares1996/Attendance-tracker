@@ -186,6 +186,14 @@ class SettingsRepository(context: Context) {
         get() = prefs.getInt("themeMode", 0)
         set(v) { prefs.edit().putInt("themeMode", v).apply(); com.attendance.tracker.ui.ThemeMode.mode = v }
 
+    /** Leave allowed per year, by type code (CL, SL, EL). */
+    var leaveQuota: Map<String, Double>
+        get() = runCatching {
+            val o = JSONObject(prefs.getString("leaveQuota", "{}")!!)
+            mapOf("CL" to 12.0, "SL" to 6.0, "EL" to 15.0) + o.keys().asSequence().associateWith { o.getDouble(it) }
+        }.getOrDefault(mapOf("CL" to 12.0, "SL" to 6.0, "EL" to 15.0))
+        set(v) { val o = JSONObject(); v.forEach { (k, d) -> o.put(k, d) }; prefs.edit().putString("leaveQuota", o.toString()).apply() }
+
     // ---- permission (short leave that counts as worked time) ----
     /** Permission you're allowed per month, in minutes (default 2 hours). */
     var permissionMonthMin: Int

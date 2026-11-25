@@ -392,6 +392,64 @@ object AttendanceController {
         return n
     }
 
+    // ───────────── leave ─────────────
+
+    enum class LeaveType(val code: String, val label: String, val mark: DayMark) {
+        CASUAL("CL", "Casual leave", DayMark.LEAVE),
+        SICK("SL", "Sick leave", DayMark.SICK),
+        EARNED("EL", "Earned leave", DayMark.LEAVE),
+        UNPAID("LOP", "Loss of pay", DayMark.ABSENT),
+    }
+
+    data class LeaveDay(val date: LocalDate, val type: LeaveType, val half: Boolean, val reason: String)
+
+    /** Working days from [from] to [to] (weekends and holidays skipped). */
+    fun leaveWorkingDays(from: LocalDate, to: LocalDate): List<LocalDate> {
+        val wd = settings.settings.value.schedule.workDays
+        return generateSequence(from) { it.plusDays(1) }.takeWhile { !it.isAfter(to) }
+            .filter { it.dayOfWeek in wd && com.attendance.tracker.data.Holidays.name(it) == null }.toList()
+    }
+
+    /** Applies leave: marks each working day (half day = Half day mark). Note = "CL · reason". */
+    fun applyLeave(from: LocalDate, to: LocalDate, type: LeaveType, half: Boolean, reason: String): Int {
+        val days = leaveWorkingDays(from, to)
+        days.forEach { d ->
+            val mark = if (half && type != LeaveType.UNPAID) DayMark.HALF_DAY else type.mark
+            db.setDayMarkWithNote(d.toString(), mark, "LEAVE:${type.code}${if (half) ":H" else ""} \u00b7 ${reason.trim()}")
+        }
+        refresh()
+        return days.size
+    }
+
+    fun cancelLeave(day: LocalDate) { db.setDayMark(day.toString(), null); refresh() }
+
+    /** Leaves applied in [year] (from their notes). */
+    fun leavesIn(year: Int): List<LeaveDay> = db.marksWithNotes("$year-01-01", "$year-12-31").mapNotNull { (day, _, note) ->
+        if (note == null || !note.startsWith("LEAVE:")) return@mapNotNull null
+        val head = note.substringBefore(" \u00b7 ").removePrefix("LEAVE:")
+        val type = LeaveType.entries.firstOrNull { it.code == head.substringBefore(":") } ?: return@mapNotNull null
+        LeaveDay(LocalDate.parse(day), type, head.endsWith(":H"), note.substringAfter(" \u00b7 ", ""))
+    }
+
+    /** Used and left per type this year (half days count 0.5). */
+    fun leaveBalance(year: Int = LocalDate.now().year): Map<LeaveType, Pair<Double, Double>> {
+        val used = leavesIn(year).groupBy { it.type }.mapValues { (_, l) -> l.sumOf { if (it.half) 0.5 else 1.0 } }
+        val q = settings.leaveQuota
+        return LeaveType.entries.filter { it != LeaveType.UNPAID }.associateWith { t ->
+            val u = used[t] ?: 0.0
+            u to ((q[t.code] ?: 0.0) - u)
+        }
+    }
+
+    fun leaveRequestText(from: LocalDate, to: LocalDate, type: LeaveType, half: Boolean, reason: String, days: Int): String {
+        val f = java.time.format.DateTimeFormatter.ofPattern("EEE, d MMM yyyy")
+        val range = if (from == to) from.format(f) else "${from.format(f)} to ${to.format(f)}"
+        return "Leave request \u2013 ${type.label}\n" +
+            "Date: $range" + (if (half) " (half day)" else "") + "\n" +
+            "Working days: ${if (half) "0.5" else "$days"}\n" +
+            (if (reason.isNotBlank()) "Reason: ${reason.trim()}\n" else "") + "\nKindly approve."
+    }
+
     // ───────────── permission ─────────────
 
     fun permissionMin(day: LocalDate): Int = settings.permissionMin(day.toString())

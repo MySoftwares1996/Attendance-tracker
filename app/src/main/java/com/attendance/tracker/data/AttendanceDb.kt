@@ -76,6 +76,18 @@ class AttendanceDb(context: Context) :
         return out
     }
 
+    /** Day marks with their notes (leave type · reason) between two days, inclusive. */
+    fun marksWithNotes(fromDay: String, toDay: String): List<Triple<String, String, String?>> =
+        readableDatabase.rawQuery("SELECT day, mark, note FROM day_marks WHERE day>=? AND day<=? ORDER BY day", arrayOf(fromDay, toDay)).use { c ->
+            buildList { while (c.moveToNext()) add(Triple(c.getString(0), c.getString(1), if (c.isNull(2)) null else c.getString(2))) }
+        }
+
+    fun setDayMarkWithNote(day: String, mark: com.attendance.tracker.core.DayMark, note: String) {
+        com.attendance.tracker.backup.BackupManager.backupSoon(appContext)
+        writableDatabase.insertWithOnConflict("day_marks", null,
+            ContentValues().apply { put("day", day); put("mark", mark.name); put("note", note) }, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
     fun setDayMark(day: String, mark: com.attendance.tracker.core.DayMark?) {
         com.attendance.tracker.backup.BackupManager.backupSoon(appContext)
         if (mark == null) writableDatabase.delete("day_marks", "day=?", arrayOf(day))

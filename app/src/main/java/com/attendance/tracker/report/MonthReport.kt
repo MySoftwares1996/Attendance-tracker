@@ -94,6 +94,7 @@ object MonthReports {
             val late = false // no arrival deadline: the day starts whenever you arrive
             val workDay = date.dayOfWeek in sched.workDays && holiday == null
             val state = when {
+                date.isAfter(today) && mark?.fullDayOff == true -> DayState.LEAVE
                 date.isAfter(today) -> DayState.FUTURE
                 mark == DayMark.ABSENT -> DayState.ABSENT
                 mark == DayMark.PRESENT && punches.isEmpty() -> DayState.OK

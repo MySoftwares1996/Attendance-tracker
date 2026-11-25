@@ -202,6 +202,8 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
     var dutyOpen by remember { mutableStateOf(false) }
     var permOpen by remember { mutableStateOf(false) }
     var planOpen by remember { mutableStateOf(false) }
+    var leaveOpen by remember { mutableStateOf(false) }
+    if (leaveOpen) ApplyLeaveDialog { leaveOpen = false }
     if (permOpen) PermissionDialog(LocalDate.now()) { permOpen = false }
     if (planOpen) LeaveByDialog { planOpen = false }
     if (markOpen) DayMarkDialog(LocalDate.now()) { markOpen = false }
@@ -320,6 +322,7 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
             val permToday = AttendanceController.permissionMin(LocalDate.now())
             ActionChip(if (permToday > 0) "⏱  Permission ${if (permToday % 60 == 0) "${permToday / 60}h" else "${permToday / 60}h ${permToday % 60}m"}" else "⏱  Permission",
                 Color(0xFF0E8C8C), Color(0x1F0E8C8C)) { permOpen = true }
+            ActionChip("\uD83C\uDFD6  Apply leave", Color(0xFF8E63E0), Color(0x1F8E63E0)) { leaveOpen = true }
             ActionChip("\uD83D\uDEAA  Leave by\u2026", Color(0xFFB8860B), c.warningSoft) { planOpen = true }
             ActionChip("📅  ${if (plan?.dayOff != null) plan.dayOff else "Mark today"}", c.accent, c.accentSoft) { markOpen = true }
             ActionChip("✎  Missed punch", c.accent, c.accentSoft) { punchOpen = true }

@@ -165,6 +165,7 @@ fun HistoryScreen() {
                     MiniAction("⬇ Import records file") { importer.launch(arrayOf("application/json", "application/octet-stream", "text/*", "*/*")) }
                 }
             }
+            item { key(markTick) { LeavesCard() } }
             item { MonthSummary(report, onPdf = { ReportExporter.sharePdf(ctx, report) }, onCsv = { ReportExporter.shareCsv(ctx, report) }) }
         } else {
             if (days.isEmpty()) item {
