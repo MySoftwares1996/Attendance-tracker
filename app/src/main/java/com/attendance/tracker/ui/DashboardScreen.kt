@@ -156,7 +156,8 @@ private fun liveDay(nowMs: Long, plan: DayPlan?, timeline: List<AttendanceEvent>
     } else 0f
     val toGo = end?.let { Duration.between(now, it).seconds }?.takeIf { it > 0 && start != null }
     val cutoff = plan?.cutoff ?: now
-    val ot = end?.let { if (now.isAfter(it)) Duration.between(it, minOf(now, cutoff)).seconds.coerceAtLeast(0) else 0L } ?: 0L
+    // Overtime = net beyond the target (stops growing once you've left).
+    val ot = if (end != null && now.isAfter(end)) (net - target).coerceAtLeast(0) else 0L
     return LiveDay(now, worked, net, AttendanceController.netTargetSec(today), maxOf(lunch, allowance), lunch,
         segs, tot, progress, toGo, ot)
 }
@@ -553,8 +554,12 @@ private fun LiveAnalysis(
 
         if (plan?.dayOff == null && segs.isNotEmpty()) {
             val left = (live.netTargetSec - live.netSec).coerceAtLeast(0)
+            val permSec = AttendanceController.permissionMin(LocalDate.now()) * 60L
+            val lunchOff = (live.workedSec + permSec - live.netSec).coerceAtLeast(0)
             tiles += Tile("\u2705", "Net worked", fmtDuration(live.netSec),
-                "of ${fmtDuration(live.netTargetSec)} \u00b7 " + if (left > 0) "${fmtDuration(left)} to go" else "done \uD83C\uDF89",
+                "of ${fmtDuration(live.netTargetSec)} \u00b7 " + (if (left > 0) "${fmtDuration(left)} to go" else "done \uD83C\uDF89") +
+                    "\n${fmtDuration(live.workedSec)} in office" + (if (lunchOff > 0) " \u2212 ${fmtDuration(lunchOff)} lunch" else "") +
+                    (if (permSec > 0) " + ${fmtDuration(permSec)} permission" else ""),
                 if (left == 0L) c.success else c.accent)
         }
         when {
@@ -641,7 +646,7 @@ private fun LiveAnalysis(
                             }
                             Spacer(Modifier.height(4.dp))
                             Text(t.value, style = MaterialTheme.typography.titleLarge, color = c.textPrimary, maxLines = 1)
-                            Text(t.sub, style = MaterialTheme.typography.bodySmall, color = c.textSecondary, maxLines = 2)
+                            Text(t.sub, style = MaterialTheme.typography.bodySmall, color = c.textSecondary, maxLines = 3)
                         }
                     }
                     if (pair.size == 1) Spacer(Modifier.weight(1f))
