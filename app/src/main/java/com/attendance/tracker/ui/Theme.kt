@@ -132,7 +132,10 @@ fun AttendanceTheme(content: @Composable () -> Unit) {
         outline = soft.hairline, outlineVariant = soft.hairline, error = soft.danger,
         surfaceContainer = soft.card, surfaceContainerHigh = soft.card, surfaceContainerHighest = soft.cardMuted,
     )
-    androidx.compose.runtime.CompositionLocalProvider(LocalSoft provides soft) {
+    // Honour the phone's text size, but cap it so cards and tiles keep their layout.
+    val d = androidx.compose.ui.platform.LocalDensity.current
+    val capped = androidx.compose.ui.unit.Density(d.density, d.fontScale.coerceIn(0.85f, 1.3f))
+    androidx.compose.runtime.CompositionLocalProvider(LocalSoft provides soft, androidx.compose.ui.platform.LocalDensity provides capped) {
         MaterialTheme(
             colorScheme = scheme,
             typography = AppTypography,

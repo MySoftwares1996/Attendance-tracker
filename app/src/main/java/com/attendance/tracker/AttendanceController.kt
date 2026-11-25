@@ -261,16 +261,18 @@ object AttendanceController {
             val outT = d.lastOutMs?.let { clock(it) } ?: "\u2014"
             val manual = d.punches.count { it.detail.startsWith(MANUAL_PREFIX) }
             val target = netTargetSec(d.date)
-            when {
-                d.state == com.attendance.tracker.report.DayState.ABSENT && d.mark == null ->
-                    RegItem(d.date, "Absent", "No punches recorded")
-                d.punches.isNotEmpty() && d.firstInMs != null && d.lastOutMs == null ->
-                    RegItem(d.date, "Missed OUT", "IN $inT, no OUT recorded")
-                d.workedSec in 1 until target ->
-                    RegItem(d.date, "Short by ${hm(target - d.workedSec)}", "IN $inT \u00b7 OUT $outT \u00b7 net ${hm(d.workedSec)}")
-                manual > 0 -> RegItem(d.date, "Manual punch", "$manual manual punch${if (manual > 1) "es" else ""} \u00b7 IN $inT \u00b7 OUT $outT")
-                else -> null
+            val issue = com.attendance.tracker.core.Regularisation.issue(
+                absentUnmarked = d.state == com.attendance.tracker.report.DayState.ABSENT && d.mark == null,
+                hasIn = d.firstInMs != null, hasOut = d.lastOutMs != null,
+                workedSec = d.workedSec, targetSec = target, manualPunches = manual,
+            ) ?: return@mapNotNull null
+            val detail = when (issue) {
+                "Absent" -> "No punches recorded"
+                "Missed OUT" -> "IN $inT, no OUT recorded"
+                "Manual punch" -> "$manual manual punch${if (manual > 1) "es" else ""} \u00b7 IN $inT \u00b7 OUT $outT"
+                else -> "IN $inT \u00b7 OUT $outT \u00b7 net ${hm(d.workedSec)}"
             }
+            RegItem(d.date, issue, detail)
         }
     }
 
@@ -292,20 +294,8 @@ object AttendanceController {
         val wd = settings.settings.value.schedule.workDays
         val marks = db.dayMarks(today.toString(), today.plusDays(horizonDays + 10).toString())
         fun off(d: LocalDate) = d.dayOfWeek !in wd || com.attendance.tracker.data.Holidays.name(d) != null || marks[d.toString()]?.fullDayOff == true
-        val out = mutableListOf<LongWeekend>()
-        for (i in 1..horizonDays) {
-            val start = today.plusDays(i)
-            for (n in 1..2) {
-                val leave = (0 until n).map { start.plusDays(it.toLong()) }
-                if (leave.any { off(it) }) continue
-                var a = start; while (off(a.minusDays(1))) a = a.minusDays(1)
-                var b = leave.last(); while (off(b.plusDays(1))) b = b.plusDays(1)
-                val hol = generateSequence(a) { it.plusDays(1) }.takeWhile { !it.isAfter(b) }.firstNotNullOfOrNull { com.attendance.tracker.data.Holidays.name(it) }
-                val lw = LongWeekend(leave, a, b, hol)
-                if (hol != null && lw.totalDays >= n + 3 && out.none { it.from == a && it.to == b } && out.none { o -> o.leaveDays.any { it in leave } }) out += lw
-            }
-        }
-        return out.sortedBy { it.from }.take(6)
+        return com.attendance.tracker.core.LongWeekends.find(today, horizonDays, ::off, com.attendance.tracker.data.Holidays::name)
+            .map { LongWeekend(it.leaveDays, it.from, it.to, it.holiday) }
     }
 
     // ───────────── permission history ─────────────
@@ -538,7 +528,7 @@ object AttendanceController {
         val days = leaveWorkingDays(from, to)
         days.forEach { d ->
             val mark = if (half && type != LeaveType.UNPAID) DayMark.HALF_DAY else type.mark
-            db.setDayMarkWithNote(d.toString(), mark, "LEAVE:${type.code}${if (half) ":H" else ""} \u00b7 ${reason.trim()}")
+            db.setDayMarkWithNote(d.toString(), mark, com.attendance.tracker.core.LeaveNote.format(type.code, half, reason))
         }
         refresh()
         return days.size
@@ -548,10 +538,9 @@ object AttendanceController {
 
     /** Leaves applied in [year] (from their notes). */
     fun leavesIn(year: Int): List<LeaveDay> = db.marksWithNotes("$year-01-01", "$year-12-31").mapNotNull { (day, _, note) ->
-        if (note == null || !note.startsWith("LEAVE:")) return@mapNotNull null
-        val head = note.substringBefore(" \u00b7 ").removePrefix("LEAVE:")
-        val type = LeaveType.entries.firstOrNull { it.code == head.substringBefore(":") } ?: return@mapNotNull null
-        LeaveDay(LocalDate.parse(day), type, head.endsWith(":H"), note.substringAfter(" \u00b7 ", ""))
+        val p = com.attendance.tracker.core.LeaveNote.parse(note) ?: return@mapNotNull null
+        val type = LeaveType.entries.firstOrNull { it.code == p.code } ?: return@mapNotNull null
+        LeaveDay(LocalDate.parse(day), type, p.half, p.reason)
     }
 
     /** Used and left per type this year (half days count 0.5). */

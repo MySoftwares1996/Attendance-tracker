@@ -94,9 +94,6 @@ object BackupManager {
         val tmp = File(dir, "tmp.part"); tmp.writeText(export(ctx).toString()); check(tmp.renameTo(File(dir, "$name.json")))
     }.isSuccess
 
-    private fun sha256(s: String): String =
-        MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
-
     private fun prefsJson(ctx: Context, file: String): JSONObject {
         val o = JSONObject()
         ctx.getSharedPreferences(file, Context.MODE_PRIVATE).all.forEach { (k, v) ->
@@ -123,17 +120,8 @@ object BackupManager {
             .put("events", JSONArray(db.dumpEvents().map { JSONArray(it) }))
             .put("durations", JSONArray(db.dumpDurations().map { JSONArray(it) }))
             .put("marks", JSONArray(db.dumpMarks().map { JSONArray(it) }))
-        val dataText = data.toString()
-        return JSONObject()
-            .put("app", "attendance-tracker").put("format", FORMAT).put("createdAt", System.currentTimeMillis())
-            .put("appVersion", com.attendance.tracker.update.UpdateManager.currentVersionName)
-            .put("counts", JSONObject()
-                .put("events", data.getJSONArray("events").length())
-                .put("durations", data.getJSONArray("durations").length())
-                .put("marks", data.getJSONArray("marks").length()))
-            .put("sha256", sha256(dataText))
-            .put("dataText", dataText)
-            // Older app versions read these keys directly.
+        return com.attendance.tracker.core.BackupFormat.wrap(data, System.currentTimeMillis(), com.attendance.tracker.update.UpdateManager.currentVersionName)
+            // Older app versions read this key directly.
             .put("settings", prefs.getJSONObject(MAIN_PREFS))
     }
 
@@ -145,19 +133,12 @@ object BackupManager {
         val json = runCatching { JSONObject(text) }.getOrElse { error("This file is damaged or incomplete (not valid JSON).") }
         check(json.optString("app") == "attendance-tracker") { "That isn't an Attendance Tracker backup." }
         val format = json.optInt("format", 1)
-        check(format <= FORMAT) { "This backup is from a newer app version. Update the app first." }
         fun rows(o: JSONObject, key: String) = o.optJSONArray(key)?.let { a -> (0 until a.length()).map { i -> a.getJSONArray(i) } } ?: emptyList()
         return if (format >= 2) {
-            val dataText = json.getString("dataText")
-            check(sha256(dataText) == json.getString("sha256")) { "Checksum mismatch: this backup file is damaged. Nothing was changed." }
-            val data = JSONObject(dataText)
+            val data = com.attendance.tracker.core.BackupFormat.unwrap(json)
             val p = data.getJSONObject("prefs")
-            val parsed = Parsed(json.optLong("createdAt"), p.keys().asSequence().associateWith { p.getJSONObject(it) },
+            Parsed(json.optLong("createdAt"), p.keys().asSequence().associateWith { p.getJSONObject(it) },
                 rows(data, "events"), rows(data, "durations"), rows(data, "marks"), true)
-            val c = json.getJSONObject("counts")
-            check(c.getInt("events") == parsed.events.size && c.getInt("durations") == parsed.durations.size &&
-                c.getInt("marks") == parsed.marks.size) { "Backup is incomplete (row counts don't match). Nothing was changed." }
-            parsed
         } else {
             Parsed(json.optLong("createdAt"), mapOf(MAIN_PREFS to (json.optJSONObject("settings") ?: JSONObject())),
                 rows(json, "events"), rows(json, "durations"), rows(json, "marks"), false)

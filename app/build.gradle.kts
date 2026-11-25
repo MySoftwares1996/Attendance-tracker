@@ -90,4 +90,6 @@ dependencies {
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
 
     testImplementation("junit:junit:4.13.2")
+    // Real org.json for unit tests (Android's copy is a stub off-device)
+    testImplementation("org.json:json:20240303")
 }

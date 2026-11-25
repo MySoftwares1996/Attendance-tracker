@@ -64,8 +64,8 @@ fun SalaryScreen() {
     var month by remember { mutableStateOf(YearMonth.now()) }
     var rules by remember { mutableStateOf(AttendanceController.settings.salaryRules) }
     var tick by remember { mutableIntStateOf(0) }
-    val report = remember(month, tick) { MonthReports.build(month) }
-    val slip = remember(report, rules) { if (rules.monthlyGross > 0) report.payslip() else null }
+    val report = rememberInBackground(month, tick) { MonthReports.build(month) }
+    val slip = remember(report, rules) { if (rules.monthlyGross > 0) report?.payslip() else null }
     var editing by remember { mutableStateOf(rules.monthlyGross <= 0) }
     fun save(r: SalaryRules) { rules = r; AttendanceController.settings.salaryRules = r; tick++ }
 
@@ -93,7 +93,7 @@ fun SalaryScreen() {
                 style = MaterialTheme.typography.headlineSmall, color = if (canNext) c.accent else c.hairline)
         }
 
-        if (slip != null) {
+        if (slip != null && report != null) {
             TakeHomeHero(slip, month == YearMonth.now())
             BreakdownCard("Earnings", slip.earnings, c.success, "+")
             BreakdownCard("Deductions", slip.deductions, c.danger, "−",
@@ -318,7 +318,7 @@ private fun CustomItems(title: String, items: List<Pair<String, Double>>, onChan
 private fun YearSummaryCard(year: Int, rules: SalaryRules) {
     val c = Soft.colors
     var open by remember { mutableStateOf(false) }
-    val rows = remember(year, rules, open) {
+    val rows = rememberInBackground(year, rules, open) {
         if (!open) emptyList() else (1..12).map { YearMonth.of(year, it) }.filter { !it.isAfter(YearMonth.now()) }.mapNotNull { ym ->
             runCatching { MonthReports.build(ym) }.getOrNull()?.takeIf { it.presentDays > 0 || it.leaveDays > 0 }?.payslip()?.let { p ->
                 fun sum(prefix: String) = p.deductions.filter { it.label.startsWith(prefix) }.sumOf { it.amount }
@@ -333,7 +333,8 @@ private fun YearSummaryCard(year: Int, rules: SalaryRules) {
             MiniAction(if (open) "Hide" else "Show") { open = !open }
         }
         if (open) {
-            if (rows.isEmpty()) Text("No months with attendance yet.", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+            if (rows == null) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth(), color = c.accent)
+            else if (rows.isEmpty()) Text("No months with attendance yet.", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
             else {
                 Spacer(Modifier.height(8.dp))
                 val headers = listOf("Month", "Take-home", "PF saved", "Insurance", "LOP")

@@ -72,7 +72,7 @@ fun HistoryScreen() {
     var picking by remember { mutableStateOf(false) }
     var picked by remember { mutableStateOf(setOf<LocalDate>()) }
     var markTick by remember { mutableStateOf(0) }
-    val report = remember(month, st.today, st.status, markTick) { MonthReports.build(month) }
+    val report = rememberInBackground(month, st.today, st.status, markTick) { MonthReports.build(month) }
     fun dayData(d: LocalDate): Triple<LocalDate, com.attendance.tracker.DaySummary, List<AttendanceEvent>> {
         val zone = ZoneId.systemDefault()
         val from = d.atStartOfDay(zone).toInstant().toEpochMilli()
@@ -118,7 +118,7 @@ fun HistoryScreen() {
                     MiniAction(if (picking) "Done" else "☑ Select days") { picking = !picking; picked = emptySet() }
                 }
             }
-            item {
+            if (report != null) item {
                 MonthCalendar(report, selected, picked, onMonth = { month = it }, onSelect = { d ->
                     if (picking) { if (!d.isAfter(LocalDate.now())) picked = if (d in picked) picked - d else picked + d }
                     else selected = d
@@ -171,7 +171,7 @@ fun HistoryScreen() {
             }
             item { RegularisationCard(month, markTick to st.today.punches.size) }
             item { key(markTick) { LeavesCard() } }
-            item { MonthSummary(report, onPdf = { ReportExporter.sharePdf(ctx, report) }, onCsv = { ReportExporter.shareCsv(ctx, report) }) }
+            if (report != null) item { MonthSummary(report, onPdf = { ReportExporter.sharePdf(ctx, report) }, onCsv = { ReportExporter.shareCsv(ctx, report) }) }
         } else {
             if (days.isEmpty()) item {
                 SoftCard {

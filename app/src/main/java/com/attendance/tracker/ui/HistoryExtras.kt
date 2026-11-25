@@ -50,7 +50,7 @@ private val rFmt = DateTimeFormatter.ofPattern("EEE d MMM")
 fun RegularisationCard(month: YearMonth, refreshKey: Any) {
     val ctx = LocalContext.current
     val c = Soft.colors
-    val items = remember(month, refreshKey) { runCatching { AttendanceController.regularisationList(month) }.getOrDefault(emptyList()) }
+    val items = rememberInBackground(month, refreshKey) { AttendanceController.regularisationList(month) } ?: emptyList()
     SoftCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -68,7 +68,7 @@ fun RegularisationCard(month: YearMonth, refreshKey: Any) {
                 .padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("${it.date.format(rFmt)} · ${it.issue}", style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
-                    Text(it.detail, style = MaterialTheme.typography.bodySmall, color = c.textSecondary, maxLines = 1)
+                    Text(it.detail, style = MaterialTheme.typography.bodySmall, color = c.textSecondary, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 }
                 Text("Share", style = MaterialTheme.typography.labelMedium, color = c.accent)
             }
@@ -80,7 +80,7 @@ fun RegularisationCard(month: YearMonth, refreshKey: Any) {
 @Composable
 fun YearCalendarDialog(year: Int, onDismiss: () -> Unit) {
     val c = Soft.colors
-    val months = remember(year) {
+    val months = rememberInBackground(year) {
         (1..12).map { m -> YearMonth.of(year, m) }.filter { !it.isAfter(YearMonth.now().plusMonths(12)) }
             .map { ym -> ym to runCatching { MonthReports.build(ym) }.getOrNull() }
     }
@@ -103,7 +103,8 @@ fun YearCalendarDialog(year: Int, onDismiss: () -> Unit) {
                             Box(Modifier.size(8.dp).clip(CircleShape).background(col)); Spacer(Modifier.width(4.dp))
                             Text(l, style = MaterialTheme.typography.labelSmall, color = c.textSecondary) } }
                 }
-                months.chunked(2).forEach { pair ->
+                if (months == null) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+                months.orEmpty().chunked(2).forEach { pair ->
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         pair.forEach { (ym, r) ->
                             Column(Modifier.weight(1f)) {
@@ -184,7 +185,7 @@ fun TrailDialog(punchMs: Long, onDismiss: () -> Unit) {
 @Composable
 fun LongWeekendList() {
     val c = Soft.colors
-    val list = remember { runCatching { AttendanceController.longWeekends() }.getOrDefault(emptyList()) }
+    val list = rememberInBackground(Unit) { AttendanceController.longWeekends() } ?: emptyList()
     if (list.isEmpty()) return
     Spacer(Modifier.height(10.dp))
     Text("Long-weekend ideas", style = MaterialTheme.typography.labelMedium, color = c.textSecondary)

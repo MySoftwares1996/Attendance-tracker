@@ -63,10 +63,14 @@ class AttendanceDb(context: Context) :
     }
 
     // ---- day marks (leave / holiday / WFH / half day) ----
-    fun dayMark(day: String): com.attendance.tracker.core.DayMark? =
-        readableDatabase.rawQuery("SELECT mark FROM day_marks WHERE day=?", arrayOf(day)).use { c ->
+    /** Day marks are read many times a second by the live screens; cache them until any mark changes. */
+    private val markCache = java.util.concurrent.ConcurrentHashMap<String, java.util.Optional<com.attendance.tracker.core.DayMark>>()
+
+    fun dayMark(day: String): com.attendance.tracker.core.DayMark? = markCache.getOrPut(day) {
+        java.util.Optional.ofNullable(readableDatabase.rawQuery("SELECT mark FROM day_marks WHERE day=?", arrayOf(day)).use { c ->
             if (c.moveToFirst()) runCatching { com.attendance.tracker.core.DayMark.valueOf(c.getString(0)) }.getOrNull() else null
-        }
+        })
+    }.orElse(null)
 
     fun dayMarks(fromDay: String, toDay: String): Map<String, com.attendance.tracker.core.DayMark> {
         val out = mutableMapOf<String, com.attendance.tracker.core.DayMark>()
@@ -83,12 +87,14 @@ class AttendanceDb(context: Context) :
         }
 
     fun setDayMarkWithNote(day: String, mark: com.attendance.tracker.core.DayMark, note: String) {
+        markCache.clear()
         com.attendance.tracker.backup.BackupManager.backupSoon(appContext)
         writableDatabase.insertWithOnConflict("day_marks", null,
             ContentValues().apply { put("day", day); put("mark", mark.name); put("note", note) }, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
     fun setDayMark(day: String, mark: com.attendance.tracker.core.DayMark?) {
+        markCache.clear()
         com.attendance.tracker.backup.BackupManager.backupSoon(appContext)
         if (mark == null) writableDatabase.delete("day_marks", "day=?", arrayOf(day))
         else writableDatabase.insertWithOnConflict("day_marks", null,
@@ -108,6 +114,7 @@ class AttendanceDb(context: Context) :
 
     /** Deletes attendance records before [beforeMs] / [beforeDay] (yyyy-MM-dd), or everything when null. */
     fun clearRecords(beforeMs: Long?, beforeDay: String?) {
+        markCache.clear()
         val db = writableDatabase
         db.beginTransaction()
         try {
@@ -140,6 +147,7 @@ class AttendanceDb(context: Context) :
 
     /** Deletes records (events, totals, marks) from [fromDay] to [toDay] inclusive, in one transaction. */
     fun clearRange(fromMs: Long, toMs: Long, fromDay: String, toDayExclusive: String) {
+        markCache.clear()
         val db = writableDatabase
         db.beginTransaction()
         try {
@@ -166,6 +174,7 @@ class AttendanceDb(context: Context) :
 
     /** Adds imported events and marks in one all-or-nothing transaction. */
     fun importBatch(events: List<Triple<Long, EventType, String>>, marks: Map<String, String>) {
+        markCache.clear()
         val db = writableDatabase
         db.beginTransaction()
         try {
@@ -189,6 +198,7 @@ class AttendanceDb(context: Context) :
     }
 
     fun restoreAll(events: List<org.json.JSONArray>, durations: List<org.json.JSONArray>, marks: List<org.json.JSONArray>) {
+        markCache.clear()
         val db = writableDatabase
         db.beginTransaction()
         try {

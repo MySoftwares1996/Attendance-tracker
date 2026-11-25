@@ -421,7 +421,7 @@ private fun LiveHero(status: WorkStatus, tracking: Boolean, officeName: String?,
                     drawArc(Color.White, -90f, 360f * p, false, tl, Size(d, d), style = Stroke(sw, cap = StrokeCap.Round))
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(hms(live.workedSec), color = white, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                    Text(hms(live.workedSec), color = white, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.titleLarge.copy(fontFeatureSettings = "tnum"))
                     Text("in office", color = soft, style = MaterialTheme.typography.labelMedium)
                 }
@@ -461,13 +461,13 @@ private fun LiveHero(status: WorkStatus, tracking: Boolean, officeName: String?,
 @Composable
 private fun HeroStat(label: String, value: String, fg: Color, soft: Color, sub: String? = null, inline: Boolean = false) {
     Column {
-        Text(label, color = soft, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+        Text(label, color = soft, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         Row(verticalAlignment = Alignment.Bottom) {
-            Text(value, color = fg, style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"), maxLines = 1)
-            if (sub != null && inline) Text("  $sub", color = soft, style = MaterialTheme.typography.labelMedium, maxLines = 1,
+            Text(value, color = fg, style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            if (sub != null && inline) Text("  $sub", color = soft, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 modifier = Modifier.padding(bottom = 2.dp))
         }
-        if (sub != null && !inline) Text(sub, color = soft, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+        if (sub != null && !inline) Text(sub, color = soft, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
     }
 }
 
@@ -656,11 +656,11 @@ private fun LiveAnalysis(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(t.icon, style = MaterialTheme.typography.labelLarge)
                                 Spacer(Modifier.width(6.dp))
-                                Text(t.label, style = MaterialTheme.typography.labelMedium, color = c.textSecondary, maxLines = 1)
+                                Text(t.label, style = MaterialTheme.typography.labelMedium, color = c.textSecondary, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                             }
                             Spacer(Modifier.height(4.dp))
-                            Text(t.value, style = MaterialTheme.typography.titleLarge, color = c.textPrimary, maxLines = 1)
-                            Text(t.sub, style = MaterialTheme.typography.bodySmall, color = c.textSecondary, maxLines = 3)
+                            Text(t.value, style = MaterialTheme.typography.titleLarge, color = c.textPrimary, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            Text(t.sub, style = MaterialTheme.typography.bodySmall, color = c.textSecondary, maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                         }
                     }
                     if (pair.size == 1) Spacer(Modifier.weight(1f))
@@ -678,7 +678,7 @@ private fun ActionChip(label: String, fg: Color, bg: Color, onClick: () -> Unit)
     Box(
         Modifier.height(42.dp).clip(Soft.pillShape).background(bg).pressScale(onClick).padding(horizontal = 14.dp),
         contentAlignment = Alignment.Center,
-    ) { Text(label, style = MaterialTheme.typography.labelLarge, color = fg, maxLines = 1) }
+    ) { Text(label, style = MaterialTheme.typography.labelLarge, color = fg, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
 }
 
 @Composable
@@ -767,13 +767,13 @@ private fun PunchesCard(punches: List<AttendanceEvent>, nowMs: Long, onAdd: () -
                             manual -> e.detail.removePrefix(AttendanceController.MANUAL_PREFIX)
                             else -> (gate ?: "Office boundary") + (e.accuracyM?.let { " · ±${it.toInt()} m" } ?: "")
                         },
-                        style = MaterialTheme.typography.bodySmall, color = c.textSecondary, maxLines = 2,
+                        style = MaterialTheme.typography.bodySmall, color = c.textSecondary, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     )
                     when {
                         manual -> Text("Manual", style = MaterialTheme.typography.labelSmall, color = c.warning)
                         verified -> Text("✓ Verified", style = MaterialTheme.typography.labelSmall, color = c.success)
                         unverified -> Text("⚠ " + e.detail.substringAfter(TrustChecks.NOT_VERIFIED),
-                            style = MaterialTheme.typography.labelSmall, color = c.warning, maxLines = 2)
+                            style = MaterialTheme.typography.labelSmall, color = c.warning, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                     }
                 }
                 if (isIn) {
@@ -831,7 +831,7 @@ private fun WeekCard(stats: AttendanceController.WorkedStats) {
             stats.last7.forEachIndexed { i, (d, _) ->
                 Text(
                     if (i == stats.last7.lastIndex) "Today" else d.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault()),
-                    Modifier.weight(1f), textAlign = TextAlign.Center, maxLines = 1, fontSize = 10.sp,
+                    Modifier.weight(1f), textAlign = TextAlign.Center, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, fontSize = 10.sp,
                     color = if (i == stats.last7.lastIndex) c.accent else c.textSecondary,
                 )
             }

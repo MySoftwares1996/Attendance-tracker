@@ -170,10 +170,10 @@ fun InsightsScreen(onOpenSetup: (String) -> Unit) {
                     pair.forEach { (label, value, sub) ->
                         Column(Modifier.weight(1f).fillMaxHeight().clip(androidx.compose.foundation.shape.RoundedCornerShape(18.dp))
                             .background(c.card).padding(horizontal = 12.dp, vertical = 10.dp)) {
-                            Text(label, style = MaterialTheme.typography.labelMedium, color = c.textSecondary, maxLines = 1)
+                            Text(label, style = MaterialTheme.typography.labelMedium, color = c.textSecondary, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                             Spacer(Modifier.height(4.dp))
-                            Text(value, style = MaterialTheme.typography.titleLarge, color = c.textPrimary, maxLines = 1)
-                            Text(sub, style = MaterialTheme.typography.bodySmall, color = c.textSecondary, maxLines = 2)
+                            Text(value, style = MaterialTheme.typography.titleLarge, color = c.textPrimary, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            Text(sub, style = MaterialTheme.typography.bodySmall, color = c.textSecondary, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                         }
                     }
                     if (pair.size == 1) Spacer(Modifier.weight(1f))

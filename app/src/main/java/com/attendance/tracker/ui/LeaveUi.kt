@@ -159,7 +159,7 @@ fun LeavesCard() {
                 }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(l.date.format(lFmt), Modifier.width(110.dp), style = MaterialTheme.typography.bodyMedium, color = c.textPrimary)
                     Text(l.type.label + (if (l.half) " (half)" else "") + (if (l.reason.isNotBlank()) " · ${l.reason}" else ""),
-                        Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = c.textSecondary, maxLines = 1)
+                        Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = c.textSecondary, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                     Text("✕", style = MaterialTheme.typography.labelLarge, color = c.danger)
                 }
             }

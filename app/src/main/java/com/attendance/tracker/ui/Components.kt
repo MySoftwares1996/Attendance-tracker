@@ -85,7 +85,7 @@ fun Modifier.pressScale(onClick: () -> Unit): Modifier {
     val haptics = LocalHapticFeedback.current
     return this
         .scale(scale)
-        .clickable(interactionSource = source, indication = null) {
+        .clickable(interactionSource = source, indication = null, role = androidx.compose.ui.semantics.Role.Button) {
             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             onClick()
         }
@@ -278,3 +278,15 @@ fun NoticeCard(icon: Painter, text: String, action: String, tint: Color, backgro
 @Composable
 fun animatedColor(target: Color, label: String): Color =
     animateColorAsState(target, tween(700, easing = FastOutSlowInEasing), label = label).value
+
+/**
+ * Computes [block] on a background thread (database / report work) and returns its latest
+ * result; the previous result stays on screen while a new one is computed, so nothing flickers.
+ */
+@Composable
+fun <T> rememberInBackground(vararg keys: Any?, block: () -> T): T? {
+    val state = androidx.compose.runtime.produceState<T?>(initialValue = null, *keys) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching(block).getOrNull() } ?: value
+    }
+    return state.value
+}
