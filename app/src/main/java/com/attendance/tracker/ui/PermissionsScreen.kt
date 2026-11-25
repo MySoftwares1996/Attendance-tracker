@@ -169,7 +169,7 @@ fun PermissionsScreen(status: PermissionStatus, onChanged: () -> Unit, onContinu
 
     Box(Modifier.fillMaxSize().background(c.background)) {
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Spacer(Modifier.height(28.dp))

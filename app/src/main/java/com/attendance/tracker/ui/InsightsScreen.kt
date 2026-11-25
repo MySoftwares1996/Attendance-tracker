@@ -128,10 +128,10 @@ fun InsightsScreen(onOpenSetup: (String) -> Unit) {
     LaunchedEffect(Unit) { data = withContext(Dispatchers.IO) { runCatching { load() }.getOrNull() } }
 
     Column(
-        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Column(Modifier.padding(top = 20.dp, start = 4.dp)) {
+        Column(Modifier.padding(top = 6.dp, start = 2.dp)) {
             Text("Patterns from your own attendance", style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
             Text("Insights", style = MaterialTheme.typography.headlineMedium, color = c.textPrimary)
         }

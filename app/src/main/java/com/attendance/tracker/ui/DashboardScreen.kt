@@ -206,11 +206,11 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
     if (dutyOpen) DutyReasonDialog(onPick = { AttendanceController.confirmPendingDuty(it); dutyOpen = false }, onDismiss = { dutyOpen = false })
 
     Column(
-        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         // ── header ──
-        Row(Modifier.padding(top = 18.dp, start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(top = 6.dp, start = 2.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(live.now.format(dateFmt), style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
                 Text(greeting(live.now.hour), style = MaterialTheme.typography.headlineMedium, color = c.textPrimary)

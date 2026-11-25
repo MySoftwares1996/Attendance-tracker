@@ -62,7 +62,7 @@ fun SoftCard(
     modifier: Modifier = Modifier,
     shape: Shape = Soft.cardShape,
     color: Color = Soft.colors.card,
-    padding: Dp = 20.dp,
+    padding: Dp = 16.dp,
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {

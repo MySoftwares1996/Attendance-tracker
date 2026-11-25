@@ -81,17 +81,17 @@ fun HistoryScreen() {
             .filter { it.third.isNotEmpty() || it.second.secondsByStatus.isNotEmpty() }
     }
     LazyColumn(
-        Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
-            Column(Modifier.padding(top = 20.dp, start = 4.dp)) {
+            Column(Modifier.padding(top = 6.dp, start = 2.dp)) {
                 Text(if (calendarMode) "Month view & reports" else "Last 14 days", style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
                 Text("History", style = MaterialTheme.typography.headlineMedium, color = c.textPrimary)
             }
         }
         item {
-            Row(Modifier.fillMaxWidth().height(48.dp).clip(Soft.pillShape).background(c.cardMuted).padding(4.dp)) {
+            Row(Modifier.fillMaxWidth().height(40.dp).clip(Soft.pillShape).background(c.cardMuted).padding(3.dp)) {
                 listOf(true to "Calendar", false to "Days").forEach { (v, label) ->
                     val sel = v == calendarMode
                     Box(
@@ -227,6 +227,7 @@ private fun MonthSummary(r: MonthReport, onPdf: () -> Unit, onCsv: () -> Unit) {
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun DayCard(day: LocalDate, sum: com.attendance.tracker.DaySummary, events: List<AttendanceEvent>, expandedByDefault: Boolean) {
     val c = Soft.colors
@@ -280,10 +281,12 @@ private fun DayCard(day: LocalDate, sum: com.attendance.tracker.DaySummary, even
         AnimatedVisibility(expanded && !day.isAfter(LocalDate.now()), enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
             Column(Modifier.padding(top = 16.dp)) {
                 events.forEachIndexed { i, e -> TimelineRow(e, last = i == events.lastIndex) }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     MiniAction("+ Missed punch") { addOpen = true }
                     MiniAction(if (mark == null) "Mark day" else "Change mark") { markOpen = true }
-                    MiniAction(if (perm > 0) "Permission" else "+ Permission") { permOpen = true }
+                    MiniAction(if (perm > 0) "Permission ${fmtDuration(perm * 60L)}" else "+ Permission") { permOpen = true }
                 }
             }
         }

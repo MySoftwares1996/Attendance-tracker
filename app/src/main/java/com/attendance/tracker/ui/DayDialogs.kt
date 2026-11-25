@@ -303,7 +303,7 @@ fun MiniAction(label: String, onClick: () -> Unit) {
     Text(
         label,
         Modifier.clip(Soft.pillShape).background(c.accentSoft).pressScale(onClick).padding(horizontal = 12.dp, vertical = 7.dp),
-        style = MaterialTheme.typography.labelMedium, color = c.accent,
+        style = MaterialTheme.typography.labelMedium, color = c.accent, maxLines = 1, softWrap = false,
     )
 }
 

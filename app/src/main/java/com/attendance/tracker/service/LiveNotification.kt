@@ -68,11 +68,11 @@ object LiveNotification {
 
         when (st.status) {
             WorkStatus.IN_OFFICE, WorkStatus.ON_DUTY -> {
-                title = (if (st.status == WorkStatus.ON_DUTY) "On duty" else "In office") + " · net ${short(net)} of ${short(target)}"
+                // Short enough to fit the collapsed notification; no ticking timer (it read like a clock).
+                title = (if (st.status == WorkStatus.ON_DUTY) "On duty" else "In office") + " · ${short(net)} / ${short(target)}"
                 if (endMs != null && endMs > nowMs) {
                     text = "Logout ${clock(endMs)} · ${short((endMs - nowMs) / 1000)} to go"
                     chip = short((endMs - nowMs) / 1000)
-                    chronoWhen = endMs; countDown = true
                 } else { text = "Logout time reached"; chip = "Done" }
             }
             WorkStatus.OVERTIME -> {
@@ -91,10 +91,10 @@ object LiveNotification {
             }
             WorkStatus.OUTSIDE_OFFICE -> {
                 val lastOut = st.today.punches.lastOrNull()?.takeIf { it.type == EventType.CHECK_OUT }?.timeMs
-                title = "Outside office · net ${short(net)} of ${short(target)}"
+                title = "Outside · ${short(net)} / ${short(target)}"
                 text = lastOut?.let { "Out since ${clock(it)} · not counted as worked" } ?: "Not counted as worked"
                 chip = "Out"
-                if (lastOut != null) chronoWhen = lastOut
+                // no running timer here: it read like a clock
             }
             WorkStatus.NOT_STARTED -> {
                 title = "Ready · your day starts when you arrive"

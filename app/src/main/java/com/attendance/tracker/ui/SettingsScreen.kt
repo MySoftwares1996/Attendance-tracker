@@ -202,8 +202,8 @@ fun SettingsScreen() {
                 return@AnimatedContent
             }
             Column(
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Spacer(Modifier.height(16.dp))
                 if (inWizard) {
@@ -1395,8 +1395,8 @@ private fun AdvancedStep(s: AppSettings) {
         SoftSwitchRow("Lunch running over", null, a4) { a4 = it; st.remindLunchOver = it }
         var a5 by remember { mutableStateOf(st.askDuty) }
         var a6 by remember { mutableStateOf(st.autoSummary) }
-        var a6 by remember { mutableStateOf(st.earlyLeaveAlarm) }
-        SoftSwitchRow("Alarm if I leave early", "Rings when you go out before net hours are done (after lunch or 4 PM), with a one-tap permission fix", a6) { a6 = it; st.earlyLeaveAlarm = it }
+        var early by remember { mutableStateOf(st.earlyLeaveAlarm) }
+        SoftSwitchRow("Alarm if I leave early", "Rings when you go out before net hours are done (after lunch or 4 PM), with a one-tap permission fix", early) { early = it; st.earlyLeaveAlarm = it }
         SoftSwitchRow("Ask \u201cofficial work?\u201d when I leave", "Mark outings as On duty so they count as worked time", a5) { a5 = it; st.askDuty = it }
         SoftSwitchRow("End-of-day summary", "When your day is done, ready to share", a6) { a6 = it; st.autoSummary = it }
         var phone by remember { mutableStateOf(st.managerPhone) }

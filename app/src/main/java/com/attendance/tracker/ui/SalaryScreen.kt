@@ -70,10 +70,10 @@ fun SalaryScreen() {
     fun save(r: SalaryRules) { rules = r; AttendanceController.settings.salaryRules = r; tick++ }
 
     Column(
-        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Column(Modifier.padding(top = 20.dp, start = 4.dp)) {
+        Column(Modifier.padding(top = 6.dp, start = 2.dp)) {
             Text("Earnings, deductions and take-home", style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
             Text("Salary", style = MaterialTheme.typography.headlineMedium, color = c.textPrimary)
         }
