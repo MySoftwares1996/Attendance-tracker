@@ -124,6 +124,25 @@ class AttendanceDb(context: Context) :
         buildList { while (c.moveToNext()) add(listOf(c.getString(0), c.getString(1), if (c.isNull(2)) null else c.getString(2))) }
     }
 
+    /** Adds imported events and marks in one all-or-nothing transaction. */
+    fun importBatch(events: List<Triple<Long, EventType, String>>, marks: Map<String, String>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            events.forEach { (t, type, detail) ->
+                check(db.insert("events", null, ContentValues().apply {
+                    put("time_ms", t); put("type", type.name); put("detail", detail)
+                }) >= 0) { "insert failed" }
+            }
+            marks.forEach { (day, mark) ->
+                db.insertWithOnConflict("day_marks", null, ContentValues().apply { put("day", day); put("mark", mark) }, SQLiteDatabase.CONFLICT_IGNORE)
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
     /** Row counts of every table: used to verify a backup / restore is complete. */
     fun counts(): Map<String, Int> = listOf("events", "durations", "day_marks").associateWith { t ->
         readableDatabase.rawQuery("SELECT COUNT(*) FROM $t", null).use { if (it.moveToFirst()) it.getInt(0) else 0 }

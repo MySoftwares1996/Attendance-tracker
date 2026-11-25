@@ -1280,6 +1280,16 @@ private fun BackupStep() {
             style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
         Spacer(Modifier.height(12.dp))
         SoftGhostButton("Restore from backup file", { pick.launch(arrayOf("application/json", "application/octet-stream", "*/*")) })
+        val importer = androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+        ) { u ->
+            if (u != null) {
+                val msg = bm.importRecords(ctx, u); copies = bm.localCopies(ctx)
+                Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        SoftGhostButton("Import past records (adds, never replaces)", { importer.launch(arrayOf("application/json", "application/octet-stream", "*/*")) })
         bm.preRestoreCopy(ctx)?.let { f ->
             Spacer(Modifier.height(8.dp))
             SoftGhostButton("Undo last restore", { restoreFile = f })
@@ -1294,6 +1304,7 @@ private fun BackupStep() {
             val label = when {
                 f.name.startsWith("before-restore") -> "Before last restore"
                 f.name.startsWith("before-reset") -> "Before last reset"
+                f.name.startsWith("before-import") -> "Before last import"
                 else -> f.name.removePrefix("auto-").removeSuffix(".json")
             }
             Row(Modifier.fillMaxWidth().clip(Soft.tileShape).pressScale { restoreFile = f }.padding(vertical = 10.dp, horizontal = 4.dp),

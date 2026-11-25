@@ -235,6 +235,50 @@ object BackupManager {
         check(c["events"] == p.events.size && c["durations"] == p.durations.size && c["day_marks"] == p.marks.size) { "verify failed" }
     }
 
+    /**
+     * One-time import of past records (e.g. from a company attendance report). Merges: it never
+     * deletes anything, skips days that already have punches, and keeps existing day marks.
+     * File: {"app":"attendance-tracker","kind":"import","events":[{"date":"2026-11-11","time":"10:08","type":"CHECK_IN","detail":"…"}],
+     *        "marks":[{"date":"2026-11-05","mark":"ABSENT"}]}
+     * Returns a message for the user.
+     */
+    @Synchronized
+    fun importRecords(ctx: Context, uri: Uri): String = runCatching {
+        val json = JSONObject(read(ctx, uri))
+        check(json.optString("app") == "attendance-tracker" && json.optString("kind") == "import") { "That isn't an import file." }
+        val zone = java.time.ZoneId.systemDefault()
+        val evArr = json.optJSONArray("events") ?: JSONArray()
+        val parsed = (0 until evArr.length()).map { i ->
+            val o = evArr.getJSONObject(i)
+            val day = LocalDate.parse(o.getString("date"))
+            val t = java.time.LocalTime.parse(o.getString("time"))
+            val type = com.attendance.tracker.data.EventType.valueOf(o.getString("type"))
+            Triple(day, day.atTime(t).atZone(zone).toInstant().toEpochMilli(), type) to o.optString("detail", "Imported")
+        }
+        val mkArr = json.optJSONArray("marks") ?: JSONArray()
+        val marks = (0 until mkArr.length()).associate { i ->
+            val o = mkArr.getJSONObject(i)
+            LocalDate.parse(o.getString("date")).toString() to com.attendance.tracker.core.DayMark.valueOf(o.getString("mark")).name
+        }
+        val db = AttendanceController.db
+        // Skip any day that already has punches in the app, so nothing is doubled.
+        val days = parsed.map { it.first.first }.toSet()
+        val busy = days.filter { d ->
+            db.events(d.atStartOfDay(zone).toInstant().toEpochMilli(), d.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli())
+                .any { it.type == com.attendance.tracker.data.EventType.CHECK_IN || it.type == com.attendance.tracker.data.EventType.CHECK_OUT }
+        }.toSet()
+        val toAdd = parsed.filter { it.first.first !in busy }.map { (k, detail) -> Triple(k.second, k.third, detail) }
+        val existingMarks = db.dayMarks("0000-01-01", "9999-12-31")
+        val newMarks = marks.filterKeys { it !in existingMarks && LocalDate.parse(it) !in busy }
+        check(saveLocal(ctx, "before-import")) { "Couldn't save a safety copy first, so nothing was changed." }
+        db.importBatch(toAdd, newMarks)
+        AttendanceController.reload()
+        backupSoon(ctx)
+        val addedDays = days.size - busy.size
+        "Imported $addedDays day${if (addedDays == 1) "" else "s"} (${toAdd.size} records, ${newMarks.size} marks)" +
+            if (busy.isNotEmpty()) " · skipped ${busy.size} day${if (busy.size == 1) "" else "s"} already recorded" else ""
+    }.getOrElse { "Import failed: ${it.message}. Nothing was changed." }
+
     /** Back up shortly after a change (punch, mark, settings), batching bursts of changes. */
     fun backupSoon(ctx: Context) {
         runCatching {
