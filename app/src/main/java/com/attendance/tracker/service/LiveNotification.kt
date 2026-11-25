@@ -29,6 +29,9 @@ object LiveNotification {
     /** Notification.EXTRA_REQUEST_PROMOTED_ONGOING (Android 16). */
     private const val EXTRA_REQUEST_PROMOTED_ONGOING = "android.requestPromotedOngoing"
 
+    private const val PUNCH_PILL_MS = 2 * 60_000L
+    private const val NEAR_LOGOUT_MS = 30 * 60_000L
+
     private val PILL_STATUSES = setOf(WorkStatus.IN_OFFICE, WorkStatus.OVERTIME, WorkStatus.ON_LUNCH, WorkStatus.LUNCH_EXCEEDED)
 
     private fun clock(t: LocalDateTime) = "%d:%02d %s".format(if (t.hour % 12 == 0) 12 else t.hour % 12, t.minute, if (t.hour < 12) "AM" else "PM")
@@ -133,8 +136,13 @@ object LiveNotification {
             b.setShowWhen(true).setWhen(chronoWhen).setUsesChronometer(true).setChronometerCountDown(countDown)
         } else b.setShowWhen(false)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) b.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE)
-        // Live Update pill only while you're inside the office or on your lunch break.
-        val showPill = st.status in PILL_STATUSES
+        // Live Update pill follows the system idea of a "live" moment, not all day:
+        // just after a punch, on lunch, the last 30 min before logout, and overtime.
+        val lastPunchMs = st.today.punches.lastOrNull()?.timeMs ?: 0L
+        val justPunched = nowMs - lastPunchMs in 0..PUNCH_PILL_MS
+        val nearLogout = st.status == WorkStatus.IN_OFFICE && endMs != null && endMs - nowMs in 0..NEAR_LOGOUT_MS
+        val showPill = st.status in PILL_STATUSES && (
+            st.status != WorkStatus.IN_OFFICE || nearLogout || justPunched)
         if (Build.VERSION.SDK_INT >= 36 && AttendanceController.settings.liveUpdates && showPill) {
             // Ask Android 16 to promote this ongoing notification to a Live Update.
             b.addExtras(android.os.Bundle().apply { putBoolean(EXTRA_REQUEST_PROMOTED_ONGOING, true) })
