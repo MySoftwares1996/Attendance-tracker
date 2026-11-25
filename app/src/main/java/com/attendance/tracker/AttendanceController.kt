@@ -182,13 +182,14 @@ object AttendanceController {
                             db.insertEvent(t.atMs, EventType.CHECK_IN, "Entered ${s.office?.name}$gateTxt$first$gapTxt${trustStamp()}",
                                 sample.lat, sample.lng, sample.accuracyM)
                             punchAlert(true, t.atMs, t.gate?.name, t.gapBeforeSec >= GAP_NOTE_SEC)
+                            cancelEarlyLeave() // came back in: no need to warn any more
                             if (t.from == Presence.OUTSIDE) onReturnInside(t.atMs)
                         }
                         Presence.OUTSIDE -> if (t.from == Presence.INSIDE) {
                             db.insertEvent(t.atMs, EventType.CHECK_OUT, "Left ${s.office?.name}$gateTxt$gapTxt${trustStamp()}",
                                 sample.lat, sample.lng, sample.accuracyM)
                             punchAlert(false, t.atMs, t.gate?.name, t.gapBeforeSec >= GAP_NOTE_SEC)
-                            maybeAskDuty(t.atMs)
+                            if (!maybeEarlyLeaveAlarm(t.atMs)) maybeAskDuty(t.atMs)
                         }
                         Presence.UNKNOWN -> Unit
                     }
@@ -673,6 +674,84 @@ object AttendanceController {
     // ───────────── on duty ─────────────
 
     /** Left during work hours (not at lunch): ask "Official work?". */
+    // ───────────── leaving early ─────────────
+
+    private fun fmtHm(sec: Long): String { val m = (sec + 59) / 60; return if (m >= 60) "${m / 60}h ${"%02d".format(m % 60)}m" else "${m}m" }
+
+    /**
+     * You left before your net hours are done (after lunch, or after the lunch-deduct time).
+     * Rings an alarm: go back, or regularise with permission in one tap. True when it rang.
+     */
+    private fun maybeEarlyLeaveAlarm(outMs: Long): Boolean {
+        if (!settings.earlyLeaveAlarm || settings.lunch.active || settings.dutyStartMs > 0) return false
+        val now = LocalDateTime.ofInstant(Instant.ofEpochMilli(outMs), zone())
+        val day = now.toLocalDate()
+        val p = plan(outMs)
+        if (!p.workDay || p.dayOff != null || p.start == null) return false
+        val ev = db.events(day.atStartOfDay(zone()).toInstant().toEpochMilli(), day.plusDays(1).atStartOfDay(zone()).toInstant().toEpochMilli())
+        val lunchTaken = presenceSec(ev, outMs).third
+        // A midday OUT is probably lunch: only warn once lunch is done or it's past the lunch-deduct time.
+        val afterLunch = lunchTaken > 0 || now.hour * 60 + now.minute >= settings.lunchDeductAtMin
+        if (!afterLunch) return false
+        val target = netTargetSec(day)
+        val net = netWorkedSec(ev, outMs, day)
+        val short = target - net
+        if (short < 60) return false
+        val left = permissionLeftMin(day) - permissionMin(day)
+        val needMin = (((short + 59) / 60 + 29) / 30 * 30).toInt()   // round up to 30 min
+        val canCover = left >= needMin
+        settings.pendingDutyOutMs = outMs
+        val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        fun action(a: String, req: Int, min: Int = 0) = PendingIntent.getBroadcast(
+            app, req, Intent(app, EarlyLeaveReceiver::class.java).setAction(a).putExtra(EarlyLeaveReceiver.EXTRA_MIN, min),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val body = "Net worked ${fmtHm(net)} of ${fmtHm(target)} · ${fmtHm(short)} short.\n" +
+            "Go back in to finish your hours" + when {
+                canCover -> ", or regularise with ${fmtHm(needMin * 60L)} permission (${fmtHm(left * 60L)} left this month)."
+                left > 0 -> ". Only ${fmtHm(left * 60L)} permission left this month — not enough to cover it."
+                else -> ". No permission left this month."
+            }
+        val b = NotificationCompat.Builder(app, AttendanceApp.CHANNEL_EARLY_LEAVE)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("⚠ Leaving early? ${fmtHm(short)} still to work")
+            .setContentText("Net ${fmtHm(net)} of ${fmtHm(target)}. Go back, or use permission.")
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setContentIntent(PendingIntent.getActivity(app, 9, Intent(app, com.attendance.tracker.ui.MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE))
+            .setAutoCancel(true)
+        if (canCover) b.addAction(0, "Use ${fmtHm(needMin * 60L)} permission", action(EarlyLeaveReceiver.USE_PERMISSION, 81, needMin))
+        else if (left > 0) b.addAction(0, "Use ${fmtHm(left * 60L)} permission", action(EarlyLeaveReceiver.USE_PERMISSION, 81, left))
+        b.addAction(0, "On duty", action(EarlyLeaveReceiver.ON_DUTY, 82))
+        b.addAction(0, "OK", action(EarlyLeaveReceiver.DISMISS, 83))
+        runCatching { nm.notify(EARLY_LEAVE_ID, b.build()) }
+        refresh()
+        return true
+    }
+
+    fun usePermissionForEarlyLeave(minutes: Int) {
+        val today = LocalDate.now()
+        val add = minutes.coerceAtMost(permissionLeftMin(today) - permissionMin(today)).coerceAtLeast(0)
+        if (add > 0) setPermission(today, permissionMin(today) + add)
+        settings.pendingDutyOutMs = 0L
+        cancelEarlyLeave()
+    }
+
+    fun earlyLeaveOnDuty() {
+        cancelEarlyLeave()
+        confirmPendingDuty("Official work")
+    }
+
+    fun dismissEarlyLeave() {
+        settings.pendingDutyOutMs = 0L
+        cancelEarlyLeave()
+    }
+
+    private fun cancelEarlyLeave() {
+        (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(EARLY_LEAVE_ID)
+    }
+
     private fun maybeAskDuty(outMs: Long) {
         if (!settings.askDuty || settings.lunch.active || settings.dutyStartMs > 0) return
         val p = plan(outMs)
@@ -822,6 +901,7 @@ object AttendanceController {
     }
 
     private const val DUTY_ASK_ID = 4110
+    private const val EARLY_LEAVE_ID = 4120
     private val TIMELINE_TYPES = setOf(EventType.CHECK_IN, EventType.CHECK_OUT, EventType.LUNCH_START,
         EventType.LUNCH_END, EventType.DUTY_START, EventType.DUTY_END)
 

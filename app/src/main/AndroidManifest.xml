@@ -97,6 +97,10 @@
             android:exported="false" />
 
         <receiver
+            android:name=".EarlyLeaveReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".security.ClockChangeReceiver"
             android:exported="false">
             <intent-filter>

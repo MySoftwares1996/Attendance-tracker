@@ -36,6 +36,18 @@ class AttendanceApp : Application() {
                 description = "Logout time, hours complete, lunch running over"
             }
         )
+        // Early-leave alarm: alarm sound + strong vibration so it isn't missed at the gate.
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_EARLY_LEAVE, "Leaving early alarm", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Rings when you leave before your net hours are complete"
+                setSound(android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM),
+                    android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_ALARM)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 700, 300, 700, 300, 700)
+                enableLights(true); lightColor = 0xFFF0506E.toInt()
+            }
+        )
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_PUNCH_SILENT, "Punches (silent)", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 setSound(null, null); enableVibration(false)
@@ -61,5 +73,6 @@ class AttendanceApp : Application() {
         const val CHANNEL_PUNCH_OUT = "punch_out_v1"
         const val CHANNEL_PUNCH_SILENT = "punch_silent_v1"
         const val CHANNEL_REMINDERS = "reminders_v1"
+        const val CHANNEL_EARLY_LEAVE = "early_leave_v1"
     }
 }

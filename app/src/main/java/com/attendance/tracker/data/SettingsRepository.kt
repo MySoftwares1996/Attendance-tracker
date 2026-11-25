@@ -178,6 +178,9 @@ class SettingsRepository(context: Context) {
         get() = prefs.getInt("lunchDeductAt", 16 * 60)
         set(v) = prefs.edit().putInt("lunchDeductAt", v.coerceIn(0, 24 * 60)).apply()
 
+    /** Ring an alarm when you leave before your net hours are complete. */
+    var earlyLeaveAlarm: Boolean get() = flag("earlyLeaveAlarm"); set(v) = setFlag("earlyLeaveAlarm", v)
+
     // ---- permission (short leave that counts as worked time) ----
     /** Permission you're allowed per month, in minutes (default 2 hours). */
     var permissionMonthMin: Int
