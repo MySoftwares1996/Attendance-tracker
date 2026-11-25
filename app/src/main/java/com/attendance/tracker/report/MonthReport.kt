@@ -48,10 +48,16 @@ data class MonthReport(
 ) {
     /** This month's payslip with all earnings and deductions, or null when no salary is set. */
     fun payslip(): com.attendance.tracker.core.Payslip? {
-        val r = AttendanceController.settings.salaryRules
+        val r = rules()
         if (r.monthlyGross <= 0.0) return null
-        return com.attendance.tracker.core.PayCalculator.payslip(r, workingDays, overtimeSec, absentDays, halfDays)
+        return com.attendance.tracker.core.PayCalculator.payslip(r, workingDays, overtimeSec, absentDays, halfDays, month.lengthOfMonth())
     }
+
+    /** Salary settings that applied in this month (a later raise doesn't change past months). */
+    fun rules(): com.attendance.tracker.core.SalaryRules = AttendanceController.settings.salaryRulesFor(month)
+
+    /** Working days still ahead this month (today included if not yet worked). */
+    fun remainingWorkingDays(): Int = days.count { it.state == DayState.FUTURE || it.state == DayState.TODAY }
 
 }
 

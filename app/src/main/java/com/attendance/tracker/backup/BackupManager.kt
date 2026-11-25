@@ -261,7 +261,7 @@ object BackupManager {
             if (sal.has("insurance")) r = r.copy(insurance = sal.getDouble("insurance"))
             if (sal.has("employerPfInSalary")) r = r.copy(employerPfInSalary = sal.getBoolean("employerPfInSalary"), pfEnabled = r.pfEnabled || sal.getBoolean("employerPfInSalary"))
             if (sal.has("monthlyGross")) r = r.copy(monthlyGross = sal.getDouble("monthlyGross"))
-            st.salaryRules = r
+            st.saveSalaryRules(r, java.time.YearMonth.now())
         }
         db.importBatch(toAdd, newMarks)
         AttendanceController.reload()

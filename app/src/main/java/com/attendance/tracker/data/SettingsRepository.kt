@@ -251,46 +251,86 @@ class SettingsRepository(context: Context) {
     var lastAtHomeMs: Long get() = prefs.getLong("lastAtHome", 0L); set(v) = prefs.edit().putLong("lastAtHome", v).apply()
 
     // ---- salary rules (all earnings & deductions) ----
+    private fun rulesFromJson(o: JSONObject): com.attendance.tracker.core.SalaryRules {
+        fun list(key: String) = o.optJSONArray(key)?.let { a -> (0 until a.length()).map { i -> a.getJSONArray(i).let { it.getString(0) to it.getDouble(1) } } } ?: emptyList()
+        val d = com.attendance.tracker.core.SalaryRules()
+        return com.attendance.tracker.core.SalaryRules(
+            monthlyGross = o.optDouble("gross", 0.0), basicPercent = o.optDouble("basicPct", d.basicPercent),
+            overtimeRatePerHour = o.optDouble("otRate", 0.0),
+            pfEnabled = o.optBoolean("pf", d.pfEnabled), pfPercent = o.optDouble("pfPct", d.pfPercent),
+            pfCapOn = o.optBoolean("pfCap", d.pfCapOn), pfCapBasic = o.optDouble("pfCapBasic", d.pfCapBasic),
+            employerPfInSalary = o.optBoolean("erPf", false), employerPfPercent = o.optDouble("erPfPct", d.employerPfPercent),
+            insurance = o.optDouble("ins", 0.0),
+            esiEnabled = o.optBoolean("esi", d.esiEnabled), esiPercent = o.optDouble("esiPct", d.esiPercent),
+            esiGrossLimit = o.optDouble("esiLimit", d.esiGrossLimit),
+            professionalTax = o.optDouble("pt", 0.0), tds = o.optDouble("tds", 0.0), loanEmi = o.optDouble("loan", 0.0),
+            dayBasis = o.optString("dayBasis", d.dayBasis), gratuityInCtc = o.optBoolean("grat", false),
+            gratuityPercent = o.optDouble("gratPct", d.gratuityPercent), autoTds = o.optBoolean("autoTds", false),
+            deductAbsent = o.optBoolean("lopAbsent", d.deductAbsent), deductHalfDay = o.optBoolean("lopHalf", d.deductHalfDay),
+            otherDeductions = list("otherDed"), otherEarnings = list("otherEarn"),
+        )
+    }
+
+    private fun rulesToJson(r: com.attendance.tracker.core.SalaryRules): JSONObject {
+        fun arr(l: List<Pair<String, Double>>) = JSONArray().apply { l.forEach { put(JSONArray().put(it.first).put(it.second)) } }
+        return JSONObject().put("gross", r.monthlyGross).put("basicPct", r.basicPercent).put("otRate", r.overtimeRatePerHour)
+            .put("pf", r.pfEnabled).put("pfPct", r.pfPercent).put("pfCap", r.pfCapOn).put("pfCapBasic", r.pfCapBasic)
+            .put("esi", r.esiEnabled).put("esiPct", r.esiPercent).put("esiLimit", r.esiGrossLimit)
+            .put("pt", r.professionalTax).put("tds", r.tds).put("loan", r.loanEmi)
+            .put("erPf", r.employerPfInSalary).put("erPfPct", r.employerPfPercent).put("ins", r.insurance)
+            .put("dayBasis", r.dayBasis).put("grat", r.gratuityInCtc).put("gratPct", r.gratuityPercent).put("autoTds", r.autoTds)
+            .put("lopAbsent", r.deductAbsent).put("lopHalf", r.deductHalfDay)
+            .put("otherDed", arr(r.otherDeductions)).put("otherEarn", arr(r.otherEarnings))
+    }
+
+    /** The latest salary settings (used for the current and future months). */
     var salaryRules: com.attendance.tracker.core.SalaryRules
         get() {
             val json = prefs.getString("salaryRules", null)
-            if (json == null) {
                 // Carry over the simple pay settings from earlier versions.
-                return com.attendance.tracker.core.SalaryRules(
+                ?: return com.attendance.tracker.core.SalaryRules(
                     monthlyGross = monthlySalary.toDouble(), overtimeRatePerHour = overtimeRate.toDouble(),
                     deductAbsent = deductAbsent, deductHalfDay = deductHalfDay,
                 )
-            }
-            return runCatching {
-                val o = JSONObject(json)
-                fun list(key: String) = o.optJSONArray(key)?.let { a -> (0 until a.length()).map { i -> a.getJSONArray(i).let { it.getString(0) to it.getDouble(1) } } } ?: emptyList()
-                val d = com.attendance.tracker.core.SalaryRules()
-                com.attendance.tracker.core.SalaryRules(
-                    monthlyGross = o.optDouble("gross", 0.0), basicPercent = o.optDouble("basicPct", d.basicPercent),
-                    overtimeRatePerHour = o.optDouble("otRate", 0.0),
-                    pfEnabled = o.optBoolean("pf", d.pfEnabled), pfPercent = o.optDouble("pfPct", d.pfPercent),
-                    pfCapOn = o.optBoolean("pfCap", d.pfCapOn), pfCapBasic = o.optDouble("pfCapBasic", d.pfCapBasic),
-                    employerPfInSalary = o.optBoolean("erPf", false), employerPfPercent = o.optDouble("erPfPct", d.employerPfPercent),
-                    insurance = o.optDouble("ins", 0.0),
-                    esiEnabled = o.optBoolean("esi", d.esiEnabled), esiPercent = o.optDouble("esiPct", d.esiPercent),
-                    esiGrossLimit = o.optDouble("esiLimit", d.esiGrossLimit),
-                    professionalTax = o.optDouble("pt", 0.0), tds = o.optDouble("tds", 0.0), loanEmi = o.optDouble("loan", 0.0),
-                    deductAbsent = o.optBoolean("lopAbsent", d.deductAbsent), deductHalfDay = o.optBoolean("lopHalf", d.deductHalfDay),
-                    otherDeductions = list("otherDed"), otherEarnings = list("otherEarn"),
-                )
-            }.getOrDefault(com.attendance.tracker.core.SalaryRules())
+            return runCatching { rulesFromJson(JSONObject(json)) }.getOrDefault(com.attendance.tracker.core.SalaryRules())
         }
-        set(r) {
-            fun arr(l: List<Pair<String, Double>>) = JSONArray().apply { l.forEach { put(JSONArray().put(it.first).put(it.second)) } }
-            val o = JSONObject().put("gross", r.monthlyGross).put("basicPct", r.basicPercent).put("otRate", r.overtimeRatePerHour)
-                .put("pf", r.pfEnabled).put("pfPct", r.pfPercent).put("pfCap", r.pfCapOn).put("pfCapBasic", r.pfCapBasic)
-                .put("esi", r.esiEnabled).put("esiPct", r.esiPercent).put("esiLimit", r.esiGrossLimit)
-                .put("pt", r.professionalTax).put("tds", r.tds).put("loan", r.loanEmi)
-                .put("erPf", r.employerPfInSalary).put("erPfPct", r.employerPfPercent).put("ins", r.insurance)
-                .put("lopAbsent", r.deductAbsent).put("lopHalf", r.deductHalfDay)
-                .put("otherDed", arr(r.otherDeductions)).put("otherEarn", arr(r.otherEarnings))
-            prefs.edit().putString("salaryRules", o.toString()).apply()
-        }
+        set(r) { prefs.edit().putString("salaryRules", rulesToJson(r).toString()).apply() }
+
+    /** Salary settings by the month they took effect (yyyy-MM), so a raise doesn't rewrite past months. */
+    private var salaryHistory: Map<String, com.attendance.tracker.core.SalaryRules>
+        get() = runCatching {
+            val o = JSONObject(prefs.getString("salaryHistory", "{}")!!)
+            o.keys().asSequence().associateWith { rulesFromJson(o.getJSONObject(it)) }
+        }.getOrDefault(emptyMap())
+        set(v) { val o = JSONObject(); v.forEach { (k, r) -> o.put(k, rulesToJson(r)) }; prefs.edit().putString("salaryHistory", o.toString()).apply() }
+
+    /** Rules that applied in [month]: the latest change made on or before it, else the current rules. */
+    fun salaryRulesFor(month: java.time.YearMonth): com.attendance.tracker.core.SalaryRules {
+        val key = month.toString()
+        return salaryHistory.filterKeys { it <= key }.maxByOrNull { it.key }?.value
+            ?: salaryRules
+    }
+
+    /**
+     * Save salary settings effective from [from]. Earlier months keep what they had; this month and later use [r].
+     */
+    fun saveSalaryRules(r: com.attendance.tracker.core.SalaryRules, from: java.time.YearMonth) {
+        val h = salaryHistory.toMutableMap()
+        // First change ever: remember what applied before, so earlier months don't change.
+        if (h.isEmpty() && prefs.contains("salaryRules")) h["0000-01"] = salaryRules
+        h[from.toString()] = r
+        h.keys.filter { it > from.toString() }.forEach { h.remove(it) }   // later entries are replaced by this edit
+        salaryHistory = h
+        salaryRules = r
+    }
+
+    /** What was actually credited to your bank, by month (yyyy-MM). */
+    var creditedPay: Map<String, Double>
+        get() = runCatching {
+            val o = JSONObject(prefs.getString("creditedPay", "{}")!!)
+            o.keys().asSequence().associateWith { o.getDouble(it) }
+        }.getOrDefault(emptyMap())
+        set(v) { val o = JSONObject(); v.forEach { (k, d) -> o.put(k, d) }; prefs.edit().putString("creditedPay", o.toString()).apply() }
 
     // ---- pay (older simple settings; kept for migration) ----
     var monthlySalary: Float get() = prefs.getFloat("salary", 0f); set(v) = prefs.edit().putFloat("salary", v).apply()

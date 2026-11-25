@@ -62,12 +62,12 @@ fun SalaryScreen() {
     val c = Soft.colors
     val ctx = LocalContext.current
     var month by remember { mutableStateOf(YearMonth.now()) }
-    var rules by remember { mutableStateOf(AttendanceController.settings.salaryRules) }
+    var rules by remember(month) { mutableStateOf(AttendanceController.settings.salaryRulesFor(month)) }
     var tick by remember { mutableIntStateOf(0) }
     val report = rememberInBackground(month, tick) { MonthReports.build(month) }
     val slip = remember(report, rules) { if (rules.monthlyGross > 0) report?.payslip() else null }
     var editing by remember { mutableStateOf(rules.monthlyGross <= 0) }
-    fun save(r: SalaryRules) { rules = r; AttendanceController.settings.salaryRules = r; tick++ }
+    fun save(r: SalaryRules) { rules = r; AttendanceController.settings.saveSalaryRules(r, month); tick++ }
 
     Column(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp),
@@ -94,11 +94,12 @@ fun SalaryScreen() {
         }
 
         if (slip != null && report != null) {
-            TakeHomeHero(slip, month == YearMonth.now())
+            TakeHomeHero(slip, month == YearMonth.now(), rules, report)
             BreakdownCard("Earnings", slip.earnings, c.success, "+")
             BreakdownCard("Deductions", slip.deductions, c.danger, "−",
                 empty = "No deductions this month")
             AttendanceBasis(report)
+            CreditedCard(month, slip.net)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 SoftButton("Payslip PDF", {
                     runCatching { com.attendance.tracker.report.ReportExporter.sharePayslipPdf(ctx, report, slip) }
@@ -117,7 +118,11 @@ fun SalaryScreen() {
 
         if (rules.monthlyGross > 0) YearSummaryCard(month.year, rules)
         AnimatedVisibility(editing, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-            SalaryEditor(rules, ::save)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Changes apply from ${month.format(monthFmt)} onward; earlier months keep their own salary.",
+                    style = MaterialTheme.typography.bodySmall, color = c.accent)
+                SalaryEditor(rules, ::save)
+            }
         }
         Text("Estimates only — your company's payslip is final. One day's pay = salary ÷ working days in the month (working days minus holidays).",
             style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
@@ -126,26 +131,34 @@ fun SalaryScreen() {
 }
 
 @Composable
-private fun TakeHomeHero(p: Payslip, current: Boolean) {
+private fun TakeHomeHero(p: Payslip, current: Boolean, rules: SalaryRules, report: MonthReport) {
     val shape = Soft.cardShape
     val a = Color(0xFF34D3A0); val b = Color(0xFF12A97A)
     Column(
         Modifier.fillMaxWidth().shadow(24.dp, shape, ambientColor = b.copy(alpha = 0.4f), spotColor = b.copy(alpha = 0.4f))
             .clip(shape).background(Brush.linearGradient(listOf(a, b))).padding(22.dp),
     ) {
-        Text(if (current) "TAKE-HOME SO FAR (ESTIMATE)" else "TAKE-HOME (ESTIMATE)", color = Color.White.copy(alpha = 0.85f),
+        Text(if (current) "EXPECTED TAKE-HOME (ESTIMATE)" else "TAKE-HOME (ESTIMATE)", color = Color.White.copy(alpha = 0.85f),
             style = MaterialTheme.typography.labelSmall)
         Text(rs(p.net), color = Color.White, style = MaterialTheme.typography.displaySmall)
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             Column {
-                Text(if (AttendanceController.settings.salaryRules.employerPfInSalary) "CTC" else "Gross", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelSmall)
+                Text(if (rules.employerPfInSalary) "CTC" else "Gross", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelSmall)
                 Text(rs(p.gross), color = Color.White, style = MaterialTheme.typography.titleMedium)
             }
             Column {
                 Text("Deductions", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelSmall)
                 Text(rs(p.totalDeductions), color = Color.White, style = MaterialTheme.typography.titleMedium)
             }
+        }
+        if (current) {
+            // Full-month projection: what you get if there are no more absences, and what each one would cost.
+            val left = report.remainingWorkingDays()
+            val perDay = rules.monthlyGross / com.attendance.tracker.core.PayCalculator.dayDivisor(rules, report.workingDays, report.month.lengthOfMonth()).coerceAtLeast(1)
+            Spacer(Modifier.height(10.dp))
+            Text("If you're present the remaining $left working day${if (left == 1) "" else "s"} \u00b7 each absent day \u2212${rs(perDay)}",
+                color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -234,7 +247,11 @@ private fun SalaryEditor(r: SalaryRules, save: (SalaryRules) -> Unit) {
             Spacer(Modifier.height(10.dp))
             MoneyField("Insurance (per month)", r.insurance) { save(r.copy(insurance = it)) }
             Spacer(Modifier.height(10.dp))
-            MoneyField("Income tax / TDS (per month)", r.tds) { save(r.copy(tds = it)) }
+            SoftSwitchRow("Work out income tax (TDS) for me", "New tax regime estimate from your yearly salary", r.autoTds) { save(r.copy(autoTds = it)) }
+            if (!r.autoTds) MoneyField("Income tax / TDS (per month)", r.tds) { save(r.copy(tds = it)) }
+            Spacer(Modifier.height(6.dp))
+            SoftSwitchRow("Gratuity is part of my CTC", "Taken out of CTC each month", r.gratuityInCtc) { save(r.copy(gratuityInCtc = it)) }
+            if (r.gratuityInCtc) NumberField("Gratuity rate", r.gratuityPercent, "%") { save(r.copy(gratuityPercent = it.coerceIn(0.0, 20.0))) }
         }
 
         SoftCard {
@@ -242,6 +259,21 @@ private fun SalaryEditor(r: SalaryRules, save: (SalaryRules) -> Unit) {
             Spacer(Modifier.height(6.dp))
             SoftSwitchRow("Absent days", "Working day with no punches and no leave mark", r.deductAbsent) { save(r.copy(deductAbsent = it)) }
             SoftSwitchRow("Half days", "Half a day's pay", r.deductHalfDay) { save(r.copy(deductHalfDay = it)) }
+            Spacer(Modifier.height(8.dp))
+            Text("One day's pay =", style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("working" to "÷ working\ndays", "30" to "÷ 30", "calendar" to "÷ days in\nmonth", "26" to "÷ 26").forEach { (v, label) ->
+                    val sel = r.dayBasis == v
+                    Box(Modifier.weight(1f).height(52.dp).clip(Soft.tileShape).background(if (sel) c.accent else c.cardMuted).pressScale { save(r.copy(dayBasis = v)) },
+                        contentAlignment = Alignment.Center) {
+                        Text(label, color = if (sel) Color.White else c.textPrimary, style = MaterialTheme.typography.labelMedium,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    }
+                }
+            }
+            Text("Pick the one your payslip uses for loss of pay. Many companies use \u00f7 30.",
+                style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
             Text("Leave, sick leave, WFH and holidays are paid.", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
         }
 
@@ -351,6 +383,36 @@ private fun YearSummaryCard(year: Int, rules: SalaryRules) {
                     (1..4).forEach { i -> Text("%,.0f".format(rows.sumOf { it[i] as Double }), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = c.textPrimary) }
                 }
             }
+        }
+    }
+}
+
+/** What actually reached your bank this month, and how far it is from the estimate. */
+@Composable
+private fun CreditedCard(month: YearMonth, estimate: Double) {
+    val c = Soft.colors
+    val key = month.toString()
+    var text by remember(key) { mutableStateOf(AttendanceController.settings.creditedPay[key]?.let { "%.0f".format(it) } ?: "") }
+    SoftCard {
+        CardHeader(painterResource(R.drawable.ic_rupee), "Actually credited", "From your bank / payslip for ${month.format(monthFmt)}", c.accent, c.accentSoft)
+        Spacer(Modifier.height(10.dp))
+        SoftField("Amount credited (\u20B9)", text, keyboard = androidx.compose.ui.text.input.KeyboardType.Number) { v ->
+            text = v.filter { it.isDigit() || it == '.' }
+            val m = AttendanceController.settings.creditedPay.toMutableMap()
+            text.toDoubleOrNull()?.let { m[key] = it } ?: m.remove(key)
+            AttendanceController.settings.creditedPay = m
+        }
+        text.toDoubleOrNull()?.let { actual ->
+            val diff = actual - estimate
+            Spacer(Modifier.height(8.dp))
+            Text(
+                when {
+                    kotlin.math.abs(diff) < 1 -> "\u2705 Matches the estimate exactly"
+                    diff > 0 -> "Credited ${rs(diff)} more than the estimate"
+                    else -> "Credited ${rs(-diff)} less than the estimate \u2014 check LOP days and deductions"
+                },
+                style = MaterialTheme.typography.bodyMedium, color = if (kotlin.math.abs(diff) < 1) c.success else c.warning,
+            )
         }
     }
 }
