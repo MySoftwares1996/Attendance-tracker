@@ -60,6 +60,7 @@ import java.time.format.DateTimeFormatter
 private val dayFmt = DateTimeFormatter.ofPattern("EEEE")
 private val dateFmt = DateTimeFormatter.ofPattern("d MMM yyyy")
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun HistoryScreen() {
     val c = Soft.colors
@@ -68,7 +69,10 @@ fun HistoryScreen() {
     var calendarMode by rememberSaveable { mutableStateOf(true) }
     var month by remember { mutableStateOf(YearMonth.now()) }
     var selected by remember { mutableStateOf(LocalDate.now()) }
-    val report = remember(month, st.today, st.status) { MonthReports.build(month) }
+    var picking by remember { mutableStateOf(false) }
+    var picked by remember { mutableStateOf(setOf<LocalDate>()) }
+    var markTick by remember { mutableStateOf(0) }
+    val report = remember(month, st.today, st.status, markTick) { MonthReports.build(month) }
     fun dayData(d: LocalDate): Triple<LocalDate, com.attendance.tracker.DaySummary, List<AttendanceEvent>> {
         val zone = ZoneId.systemDefault()
         val from = d.atStartOfDay(zone).toInstant().toEpochMilli()
@@ -103,7 +107,39 @@ fun HistoryScreen() {
             }
         }
         if (calendarMode) {
-            item { MonthCalendar(report, selected, onMonth = { month = it }, onSelect = { selected = it }) }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (picking) "Tap days to select (${picked.size})" else "Tap a day to see it",
+                        Modifier.weight(1f).padding(start = 4.dp), style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+                    MiniAction(if (picking) "Done" else "☑ Select days") { picking = !picking; picked = emptySet() }
+                }
+            }
+            item {
+                MonthCalendar(report, selected, picked, onMonth = { month = it }, onSelect = { d ->
+                    if (picking) { if (!d.isAfter(LocalDate.now())) picked = if (d in picked) picked - d else picked + d }
+                    else selected = d
+                })
+            }
+            if (picking && picked.isNotEmpty()) item {
+                SoftCard {
+                    Text("Mark ${picked.size} day${if (picked.size == 1) "" else "s"} as", style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
+                    Spacer(Modifier.height(8.dp))
+                    androidx.compose.foundation.layout.FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        listOf(com.attendance.tracker.core.DayMark.PRESENT, com.attendance.tracker.core.DayMark.ABSENT,
+                            com.attendance.tracker.core.DayMark.LEAVE, com.attendance.tracker.core.DayMark.HALF_DAY,
+                            com.attendance.tracker.core.DayMark.HOLIDAY, null).forEach { m ->
+                            MiniAction(m?.label ?: "Clear mark") {
+                                picked.forEach { AttendanceController.setDayMark(it, m) }
+                                android.widget.Toast.makeText(ctx, "${picked.size} day${if (picked.size == 1) "" else "s"} " +
+                                    (m?.let { "marked ${it.label}" } ?: "cleared"), android.widget.Toast.LENGTH_SHORT).show()
+                                picked = emptySet(); picking = false; markTick++
+                            }
+                        }
+                    }
+                }
+            }
             item {
                 val (d, sum, ev) = remember(selected, st.today, st.status) { dayData(selected) }
                 key(selected) { DayCard(d, sum, ev, expandedByDefault = true) }
@@ -161,7 +197,7 @@ private fun dayColors(state: DayState): Pair<Color, Color> {
 }
 
 @Composable
-private fun MonthCalendar(r: MonthReport, selected: LocalDate, onMonth: (YearMonth) -> Unit, onSelect: (LocalDate) -> Unit) {
+private fun MonthCalendar(r: MonthReport, selected: LocalDate, picked: Set<LocalDate>, onMonth: (YearMonth) -> Unit, onSelect: (LocalDate) -> Unit) {
     val c = Soft.colors
     SoftCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -191,14 +227,16 @@ private fun MonthCalendar(r: MonthReport, selected: LocalDate, onMonth: (YearMon
                     Box(Modifier.weight(1f).aspectRatio(1f), contentAlignment = Alignment.Center) {
                         if (d != null) {
                             val (bg, fg) = dayColors(d.state)
-                            val isSel = d.date == selected
+                            val isPicked = d.date in picked
+                            val isSel = d.date == selected && picked.isEmpty()
                             Box(
-                                Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)).background(bg)
+                                Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)).background(if (isPicked) c.accent else bg)
                                     .then(if (isSel) Modifier.border(2.dp, c.accent, RoundedCornerShape(12.dp)) else Modifier)
                                     .pressScale { onSelect(d.date) },
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Text("${d.date.dayOfMonth}", style = MaterialTheme.typography.labelLarge, color = fg)
+                                Text(if (isPicked) "✓${d.date.dayOfMonth}" else "${d.date.dayOfMonth}",
+                                    style = MaterialTheme.typography.labelLarge, color = if (isPicked) Color.White else fg)
                             }
                         }
                     }
