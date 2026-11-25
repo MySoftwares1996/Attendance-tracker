@@ -56,6 +56,8 @@ class TrackingService : LifecycleService() {
         NORMAL(15_000, 5_000, Priority.PRIORITY_HIGH_ACCURACY),
         FAR(60_000, 20_000, Priority.PRIORITY_HIGH_ACCURACY),
         LOW_POWER(5 * 60_000, 60_000, Priority.PRIORITY_BALANCED_POWER_ACCURACY),
+        /** Leave / holiday / weekend: almost asleep; the office geofence still wakes tracking. */
+        SLEEP(20 * 60_000, 5 * 60_000, Priority.PRIORITY_LOW_POWER),
     }
 
     private lateinit var fused: FusedLocationProviderClient
@@ -153,6 +155,9 @@ class TrackingService : LifecycleService() {
     private fun desiredMode(): Mode {
         val now = System.currentTimeMillis()
         if (now < burstUntilMs) return Mode.NEAR
+        // Rest day, and not at / near the office: sleep to save battery.
+        if (AttendanceController.isRestDay(now) && AttendanceController.state.value.presence != com.attendance.tracker.core.Presence.INSIDE &&
+            (AttendanceController.state.value.edgeDistanceM ?: 9_999.0) > 300.0) return Mode.SLEEP
         if (!AttendanceController.highAccuracyWanted(now)) return Mode.LOW_POWER
         if (AttendanceController.pendingChange) return Mode.NEAR
         // At or near a gate: poll every 5 s so the crossing is caught at once.
@@ -175,7 +180,7 @@ class TrackingService : LifecycleService() {
         mode = m
         fused.removeLocationUpdates(callback)
         val b = LocationRequest.Builder(m.priority, m.intervalMs).setMinUpdateIntervalMillis(m.minMs)
-        if (m != Mode.LOW_POWER) b.setGranularity(Granularity.GRANULARITY_FINE).setWaitForAccurateLocation(true)
+        if (m != Mode.LOW_POWER && m != Mode.SLEEP) b.setGranularity(Granularity.GRANULARITY_FINE).setWaitForAccurateLocation(true)
         try {
             fused.requestLocationUpdates(b.build(), callback, Looper.getMainLooper())
         } catch (_: SecurityException) {

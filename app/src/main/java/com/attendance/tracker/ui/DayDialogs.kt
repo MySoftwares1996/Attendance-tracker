@@ -132,6 +132,15 @@ fun PermissionDialog(day: LocalDate, onDismiss: () -> Unit) {
                         style = MaterialTheme.typography.bodyMedium, color = c.textPrimary)
                     if (minutes > 0 && left - minutes <= 0) Text("\u26A0 This uses the last of your permission for this month.",
                         style = MaterialTheme.typography.bodySmall, color = c.danger)
+                    val hist = remember { AttendanceController.permissionHistory(java.time.YearMonth.from(day)) +
+                        AttendanceController.permissionHistory(java.time.YearMonth.from(day).minusMonths(1)) }
+                    if (hist.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text("History", style = MaterialTheme.typography.labelMedium, color = c.accent)
+                        hist.take(8).forEach { (d, m) ->
+                            Text("${d.format(DateTimeFormatter.ofPattern("EEE d MMM"))} \u00b7 ${hm(m)}", style = MaterialTheme.typography.bodySmall, color = c.textPrimary)
+                        }
+                    }
                     Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Monthly allowance", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = c.accent)

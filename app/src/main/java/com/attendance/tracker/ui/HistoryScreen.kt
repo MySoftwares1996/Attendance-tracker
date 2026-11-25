@@ -111,6 +111,10 @@ fun HistoryScreen() {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(if (picking) "Tap days to select (${picked.size})" else "Tap a day to see it",
                         Modifier.weight(1f).padding(start = 4.dp), style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+                    var yearOpen by remember { mutableStateOf(false) }
+                    if (yearOpen) YearCalendarDialog(month.year) { yearOpen = false }
+                    MiniAction("\uD83D\uDCC6 Year") { yearOpen = true }
+                    Spacer(Modifier.width(6.dp))
                     MiniAction(if (picking) "Done" else "☑ Select days") { picking = !picking; picked = emptySet() }
                 }
             }
@@ -165,6 +169,7 @@ fun HistoryScreen() {
                     MiniAction("⬇ Import records file") { importer.launch(arrayOf("application/json", "application/octet-stream", "text/*", "*/*")) }
                 }
             }
+            item { RegularisationCard(month, markTick to st.today.punches.size) }
             item { key(markTick) { LeavesCard() } }
             item { MonthSummary(report, onPdf = { ReportExporter.sharePdf(ctx, report) }, onCsv = { ReportExporter.shareCsv(ctx, report) }) }
         } else {
@@ -356,13 +361,16 @@ private fun Legend(color: Color, text: String) {
 @Composable
 private fun TimelineRow(e: AttendanceEvent, last: Boolean) {
     val c = Soft.colors
+    var trailOpen by remember { mutableStateOf(false) }
+    if (trailOpen) TrailDialog(e.timeMs) { trailOpen = false }
+    val isPunch = e.type == EventType.CHECK_IN || e.type == EventType.CHECK_OUT
     val dot = when (e.type) {
         EventType.CHECK_IN -> c.success
         EventType.CHECK_OUT -> c.danger
         EventType.LUNCH_START, EventType.LUNCH_END -> c.warning
         else -> c.accent
     }
-    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).then(if (isPunch && !e.detail.startsWith(com.attendance.tracker.AttendanceController.MANUAL_PREFIX)) Modifier.pressScale { trailOpen = true } else Modifier)) {
         Text(fmtTime(e.timeMs), Modifier.width(50.dp).padding(top = 1.dp), style = MaterialTheme.typography.labelMedium, color = c.textSecondary)
         Column(Modifier.width(20.dp).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally) {
             Box(Modifier.padding(top = 4.dp).size(10.dp).clip(CircleShape).background(dot))

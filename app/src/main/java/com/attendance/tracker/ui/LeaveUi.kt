@@ -164,6 +164,7 @@ fun LeavesCard() {
                 }
             }
         }
+        LongWeekendList()
         Spacer(Modifier.height(8.dp))
         Text(if (editOpen) "Hide yearly quota" else "Change yearly quota", Modifier.clip(Soft.pillShape).pressScale { editOpen = !editOpen }.padding(vertical = 4.dp),
             style = MaterialTheme.typography.labelMedium, color = c.accent)

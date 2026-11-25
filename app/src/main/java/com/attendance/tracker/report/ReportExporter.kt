@@ -123,6 +123,48 @@ object ReportExporter {
         share(ctx, f, "application/pdf", "Attendance ${r.month.format(monthFmt)}")
     }
 
+    /** One-page salary slip: CTC / earnings, every deduction, LOP and take-home. */
+    fun sharePayslipPdf(ctx: Context, r: MonthReport, p: com.attendance.tracker.core.Payslip) {
+        val doc = PdfDocument()
+        val W = 595; val H = 842; val M = 48f
+        val title = Paint().apply { textSize = 20f; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD); color = Color.rgb(28, 32, 51) }
+        val head = Paint().apply { textSize = 11f; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD); color = Color.rgb(91, 108, 255) }
+        val body = Paint().apply { textSize = 11f; color = Color.rgb(28, 32, 51) }
+        val sub = Paint().apply { textSize = 9.5f; color = Color.rgb(122, 128, 153) }
+        val bold = Paint(body).apply { typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD); textSize = 13f }
+        val line = Paint().apply { color = Color.rgb(232, 234, 242); strokeWidth = 0.8f }
+        val page = doc.startPage(PdfDocument.PageInfo.Builder(W, H, 1).create())
+        val c = page.canvas
+        var y = M + 10
+        fun money(v: Double) = "\u20B9 %,.2f".format(v)
+        fun right(t: String, yy: Float, pt: Paint) = c.drawText(t, W - M - pt.measureText(t), yy, pt)
+        c.drawText("Salary slip \u2014 ${r.month.format(monthFmt)}", M, y, title); y += 18
+        c.drawText((AttendanceController.settings.settings.value.office?.name ?: "") + " \u00b7 estimate from your own attendance", M, y, sub); y += 26
+        listOf("Working days" to "${r.workingDays}", "Days present" to "${r.presentDays}", "Absent" to "${r.absentDays}",
+            "Half days" to "${r.halfDays}", "Leave" to "${r.leaveDays}", "Permission" to hm(r.permissionMin * 60L).ifBlank { "0:00" })
+            .forEachIndexed { i, (k, v) -> val x = M + (i % 3) * 170f; val yy = y + (i / 3) * 28f
+                c.drawText(k, x, yy, sub); c.drawText(v, x, yy + 13, body) }
+        y += 70
+        fun section(name: String, lines: List<com.attendance.tracker.core.PayLine>, total: Double) {
+            c.drawText(name.uppercase(), M, y, head); y += 8; c.drawLine(M, y, W - M, y, line); y += 16
+            lines.forEach { l ->
+                c.drawText(l.label, M, y, body); if (l.note.isNotBlank()) c.drawText(l.note, M + 200, y, sub)
+                right(money(l.amount), y, body); y += 18
+            }
+            c.drawLine(M, y - 6, W - M, y - 6, line); y += 8
+            c.drawText("Total ${name.lowercase()}", M, y, bold); right(money(total), y, bold); y += 30
+        }
+        section("Earnings", p.earnings, p.gross)
+        section("Deductions", p.deductions, p.totalDeductions)
+        c.drawText("Take-home", M, y, title); right(money(p.net), y, title); y += 24
+        c.drawText("Estimate only \u2014 your company's payslip is final.", M, y, sub)
+        doc.finishPage(page)
+        val f = File(dir(ctx), "payslip-${r.month}.pdf")
+        f.outputStream().use { doc.writeTo(it) }
+        doc.close()
+        share(ctx, f, "application/pdf", "Salary slip ${r.month.format(monthFmt)}")
+    }
+
     private fun share(ctx: Context, f: File, mime: String, subject: String) {
         val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.files", f)
         val send = Intent(Intent.ACTION_SEND).setType(mime)

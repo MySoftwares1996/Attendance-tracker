@@ -100,8 +100,8 @@ fun SalaryScreen() {
                 empty = "No deductions this month")
             AttendanceBasis(report)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                SoftButton("Share", {
-                    runCatching { ctx.startActivity(AttendanceController.shareIntent(salaryText(report, slip))) }
+                SoftButton("Payslip PDF", {
+                    runCatching { com.attendance.tracker.report.ReportExporter.sharePayslipPdf(ctx, report, slip) }
                 }, Modifier.weight(1f))
                 SoftGhostButton(if (editing) "Hide setup" else "Edit salary", { editing = !editing }, Modifier.weight(1f))
             }
@@ -115,6 +115,7 @@ fun SalaryScreen() {
             }
         }
 
+        if (rules.monthlyGross > 0) YearSummaryCard(month.year, rules)
         AnimatedVisibility(editing, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
             SalaryEditor(rules, ::save)
         }
@@ -320,5 +321,46 @@ private fun CustomItems(title: String, items: List<Pair<String, Double>>, onChan
             val a = amount.toDoubleOrNull()
             if (name.isNotBlank() && a != null && a > 0) { onChange(items + (name.trim() to a)); name = ""; amount = "" }
         }.padding(horizontal = 14.dp, vertical = 12.dp), color = Color.White, style = MaterialTheme.typography.labelLarge)
+    }
+}
+
+/** Month-by-month for the year: take-home, PF saved (both shares), insurance and loss of pay. */
+@Composable
+private fun YearSummaryCard(year: Int, rules: SalaryRules) {
+    val c = Soft.colors
+    var open by remember { mutableStateOf(false) }
+    val rows = remember(year, rules, open) {
+        if (!open) emptyList() else (1..12).map { YearMonth.of(year, it) }.filter { !it.isAfter(YearMonth.now()) }.mapNotNull { ym ->
+            runCatching { MonthReports.build(ym) }.getOrNull()?.takeIf { it.presentDays > 0 || it.leaveDays > 0 }?.payslip()?.let { p ->
+                fun sum(prefix: String) = p.deductions.filter { it.label.startsWith(prefix) }.sumOf { it.amount }
+                listOf(ym.format(java.time.format.DateTimeFormatter.ofPattern("MMM")), p.net,
+                    sum("Provident") + sum("Employer PF"), sum("Insurance"), sum("Loss of pay"))
+            }
+        }
+    }
+    SoftCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("$year summary", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+            MiniAction(if (open) "Hide" else "Show") { open = !open }
+        }
+        if (open) {
+            if (rows.isEmpty()) Text("No months with attendance yet.", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+            else {
+                Spacer(Modifier.height(8.dp))
+                val headers = listOf("Month", "Take-home", "PF saved", "Insurance", "LOP")
+                Row { headers.forEachIndexed { i, h -> Text(h, Modifier.weight(if (i == 0) 0.8f else 1f), style = MaterialTheme.typography.labelSmall, color = c.accent) } }
+                rows.forEach { r ->
+                    Row(Modifier.padding(vertical = 3.dp)) {
+                        Text(r[0] as String, Modifier.weight(0.8f), style = MaterialTheme.typography.bodySmall, color = c.textPrimary)
+                        (1..4).forEach { i -> Text("%,.0f".format(r[i] as Double), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = c.textPrimary) }
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Row {
+                    Text("Total", Modifier.weight(0.8f), style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
+                    (1..4).forEach { i -> Text("%,.0f".format(rows.sumOf { it[i] as Double }), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = c.textPrimary) }
+                }
+            }
+        }
     }
 }
