@@ -30,9 +30,13 @@ object LiveNotification {
     private const val EXTRA_REQUEST_PROMOTED_ONGOING = "android.requestPromotedOngoing"
 
     private const val PUNCH_PILL_MS = 2 * 60_000L
-    private const val NEAR_LOGOUT_MS = 15 * 60_000L
+    private const val NEAR_LOGOUT_MS = 30 * 60_000L
+    /** In the office the pill pops up for [PERIODIC_SHOW_MIN] minutes every [PERIODIC_EVERY_MIN] minutes. */
+    private const val PERIODIC_EVERY_MIN = 20L
+    private const val PERIODIC_SHOW_MIN = 2L
 
-    private val PILL_STATUSES = setOf(WorkStatus.IN_OFFICE, WorkStatus.OVERTIME, WorkStatus.ON_LUNCH, WorkStatus.LUNCH_EXCEEDED)
+    private val PILL_STATUSES = setOf(WorkStatus.IN_OFFICE, WorkStatus.OVERTIME, WorkStatus.ON_LUNCH, WorkStatus.LUNCH_EXCEEDED,
+        WorkStatus.OUTSIDE_OFFICE)
 
     private fun clock(t: LocalDateTime) = "%d:%02d %s".format(if (t.hour % 12 == 0) 12 else t.hour % 12, t.minute, if (t.hour < 12) "AM" else "PM")
     private fun clock(ms: Long) = clock(LocalDateTime.ofInstant(Instant.ofEpochMilli(ms), ZoneId.systemDefault()))
@@ -93,7 +97,7 @@ object LiveNotification {
                 val lastOut = st.today.punches.lastOrNull()?.takeIf { it.type == EventType.CHECK_OUT }?.timeMs
                 title = "Outside · ${short(net)} / ${short(target)}"
                 text = lastOut?.let { "Out since ${clock(it)} · not counted as worked" } ?: "Not counted as worked"
-                chip = "Out"
+                chip = lastOut?.let { "Out ${short((nowMs - it) / 1000)}" } ?: "Out"
                 // no running timer here: it read like a clock
             }
             WorkStatus.NOT_STARTED -> {
@@ -141,8 +145,11 @@ object LiveNotification {
         val lastPunchMs = st.today.punches.lastOrNull()?.timeMs ?: 0L
         val justPunched = nowMs - lastPunchMs in 0..PUNCH_PILL_MS
         val nearLogout = st.status == WorkStatus.IN_OFFICE && endMs != null && endMs - nowMs in 0..NEAR_LOGOUT_MS
+        // In the office: every 20 min (for 2 min), right after a punch, and through the last 30 min before logout.
+        // Outside during working hours, on lunch and in overtime: all the time.
+        val periodic = startMs != null && ((nowMs - startMs) / 60_000) % PERIODIC_EVERY_MIN < PERIODIC_SHOW_MIN
         val showPill = st.status in PILL_STATUSES && (
-            st.status != WorkStatus.IN_OFFICE || nearLogout || justPunched)
+            st.status != WorkStatus.IN_OFFICE || nearLogout || justPunched || periodic)
         if (Build.VERSION.SDK_INT >= 36 && AttendanceController.settings.liveUpdates && showPill) {
             // Ask Android 16 to promote this ongoing notification to a Live Update.
             b.addExtras(android.os.Bundle().apply { putBoolean(EXTRA_REQUEST_PROMOTED_ONGOING, true) })

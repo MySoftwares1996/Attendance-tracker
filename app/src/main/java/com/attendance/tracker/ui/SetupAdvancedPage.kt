@@ -144,7 +144,7 @@ internal fun AdvancedStep(s: AppSettings) {
         val allowed = remember { com.attendance.tracker.service.LiveNotification.liveUpdatesAllowed(ctx) }
         SoftSwitchRow(
             "Show Live Updates",
-            "Status-bar pill after each punch, on lunch, near logout and in overtime",
+            "In the office every 20 min, the last 30 min before logout, after each punch; always while outside in working hours, on lunch and in overtime",
             live,
         ) {
             live = it; AttendanceController.settings.liveUpdates = it
