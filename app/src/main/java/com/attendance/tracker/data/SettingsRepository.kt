@@ -194,6 +194,22 @@ class SettingsRepository(context: Context) {
         }.getOrDefault(mapOf("CL" to 12.0, "SL" to 6.0, "EL" to 15.0))
         set(v) { val o = JSONObject(); v.forEach { (k, d) -> o.put(k, d) }; prefs.edit().putString("leaveQuota", o.toString()).apply() }
 
+    /** Today screen shows only the essentials (ring, logout, to go) until you tap for details. */
+    var todayCompact: Boolean get() = prefs.getBoolean("todayCompact", false); set(v) = prefs.edit().putBoolean("todayCompact", v).apply()
+
+    /** Goal: arrive by this time (minutes after midnight), or -1 for none. */
+    var goalArrivalMin: Int get() = prefs.getInt("goalArrival", -1); set(v) = prefs.edit().putInt("goalArrival", v).apply()
+    /** Goal: no short days this month. */
+    var goalNoShort: Boolean get() = prefs.getBoolean("goalNoShort", true); set(v) = prefs.edit().putBoolean("goalNoShort", v).apply()
+
+    /** Company report totals (minutes) by day, saved when you compare; used to tick matching days. */
+    var companyTotals: Map<String, Int>
+        get() = runCatching {
+            val o = JSONObject(prefs.getString("companyTotals", "{}")!!)
+            o.keys().asSequence().associateWith { o.getInt(it) }
+        }.getOrDefault(emptyMap())
+        set(v) { val o = JSONObject(); v.forEach { (k, m) -> o.put(k, m) }; prefs.edit().putString("companyTotals", o.toString()).apply() }
+
     // ---- permission (short leave that counts as worked time) ----
     /** Permission you're allowed per month, in minutes (default 2 hours). */
     var permissionMonthMin: Int

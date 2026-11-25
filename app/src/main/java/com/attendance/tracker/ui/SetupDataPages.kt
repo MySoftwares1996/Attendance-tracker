@@ -426,7 +426,18 @@ internal fun BackupStep() {
             }
         }
         Spacer(Modifier.height(8.dp))
-        SoftGhostButton("Import past records (adds, never replaces)", { importer.launch(arrayOf("application/json", "application/octet-stream", "*/*")) })
+        SoftGhostButton("Import past records or settings", { importer.launch(arrayOf("application/json", "application/octet-stream", "*/*")) })
+        Spacer(Modifier.height(8.dp))
+        SoftGhostButton("Export settings only (for a new phone)", {
+            runCatching {
+                val f = bm.exportSettingsFile(ctx)
+                val uri = androidx.core.content.FileProvider.getUriForFile(ctx, "${ctx.packageName}.files", f)
+                ctx.startActivity(android.content.Intent.createChooser(
+                    android.content.Intent(android.content.Intent.ACTION_SEND).setType("application/json")
+                        .putExtra(android.content.Intent.EXTRA_STREAM, uri).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION),
+                    "Share settings").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            }.onFailure { Toast.makeText(ctx, "Couldn't export settings", Toast.LENGTH_SHORT).show() }
+        })
         bm.preRestoreCopy(ctx)?.let { f ->
             Spacer(Modifier.height(8.dp))
             SoftGhostButton("Undo last restore", { restoreFile = f })

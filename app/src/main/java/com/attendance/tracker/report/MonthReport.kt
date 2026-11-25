@@ -27,6 +27,8 @@ data class DayReport(
     val holiday: String? = null,
     /** Permission taken that day, in minutes (counted as worked). */
     val permissionMin: Int = 0,
+    /** Time in office + on duty (no lunch rule): comparable with a company "total hours". */
+    val presenceSec: Long = 0,
 )
 
 data class MonthReport(
@@ -113,7 +115,8 @@ object MonthReports {
                 else -> DayState.OK
             }
             DayReport(date, firstIn, lastOut, worked, lunch, if (worked > 0) (worked - required).coerceAtLeast(0) else 0,
-                late, mark, state, punches, holiday, perm)
+                late, mark, state, punches, holiday, perm,
+                if (punches.isEmpty()) 0L else AttendanceController.presenceSec(ev, close).let { it.first + it.second })
         }
         val workedDays = days.filter { it.workedSec > 0 }
         return MonthReport(

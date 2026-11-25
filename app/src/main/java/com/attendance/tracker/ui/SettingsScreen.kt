@@ -331,6 +331,26 @@ internal fun Summary(s: AppSettings, open: (Page) -> Unit) {
         Text("Setup", style = MaterialTheme.typography.headlineMedium, color = c.textPrimary)
         Text("Tap anything to change it. Changes save automatically.", style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
     }
+    // Auto-punch readiness: one score, and one tap to the health check that fixes the weakest item.
+    val ctxH = LocalContext.current
+    val health = rememberInBackground(Unit) { kotlinx.coroutines.runBlocking { com.attendance.tracker.health.HealthCheck.run(ctxH) } }
+    health?.let { h ->
+        val col = when { h.score >= 90 -> c.success; h.score >= 70 -> c.warning; else -> c.danger }
+        val worst = h.checks.firstOrNull { it.level == com.attendance.tracker.health.Level.FAIL }
+            ?: h.checks.firstOrNull { it.level == com.attendance.tracker.health.Level.WARN }
+        SoftCard(onClick = { open(Page.CHECK) }) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("${h.score}", style = MaterialTheme.typography.headlineMedium, color = col)
+                Text("/100", Modifier.padding(start = 2.dp, end = 12.dp), style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
+                Column(Modifier.weight(1f)) {
+                    Text("Auto-punch readiness", style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
+                    Text(worst?.let { "Fix: ${it.title}" } ?: "Everything auto-punch needs is in place \u2713",
+                        style = MaterialTheme.typography.bodySmall, color = if (worst == null) c.success else c.warning, maxLines = 2)
+                }
+                if (worst != null) Text("Fix", style = MaterialTheme.typography.labelLarge, color = c.accent)
+            }
+        }
+    }
     val o = s.office
     val sc = s.schedule
     val ctxH = LocalContext.current

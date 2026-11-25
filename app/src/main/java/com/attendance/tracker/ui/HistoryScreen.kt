@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.key
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.style.TextAlign
 import com.attendance.tracker.report.DayReport
 import com.attendance.tracker.report.DayState
@@ -79,11 +82,28 @@ fun HistoryScreen() {
         val to = d.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
         return Triple(d, AttendanceController.summary(d), AttendanceController.db.events(from, to).filter { it.type != EventType.STATUS })
     }
-    val days = remember(st.today, st.status, calendarMode) {
+    var filter by rememberSaveable { mutableStateOf("All") }
+    val days = rememberInBackground(st.today, st.status, calendarMode, filter) {
         if (calendarMode) emptyList()
-        else (0L until 14L).map { LocalDate.now().minusDays(it) }.map { dayData(it) }
-            .filter { it.third.isNotEmpty() || it.second.secondsByStatus.isNotEmpty() }
-    }
+        else {
+            val range = if (filter == "All") 14L else 92L
+            val sched = AttendanceController.settings.settings.value.schedule
+            (0L until range).map { LocalDate.now().minusDays(it) }.map { dayData(it) }.filter { (d, sum, ev) ->
+                val punches = ev.filter { it.type == EventType.CHECK_IN || it.type == EventType.CHECK_OUT }
+                val mark = AttendanceController.dayMark(d)
+                when (filter) {
+                    "Short" -> punches.isNotEmpty() && d != LocalDate.now() &&
+                        AttendanceController.netWorkedSec(ev, ev.maxOf { it.timeMs }, d) < AttendanceController.netTargetSec(d)
+                    "Permission" -> AttendanceController.permissionMin(d) > 0
+                    "Manual" -> ev.any { it.detail.startsWith(AttendanceController.MANUAL_PREFIX) || it.detail.contains("Edited from") }
+                    "Absent" -> d != LocalDate.now() && punches.isEmpty() && (mark == com.attendance.tracker.core.DayMark.ABSENT ||
+                        (mark == null && d.dayOfWeek in sched.workDays && com.attendance.tracker.data.Holidays.name(d) == null))
+                    "Leave" -> mark != null && (mark.fullDayOff || mark == com.attendance.tracker.core.DayMark.HALF_DAY)
+                    else -> ev.isNotEmpty() || sum.secondsByStatus.isNotEmpty()
+                }
+            }
+        }
+    } ?: emptyList()
     LazyColumn(
         Modifier.fillMaxWidth().padding(horizontal = 14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -173,6 +193,18 @@ fun HistoryScreen() {
             item { key(markTick) { LeavesCard() } }
             if (report != null) item { MonthSummary(report, onPdf = { ReportExporter.sharePdf(ctx, report) }, onCsv = { ReportExporter.shareCsv(ctx, report) }) }
         } else {
+            item {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("All", "Short", "Permission", "Manual", "Absent", "Leave").forEach { f ->
+                        val sel = f == filter
+                        Text(f, Modifier.clip(Soft.pillShape).background(if (sel) c.accent else c.card).pressScale { filter = f }
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                            color = if (sel) Color.White else c.textPrimary, style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+                if (filter != "All") Text("${days.size} day${if (days.size == 1) "" else "s"} in the last 3 months",
+                    Modifier.padding(start = 4.dp, top = 6.dp), style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+            }
             if (days.isEmpty()) item {
                 SoftCard {
                     Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -209,6 +241,7 @@ private fun dayColors(state: DayState): Pair<Color, Color> {
 @Composable
 private fun MonthCalendar(r: MonthReport, selected: LocalDate, picked: Set<LocalDate>, onMonth: (YearMonth) -> Unit, onSelect: (LocalDate) -> Unit) {
     val c = Soft.colors
+    val companyTotals = remember(r) { AttendanceController.settings.companyTotals }
     SoftCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("\u2039", Modifier.clip(CircleShape).pressScale { onMonth(r.month.minusMonths(1)) }.padding(horizontal = 14.dp, vertical = 4.dp),
@@ -247,6 +280,12 @@ private fun MonthCalendar(r: MonthReport, selected: LocalDate, picked: Set<Local
                             ) {
                                 Text(if (isPicked) "✓${d.date.dayOfMonth}" else "${d.date.dayOfMonth}",
                                     style = MaterialTheme.typography.labelLarge, color = if (isPicked) Color.White else fg)
+                                // Matches the company report? (saved when you last compared)
+                                companyTotals[d.date.toString()]?.let { co ->
+                                    val ok = d.presenceSec > 0 && kotlin.math.abs(d.presenceSec / 60 - co) <= 10
+                                    Text(if (ok) "\u2713" else "!", Modifier.align(Alignment.TopEnd).padding(end = 3.dp),
+                                        fontSize = 9.sp, color = if (ok) c.success else c.danger)
+                                }
                             }
                         }
                     }
@@ -362,7 +401,9 @@ private fun Legend(color: Color, text: String) {
 private fun TimelineRow(e: AttendanceEvent, last: Boolean) {
     val c = Soft.colors
     var trailOpen by remember { mutableStateOf(false) }
+    var editOpen by remember { mutableStateOf(false) }
     if (trailOpen) TrailDialog(e.timeMs) { trailOpen = false }
+    if (editOpen) EditPunchDialog(e) { editOpen = false }
     val isPunch = e.type == EventType.CHECK_IN || e.type == EventType.CHECK_OUT
     val dot = when (e.type) {
         EventType.CHECK_IN -> c.success
@@ -377,7 +418,11 @@ private fun TimelineRow(e: AttendanceEvent, last: Boolean) {
             if (!last) Box(Modifier.width(2.dp).weight(1f).background(c.hairline))
         }
         Column(Modifier.weight(1f).padding(start = 8.dp, bottom = 14.dp)) {
-            Text(e.type.label, style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(e.type.label, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
+                if (isPunch) Text("\u270E Edit", Modifier.clip(Soft.pillShape).pressScale { editOpen = true }.padding(horizontal = 8.dp, vertical = 2.dp),
+                    style = MaterialTheme.typography.labelMedium, color = c.accent)
+            }
             val acc = e.accuracyM?.let { " · ±${it.toInt()} m" } ?: ""
             Text(e.detail + acc, style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
         }

@@ -225,6 +225,12 @@ class AttendanceDb(context: Context) :
         }
     }
 
+    /** Changes a punch's time and note (used for clearly-labelled corrections). */
+    fun updateEvent(id: Long, timeMs: Long, detail: String) {
+        writableDatabase.update("events", ContentValues().apply { put("time_ms", timeMs); put("detail", detail) }, "id=?", arrayOf(id.toString()))
+        com.attendance.tracker.backup.BackupManager.backupSoon(appContext)
+    }
+
     fun deleteEvent(id: Long) {
         writableDatabase.delete("events", "id=?", arrayOf(id.toString()))
     }

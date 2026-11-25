@@ -93,7 +93,7 @@ fun CompanyCompareDialog(onDismiss: () -> Unit) {
                                 style = MaterialTheme.typography.bodySmall, color = if (bad) c.danger else c.success)
                         }
                     }
-                    Text("App time is net (lunch rule applied); the company total is first in → last out minus outside time.",
+                    Text("Both are time inside the office (first in \u2192 last out minus time outside); the app's lunch rule is not applied here. Matching days get a \u2713 in History.",
                         style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
                 }
             }

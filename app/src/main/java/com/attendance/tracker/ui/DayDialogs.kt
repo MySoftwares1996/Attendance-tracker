@@ -318,3 +318,45 @@ fun MiniAction(label: String, onClick: () -> Unit) {
         style = MaterialTheme.typography.labelMedium, color = c.accent, maxLines = 1, softWrap = false,
     )
 }
+
+/** Correct the time of an automatic or manual punch; the original time and reason are kept in the record. */
+@Composable
+fun EditPunchDialog(e: com.attendance.tracker.data.AttendanceEvent, onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    val c = Soft.colors
+    val zone = ZoneId.systemDefault()
+    val day = java.time.Instant.ofEpochMilli(e.timeMs).atZone(zone).toLocalDate()
+    val t0 = java.time.Instant.ofEpochMilli(e.timeMs).atZone(zone).toLocalTime()
+    var minutes by remember { mutableIntStateOf(t0.hour * 60 + t0.minute) }
+    var reason by remember { mutableStateOf("") }
+    fun clk(m: Int) = "%d:%02d %s".format(if ((m / 60) % 12 == 0) 12 else (m / 60) % 12, m % 60, if (m < 720) "AM" else "PM")
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Correct ${if (e.type == com.attendance.tracker.data.EventType.CHECK_IN) "IN" else "OUT"} time") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Recorded at ${clk(t0.hour * 60 + t0.minute)} on ${day.format(dayTitle)}.", style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
+                Column(Modifier.fillMaxWidth().clip(Soft.tileShape).background(c.accentSoft)
+                    .pressScale { TimePickerDialog(ctx, { _, h, m -> minutes = h * 60 + m }, minutes / 60, minutes % 60, false).show() }.padding(16.dp)) {
+                    Text("Correct time", style = MaterialTheme.typography.labelMedium, color = c.accent)
+                    Text(clk(minutes), style = MaterialTheme.typography.headlineSmall, color = c.textPrimary)
+                }
+                OutlinedTextField(reason, { reason = it }, label = { Text("Reason (required)") }, modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp), maxLines = 2)
+                Text("The original time stays in the record as “Edited from …”.", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val at = day.atStartOfDay(zone).plusMinutes(minutes.toLong()).toInstant().toEpochMilli()
+                when {
+                    reason.isBlank() -> Toast.makeText(ctx, "Please add a reason", Toast.LENGTH_SHORT).show()
+                    at > System.currentTimeMillis() -> Toast.makeText(ctx, "That time is in the future", Toast.LENGTH_SHORT).show()
+                    else -> { AttendanceController.editPunch(e, at, reason); onDismiss() }
+                }
+            }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        shape = RoundedCornerShape(28.dp), containerColor = c.card,
+    )
+}

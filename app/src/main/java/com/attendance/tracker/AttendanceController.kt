@@ -451,6 +451,18 @@ object AttendanceController {
         refresh()
     }
 
+    /**
+     * Corrects the time of an IN / OUT. The original time and your reason stay in the record
+     * ("Edited from 9:27 AM · reason"), so a correction is never hidden.
+     */
+    fun editPunch(e: com.attendance.tracker.data.AttendanceEvent, newMs: Long, reason: String) {
+        if (e.type != EventType.CHECK_IN && e.type != EventType.CHECK_OUT) return
+        val base = e.detail.substringBefore(" \u00b7 Edited from ")
+        val note = "$base \u00b7 Edited from ${clock(e.timeMs)}" + (if (reason.isNotBlank()) " (${reason.trim()})" else "")
+        db.updateEvent(e.id, newMs, note)
+        refresh()
+    }
+
     fun deleteManualPunch(e: com.attendance.tracker.data.AttendanceEvent) {
         if (e.detail.startsWith(MANUAL_PREFIX)) { db.deleteEvent(e.id); refresh() }
     }

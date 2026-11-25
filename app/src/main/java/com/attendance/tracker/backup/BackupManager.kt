@@ -226,7 +226,9 @@ object BackupManager {
     @Synchronized
     fun importRecords(ctx: Context, uri: Uri): String = runCatching {
         val json = JSONObject(read(ctx, uri))
-        check(json.optString("app") == "attendance-tracker" && json.optString("kind") == "import") { "That isn't an import file." }
+        check(json.optString("app") == "attendance-tracker") { "That isn't an Attendance Tracker file." }
+        if (json.optString("kind") == "settings") return@runCatching importSettings(ctx, json)
+        check(json.optString("kind") == "import") { "That's a full backup \u2014 use \u201cRestore from backup file\u201d instead." }
         val zone = java.time.ZoneId.systemDefault()
         val evArr = json.optJSONArray("events") ?: JSONArray()
         val parsed = (0 until evArr.length()).map { i ->
@@ -271,6 +273,43 @@ object BackupManager {
         "Imported $addedDays day${if (addedDays == 1) "" else "s"} (${toAdd.size} records, ${newMarks.size} marks)" +
             if (busy.isNotEmpty()) " · skipped ${busy.size} day${if (busy.size == 1) "" else "s"} already recorded" else ""
     }.getOrElse { "Import failed: ${it.message}. Nothing was changed." }
+
+    /** Settings that describe your setup (not live tracking state) — what "settings only" moves. */
+    private val RUNTIME_KEYS = setOf("presence", "heartbeat", "lastAtHome", "atHome", "lunchActive", "lunchStart", "dutyStart",
+        "dutyReason", "pendingDutyOut", "pendingLunchIn", "pendingLunchOut", "tracking", "userPaused")
+
+    /** Office map, gates, hours, lunch, holidays, home, Wi-Fi, salary, leave quotas… without any records. */
+    fun exportSettingsFile(ctx: Context): File {
+        val all = prefsJson(ctx, MAIN_PREFS)
+        val keep = JSONObject()
+        all.keys().forEach { k -> if (k !in RUNTIME_KEYS && !k.startsWith("once_")) keep.put(k, all.get(k)) }
+        val o = JSONObject().put("app", "attendance-tracker").put("kind", "settings").put("createdAt", System.currentTimeMillis())
+            .put("settings", keep)
+        val f = File(File(ctx.cacheDir, "reports").apply { mkdirs() }, "attendance-settings.json")
+        f.writeText(o.toString())
+        return f
+    }
+
+    /** Applies a settings-only file; records and live tracking state are left alone. */
+    private fun importSettings(ctx: Context, json: JSONObject): String {
+        val s = json.getJSONObject("settings")
+        check(saveLocal(ctx, "before-import")) { "Couldn't save a safety copy first, so nothing was changed." }
+        val ed = ctx.getSharedPreferences(MAIN_PREFS, Context.MODE_PRIVATE).edit()
+        var n = 0
+        s.keys().forEach { k ->
+            if (k in RUNTIME_KEYS || k.startsWith("once_")) return@forEach
+            val e = s.getJSONObject(k)
+            when (e.getString("t")) {
+                "b" -> ed.putBoolean(k, e.getBoolean("v")); "i" -> ed.putInt(k, e.getInt("v")); "l" -> ed.putLong(k, e.getLong("v"))
+                "f" -> ed.putFloat(k, e.getDouble("v").toFloat()); "s" -> ed.putString(k, e.getString("v"))
+                "ss" -> ed.putStringSet(k, e.getJSONArray("v").let { a -> (0 until a.length()).map { a.getString(it) }.toSet() })
+            }
+            n++
+        }
+        check(ed.commit()) { "couldn't save settings" }
+        AttendanceController.reload()
+        return "Settings imported ($n items) \u2713 \u2014 office map, gates, hours, salary and more"
+    }
 
     /** Back up shortly after a change (punch, mark, settings), batching bursts of changes. */
     fun backupSoon(ctx: Context) {

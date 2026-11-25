@@ -66,6 +66,8 @@ private data class InsightsData(
     val commuteFastest: Pair<LocalDate, Long>?,
     val bestDeparture: Pair<Int, Long>?,
     val commuteDays: Int,
+    /** Last 13 weeks: week start → (average net seconds, average arrival minutes), null when no data. */
+    val weeks: List<Triple<LocalDate, Long?, Int?>> = emptyList(),
 )
 
 private fun clockMin(min: Int): String =
@@ -113,11 +115,22 @@ private fun load(): InsightsData {
     val fastest = commutes.minByOrNull { it.second.first }?.let { it.first to it.second.first }
     val bestDep = Insights.bestDeparture(commutes.map { minOf(it.second.second) to it.second.first })
 
+    // Weekly trend (13 weeks): average net and arrival from the month reports.
+    val reports = (0L..3L).map { YearMonth.now().minusMonths(it) }.mapNotNull { runCatching { MonthReports.build(it) }.getOrNull() }
+    val allDays = reports.flatMap { it.days }.filter { it.workedSec > 0 && it.date != today }
+    val monday0 = today.with(DayOfWeek.MONDAY)
+    val weeks = (12L downTo 0L).map { w ->
+        val ws = monday0.minusWeeks(w)
+        val inWeek = allDays.filter { !it.date.isBefore(ws) && it.date.isBefore(ws.plusWeeks(1)) }
+        Triple(ws, inWeek.takeIf { it.isNotEmpty() }?.let { l -> l.sumOf { it.workedSec } / l.size },
+            inWeek.mapNotNull { it.firstInMs }.takeIf { it.isNotEmpty() }?.let { l -> l.sumOf { minOf(it) } / l.size })
+    }
+
     return InsightsData(
         streak, best,
         MonthReports.build(YearMonth.now()), MonthReports.build(YearMonth.now().minusMonths(1)),
         byDay, Insights.avgMinutes(firstIns.map { it.second }), Insights.avgMinutes(lastOuts), topGate,
-        AttendanceController.commute(today), avg, fastest, bestDep, commutes.size,
+        AttendanceController.commute(today), avg, fastest, bestDep, commutes.size, weeks,
     )
 }
 
@@ -180,7 +193,89 @@ fun InsightsScreen(onOpenSetup: (String) -> Unit) {
                 }
             }
             if (d.commuteDays == 0) MiniAction("Set home to measure commute") { onOpenSetup("home") }
+            GoalsCard(d.thisMonth)
+            TrendCard(d)
         }
         Spacer(Modifier.height(NavBarClearance))
+    }
+}
+
+/** Net hours per week (last 13 weeks) against the target, and how arrival time is moving. */
+@Composable
+private fun TrendCard(d: InsightsData) {
+    val c = Soft.colors
+    val pts = d.weeks.filter { it.second != null }
+    if (pts.size < 2) return
+    val target = AttendanceController.netTargetSec(LocalDate.now()).toFloat()
+    SoftCard {
+        Text("Trend \u00b7 last 13 weeks", style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+        Text("Average net per day, each week \u00b7 dashed line = target", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+        Spacer(Modifier.height(10.dp))
+        val maxV = (pts.maxOf { it.second!! }.toFloat()).coerceAtLeast(target) * 1.1f
+        val minV = (pts.minOf { it.second!! }.toFloat()).coerceAtMost(target) * 0.85f
+        val line = c.accent; val tgt = c.success
+        androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(120.dp)) {
+            fun x(i: Int) = i * size.width / (d.weeks.size - 1).coerceAtLeast(1)
+            fun y(v: Float) = size.height - (v - minV) / (maxV - minV) * size.height
+            drawLine(tgt, androidx.compose.ui.geometry.Offset(0f, y(target)), androidx.compose.ui.geometry.Offset(size.width, y(target)), 3f,
+                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(12f, 10f)))
+            var prev: androidx.compose.ui.geometry.Offset? = null
+            d.weeks.forEachIndexed { i, w ->
+                val v = w.second ?: return@forEachIndexed
+                val o = androidx.compose.ui.geometry.Offset(x(i), y(v.toFloat()))
+                prev?.let { drawLine(line, it, o, 5f) }
+                drawCircle(line, 7f, o)
+                prev = o
+            }
+        }
+        val arr = d.weeks.mapNotNull { it.third }
+        if (arr.size >= 2) {
+            Spacer(Modifier.height(8.dp))
+            val delta = arr.last() - arr.first()
+            Text("Arrival: ${clockMin(arr.first())} \u2192 ${clockMin(arr.last())}" + when {
+                delta <= -5 -> " \u00b7 ${-delta} min earlier \uD83D\uDC4D"
+                delta >= 5 -> " \u00b7 $delta min later"
+                else -> " \u00b7 steady"
+            }, style = MaterialTheme.typography.bodyMedium, color = c.textPrimary)
+        }
+    }
+}
+
+/** Personal goals for this month: arrive by a time, and no short days. */
+@Composable
+private fun GoalsCard(m: MonthReport) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val c = Soft.colors
+    val s = AttendanceController.settings
+    var goalMin by remember { mutableStateOf(s.goalArrivalMin) }
+    val worked = m.days.filter { it.firstInMs != null }
+    val onTime = if (goalMin < 0) 0 else worked.count { d ->
+        java.time.Instant.ofEpochMilli(d.firstInMs!!).atZone(ZoneId.systemDefault()).toLocalTime().let { it.hour * 60 + it.minute } <= goalMin
+    }
+    val shortDays = m.days.count { it.state == com.attendance.tracker.report.DayState.SHORT }
+    SoftCard {
+        Text("Goals \u00b7 ${m.month.format(java.time.format.DateTimeFormatter.ofPattern("MMMM"))}", style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(if (goalMin < 0) "\uD83C\uDFAF Arrive by \u2014 (tap Set)" else "\uD83C\uDFAF Arrive by ${clockMin(goalMin)}",
+                    style = MaterialTheme.typography.bodyLarge, color = c.textPrimary)
+                if (goalMin >= 0) Text("$onTime of ${worked.size} days so far", style = MaterialTheme.typography.bodySmall,
+                    color = if (onTime == worked.size) c.success else c.warning)
+            }
+            MiniAction(if (goalMin < 0) "Set" else "Change") {
+                val init = if (goalMin < 0) 9 * 60 + 45 else goalMin
+                android.app.TimePickerDialog(ctx, { _, h, mm -> goalMin = h * 60 + mm; s.goalArrivalMin = goalMin }, init / 60, init % 60, false).show()
+            }
+        }
+        if (goalMin >= 0 && worked.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            Box(Modifier.fillMaxWidth().height(6.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(3.dp)).background(c.cardMuted)) {
+                Box(Modifier.fillMaxWidth(onTime.toFloat() / worked.size).height(6.dp).background(c.success))
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(if (shortDays == 0) "\u2705 No short days this month" else "\u26A0 $shortDays short day${if (shortDays == 1) "" else "s"} this month \u2014 goal: none",
+            style = MaterialTheme.typography.bodyLarge, color = if (shortDays == 0) c.success else c.warning)
     }
 }

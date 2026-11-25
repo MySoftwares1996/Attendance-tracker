@@ -175,10 +175,15 @@ fun AttendanceController.leaveRequestText(from: LocalDate, to: LocalDate, type: 
 }
 
 /** Day-by-day comparison of the company report with this app's own records. */
-fun AttendanceController.compareReport(rows: List<com.attendance.tracker.core.CompanyReport.Row>): List<ReportDiff> = rows.sortedBy { it.date }.map { r ->
-    val ev = db.events(r.date.atStartOfDay(zone()).toInstant().toEpochMilli(), r.date.plusDays(1).atStartOfDay(zone()).toInstant().toEpochMilli())
-    val app = if (ev.any { it.type == EventType.CHECK_IN }) (netWorkedSec(ev, ev.maxOf { it.timeMs }, r.date) / 60).toInt() else null
-    ReportDiff(r.date, r.status, r.totalMin, app, db.dayMark(r.date.toString()))
+fun AttendanceController.compareReport(rows: List<com.attendance.tracker.core.CompanyReport.Row>): List<ReportDiff> {
+    // Remember the company totals so History can tick the days that match.
+    settings.companyTotals = settings.companyTotals + rows.filter { it.worked }.associate { it.date.toString() to it.totalMin }
+    return rows.sortedBy { it.date }.map { r ->
+        val ev = db.events(r.date.atStartOfDay(zone()).toInstant().toEpochMilli(), r.date.plusDays(1).atStartOfDay(zone()).toInstant().toEpochMilli())
+        // Same basis as the company total: time inside (and on duty), no lunch rule.
+        val app = if (ev.any { it.type == EventType.CHECK_IN }) (presenceSec(ev, ev.maxOf { it.timeMs }).let { it.first + it.second } / 60).toInt() else null
+        ReportDiff(r.date, r.status, r.totalMin, app, db.dayMark(r.date.toString()))
+    }
 }
 
 /** Adds the report's days that have no records in the app (IN, outside time as a break, OUT, and marks). */

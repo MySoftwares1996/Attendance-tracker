@@ -43,6 +43,7 @@ class AttendanceWidget : AppWidgetProvider() {
             if (key == lastKey) return
             lastKey = key
             update(ctx)
+            SmallWidget.update(ctx)
         }
 
         fun update(ctx: Context) {

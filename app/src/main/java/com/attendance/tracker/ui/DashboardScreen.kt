@@ -360,16 +360,28 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
         }
 
         // ── live analysis ──
-        LiveAnalysis(live, plan, st, stats, usualArrival, settings.schedule.maxLunchMinutes, settings.schedule.workDays)
+        // ── smart "leave now?" (last 30 min before logout) ──
+        LeaveNowCard(st, plan, live, now)
 
-        // ── punches ──
-        PunchesCard(st.today.punches, now) { punchOpen = true }
+        // ── one-glance mode: only the essentials until you ask for details ──
+        var compact by remember { mutableStateOf(AttendanceController.settings.todayCompact) }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            MiniAction(if (compact) "\u25BE Show details" else "\u25B4 One-glance view") {
+                compact = !compact; AttendanceController.settings.todayCompact = compact
+            }
+        }
+        if (!compact) {
+            LiveAnalysis(live, plan, st, stats, usualArrival, settings.schedule.maxLunchMinutes, settings.schedule.workDays)
 
-        // ── week ──
-        WeekCard(stats)
+            // ── punches ──
+            PunchesCard(st.today.punches, now) { punchOpen = true }
 
-        // ── location ──
-        LocationCard(st, settings.accuracy.maxAccuracyM, now)
+            // ── week ──
+            WeekCard(stats)
+
+            // ── location ──
+            LocationCard(st, settings.accuracy.maxAccuracyM, now)
+        }
 
         UpdateBanner()
         Spacer(Modifier.height(NavBarClearance))
@@ -929,4 +941,38 @@ private fun LeaveByDialog(onDismiss: () -> Unit) {
         dismissButton = { if (short > 0 && balance < short && permLeft >= needMin) TextButton(onClick = onDismiss) { Text("Cancel") } },
         shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp), containerColor = c.card,
     )
+}
+
+/**
+ * From 30 minutes before logout: the exact time you can leave, and the earlier options that
+ * still complete your day (week balance, permission), with one tap to use permission.
+ */
+@Composable
+private fun LeaveNowCard(st: com.attendance.tracker.LiveState, plan: DayPlan?, live: LiveDay, nowMs: Long) {
+    val ctx = LocalContext.current
+    val c = Soft.colors
+    val end = plan?.expectedEnd ?: return
+    if (st.status != WorkStatus.IN_OFFICE || plan.dayOff != null) return
+    val endMs = end.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+    val minsLeft = (endMs - nowMs) / 60_000
+    if (minsLeft !in 0..30) return
+    val today = LocalDate.now()
+    val balance = remember(today, st.today.punches.size) { AttendanceController.weekBalanceSec() }
+    val permLeft = AttendanceController.permissionLeftMin(today) - AttendanceController.permissionMin(today)
+    val short = (live.netTargetSec - live.netSec).coerceAtLeast(0)
+    val needMin = (((short + 59) / 60 + 29) / 30 * 30).toInt()
+    SoftCard(color = c.successSoft) {
+        Text("\uD83C\uDFC1 You can leave at ${clock12(end)}", style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+        Text("$minsLeft min to go \u00b7 net ${fmtDuration(live.netSec)} of ${fmtDuration(live.netTargetSec)}",
+            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+        if (balance > 0) Text("\u2696 With your week balance (+${fmtDuration(balance)}) you could leave at ${clock12(end.minusSeconds(minOf(balance, short)))}",
+            Modifier.padding(top = 6.dp), style = MaterialTheme.typography.bodySmall, color = c.textPrimary)
+        if (short > 0 && permLeft >= needMin) {
+            Spacer(Modifier.height(8.dp))
+            MiniAction("Leave now \u00b7 use ${fmtDuration(needMin * 60L)} permission") {
+                AttendanceController.setPermission(today, AttendanceController.permissionMin(today) + needMin)
+                Toast.makeText(ctx, "${fmtDuration(needMin * 60L)} permission added", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 }
