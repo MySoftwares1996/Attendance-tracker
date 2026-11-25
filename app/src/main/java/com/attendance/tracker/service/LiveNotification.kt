@@ -26,6 +26,8 @@ import java.time.ZoneId
  * notification without the status-bar chip.
  */
 object LiveNotification {
+    /** Notification.EXTRA_REQUEST_PROMOTED_ONGOING (Android 16). */
+    private const val EXTRA_REQUEST_PROMOTED_ONGOING = "android.requestPromotedOngoing"
 
     private fun clock(t: LocalDateTime) = "%d:%02d %s".format(if (t.hour % 12 == 0) 12 else t.hour % 12, t.minute, if (t.hour < 12) "AM" else "PM")
     private fun clock(ms: Long) = clock(LocalDateTime.ofInstant(Instant.ofEpochMilli(ms), ZoneId.systemDefault()))
@@ -127,7 +129,8 @@ object LiveNotification {
         } else b.setShowWhen(false)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) b.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE)
         if (Build.VERSION.SDK_INT >= 36 && AttendanceController.settings.liveUpdates) {
-            b.setRequestPromotedOngoing(true)
+            // Ask Android 16 to promote this ongoing notification to a Live Update.
+            b.addExtras(android.os.Bundle().apply { putBoolean(EXTRA_REQUEST_PROMOTED_ONGOING, true) })
             chip?.let { b.setShortCriticalText(it) }
         }
         return b.build()
