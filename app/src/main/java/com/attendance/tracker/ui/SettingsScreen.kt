@@ -586,16 +586,6 @@ private fun ModeButton(label: String, selected: Boolean, modifier: Modifier, onC
     }
 }
 
-@Composable
-private fun SmallChip(label: String, onClick: () -> Unit) {
-    val c = Soft.colors
-    Text(
-        label,
-        Modifier.clip(Soft.pillShape).background(c.cardMuted).pressScale(onClick).padding(horizontal = 14.dp, vertical = 8.dp),
-        style = MaterialTheme.typography.labelMedium, color = c.textPrimary,
-    )
-}
-
 private fun areaLabel(m2: Double): String {
     val acres = m2 / 4046.86
     return if (acres >= 0.25) "%.2f acres".format(acres) else "${m2.toInt()} m²"
@@ -1475,34 +1465,6 @@ private fun <T> Choices(options: List<Pair<String, T>>, selected: T, onSelect: (
                 contentAlignment = Alignment.Center,
             ) { Text(label, color = fg, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center) }
         }
-    }
-}
-
-@Composable
-private fun SegmentedToggle(left: String, right: String, rightSelected: Boolean, onChange: (Boolean) -> Unit) {
-    val c = Soft.colors
-    Row(Modifier.fillMaxWidth().height(52.dp).clip(Soft.pillShape).background(c.cardMuted).padding(4.dp)) {
-        listOf(false to left, true to right).forEach { (value, label) ->
-            val sel = value == rightSelected
-            val bg = animatedColor(if (sel) c.card else c.cardMuted, "segBg")
-            val fg = animatedColor(if (sel) c.accent else c.textSecondary, "segFg")
-            Box(
-                Modifier.weight(1f).fillMaxSize().clip(Soft.pillShape).background(bg).pressScale { onChange(value) },
-                contentAlignment = Alignment.Center,
-            ) { Text(label, color = fg, style = MaterialTheme.typography.labelLarge) }
-        }
-    }
-}
-
-@Composable
-private fun TimeTile(
-    label: String, minutes: Int, modifier: Modifier,
-    tint: Color = Soft.colors.accent, bg: Color = Soft.colors.accentSoft, onClick: () -> Unit,
-) {
-    Column(modifier.clip(Soft.tileShape).background(bg).pressScale(onClick).padding(vertical = 16.dp, horizontal = 18.dp)) {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = tint)
-        Spacer(Modifier.height(4.dp))
-        Text(fmt12(minutes), style = MaterialTheme.typography.headlineSmall, color = Soft.colors.textPrimary)
     }
 }
 

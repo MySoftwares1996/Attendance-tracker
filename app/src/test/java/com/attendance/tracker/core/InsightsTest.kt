@@ -25,14 +25,6 @@ class InsightsTest {
         assertEquals(9 * 60 to 23L, Insights.bestDeparture(s))
     }
 
-    @Test fun pay() {
-        val r = Insights.PayRules(45_000.0, 300.0, deductAbsent = true, deductHalfDay = true)
-        val p = Insights.pay(r, workingDays = 25, overtimeSec = 12 * 3600L, absentDays = 1, halfDays = 1)
-        assertEquals(3_600.0, p.overtimePay, 0.01)
-        assertEquals(1_800.0 + 900.0, p.deductions, 0.01)
-        assertEquals(45_000.0 + 3_600.0 - 2_700.0, p.total, 0.01)
-    }
-
     @Test fun parseHolidayList() {
         val list = Insights.parseHolidays(
             """

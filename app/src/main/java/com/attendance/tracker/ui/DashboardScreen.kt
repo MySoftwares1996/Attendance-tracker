@@ -860,33 +860,6 @@ private fun LocationCard(st: com.attendance.tracker.LiveState, maxAcc: Float, no
     }
 }
 
-/** "Permission: 1h 30m of 2h left" with a small bar; tap to use or change it. */
-@Composable
-private fun PermissionMeter() {
-    val c = Soft.colors
-    var open by remember { mutableStateOf(false) }
-    if (open) PermissionDialog(LocalDate.now()) { open = false }
-    val onClick = { open = true }
-    val today = LocalDate.now()
-    val allowance = AttendanceController.settings.permissionMonthMin
-    if (allowance <= 0) return
-    val used = AttendanceController.settings.permissionUsedInMonth(today.toString())
-    val left = (allowance - used).coerceAtLeast(0)
-    val teal = Color(0xFF0E8C8C)
-    Column(Modifier.fillMaxWidth().clip(Soft.tileShape).background(teal.copy(alpha = 0.08f)).pressScale(onClick).padding(horizontal = 12.dp, vertical = 10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("\u23F1", Modifier.width(26.dp), style = MaterialTheme.typography.titleSmall)
-            Text("Permission this month: ${fmtDuration(left * 60L)} left of ${fmtDuration(allowance * 60L)}",
-                Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = c.textPrimary)
-        }
-        Spacer(Modifier.height(6.dp))
-        Box(Modifier.fillMaxWidth().height(6.dp).clip(Soft.pillShape).background(c.cardMuted)) {
-            if (used > 0) Box(Modifier.fillMaxWidth((used.toFloat() / allowance).coerceIn(0f, 1f)).height(6.dp).clip(Soft.pillShape)
-                .background(if (left == 0) c.danger else teal))
-        }
-    }
-}
-
 /** "Leave by" planner: pick a time and see whether it works, and what permission it would need. */
 @Composable
 private fun LeaveByDialog(onDismiss: () -> Unit) {

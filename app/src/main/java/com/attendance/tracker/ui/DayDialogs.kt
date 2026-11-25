@@ -317,6 +317,3 @@ fun MiniAction(label: String, onClick: () -> Unit) {
         style = MaterialTheme.typography.labelMedium, color = c.accent, maxLines = 1, softWrap = false,
     )
 }
-
-@Composable
-fun SpacerH(h: Int) = Spacer(Modifier.height(h.dp))

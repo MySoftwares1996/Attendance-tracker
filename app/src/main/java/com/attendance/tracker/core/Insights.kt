@@ -45,25 +45,6 @@ object Insights {
             .minByOrNull { it.value }
             ?.let { it.key to it.value.roundToLong() }
 
-    data class PayRules(
-        val monthlySalary: Double,
-        val overtimeRatePerHour: Double,
-        val deductAbsent: Boolean,
-        val deductHalfDay: Boolean,
-    )
-
-    data class Pay(val base: Double, val overtimePay: Double, val deductions: Double) {
-        val total: Double get() = base + overtimePay - deductions
-    }
-
-    /** Estimated pay for a month. One day's pay = salary ÷ working days in the month. */
-    fun pay(r: PayRules, workingDays: Int, overtimeSec: Long, absentDays: Int, halfDays: Int): Pay {
-        val perDay = if (workingDays > 0) r.monthlySalary / workingDays else 0.0
-        val ot = overtimeSec / 3600.0 * r.overtimeRatePerHour
-        val ded = (if (r.deductAbsent) absentDays * perDay else 0.0) + (if (r.deductHalfDay) halfDays * perDay / 2 else 0.0)
-        return Pay(r.monthlySalary, ot, ded)
-    }
-
     /**
      * Parses a pasted holiday list, one per line: "2027-01-14 Pongal", "14-01-2027 Pongal",
      * "14/01/2027, Pongal" or "14 Jan 2027 Pongal". Unreadable lines are skipped.

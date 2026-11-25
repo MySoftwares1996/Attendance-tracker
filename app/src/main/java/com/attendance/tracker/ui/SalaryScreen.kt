@@ -190,17 +190,6 @@ private fun AttendanceBasis(r: MonthReport) {
     }
 }
 
-private fun salaryText(r: MonthReport, p: Payslip): String = buildString {
-    appendLine("💰 Salary estimate – ${r.month.format(monthFmt)}")
-    appendLine("Earnings:")
-    p.earnings.forEach { appendLine("  ${it.label}: ${rs(it.amount)}") }
-    appendLine("Deductions:")
-    if (p.deductions.isEmpty()) appendLine("  none")
-    p.deductions.forEach { appendLine("  ${it.label}: ${rs(it.amount)}") }
-    appendLine("${if (AttendanceController.settings.salaryRules.employerPfInSalary) "CTC" else "Gross"} ${rs(p.gross)} − deductions ${rs(p.totalDeductions)}")
-    append("Take-home (estimate): ${rs(p.net)}")
-}
-
 // ───────────────────────────── editor ─────────────────────────────
 
 @Composable

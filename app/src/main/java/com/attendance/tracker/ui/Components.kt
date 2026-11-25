@@ -162,14 +162,6 @@ fun IconBubble(icon: Painter, tint: Color, background: Color, size: Dp = 40.dp) 
     ) { Icon(icon, null, tint = tint, modifier = Modifier.size(size * 0.5f)) }
 }
 
-@Composable
-fun SectionTitle(text: String, modifier: Modifier = Modifier, trailing: @Composable (() -> Unit)? = null) {
-    Row(modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(text, style = MaterialTheme.typography.titleMedium, color = Soft.colors.textPrimary, modifier = Modifier.weight(1f))
-        trailing?.invoke()
-    }
-}
-
 /** Card header row: icon bubble + title + optional subtitle. */
 @Composable
 fun CardHeader(icon: Painter, title: String, subtitle: String? = null, tint: Color = Soft.colors.accent, bubble: Color = Soft.colors.accentSoft) {
@@ -180,23 +172,6 @@ fun CardHeader(icon: Painter, title: String, subtitle: String? = null, tint: Col
             Text(title, style = MaterialTheme.typography.titleMedium, color = Soft.colors.textPrimary)
             if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Soft.colors.textSecondary)
         }
-    }
-}
-
-/** Small stat tile used in grids. */
-@Composable
-fun StatTile(label: String, value: String, icon: Painter, tint: Color, bubble: Color, modifier: Modifier = Modifier) {
-    Column(
-        modifier
-            .shadow(12.dp, Soft.tileShape, ambientColor = Soft.colors.shadow, spotColor = Soft.colors.shadow)
-            .clip(Soft.tileShape)
-            .background(Soft.colors.card)
-            .padding(16.dp)
-    ) {
-        IconBubble(icon, tint, bubble, size = 34.dp)
-        Spacer(Modifier.height(12.dp))
-        Text(value, style = MaterialTheme.typography.titleLarge, color = Soft.colors.textPrimary)
-        Text(label, style = MaterialTheme.typography.bodySmall, color = Soft.colors.textSecondary)
     }
 }
 
