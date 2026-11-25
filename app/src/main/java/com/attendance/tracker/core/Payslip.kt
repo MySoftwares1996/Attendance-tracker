@@ -51,7 +51,7 @@ object PayCalculator {
         val perDay = if (workingDays > 0) r.monthlyGross / workingDays else 0.0
         val ot = r2(overtimeSec / 3600.0 * r.overtimeRatePerHour)
         val earnings = buildList {
-            add(PayLine("Salary (gross)", r.monthlyGross))
+            add(PayLine(if (r.employerPfInSalary) "CTC (monthly)" else "Salary (gross)", r.monthlyGross))
             if (ot > 0) add(PayLine("Overtime", ot, "%.1f h × ₹%.0f".format(overtimeSec / 3600.0, r.overtimeRatePerHour)))
             r.otherEarnings.filter { it.second > 0 }.forEach { add(PayLine(it.first, it.second)) }
         }

@@ -138,7 +138,7 @@ private fun TakeHomeHero(p: Payslip, current: Boolean) {
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             Column {
-                Text("Gross", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelSmall)
+                Text(if (AttendanceController.settings.salaryRules.employerPfInSalary) "CTC" else "Gross", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelSmall)
                 Text(rs(p.gross), color = Color.White, style = MaterialTheme.typography.titleMedium)
             }
             Column {
@@ -196,7 +196,7 @@ private fun salaryText(r: MonthReport, p: Payslip): String = buildString {
     appendLine("Deductions:")
     if (p.deductions.isEmpty()) appendLine("  none")
     p.deductions.forEach { appendLine("  ${it.label}: ${rs(it.amount)}") }
-    appendLine("Gross ${rs(p.gross)} − deductions ${rs(p.totalDeductions)}")
+    appendLine("${if (AttendanceController.settings.salaryRules.employerPfInSalary) "CTC" else "Gross"} ${rs(p.gross)} − deductions ${rs(p.totalDeductions)}")
     append("Take-home (estimate): ${rs(p.net)}")
 }
 
@@ -210,7 +210,9 @@ private fun SalaryEditor(r: SalaryRules, save: (SalaryRules) -> Unit) {
         SoftCard {
             CardHeader(painterResource(R.drawable.ic_rupee), "Earnings", null, c.success, c.successSoft)
             Spacer(Modifier.height(12.dp))
-            MoneyField("Monthly gross salary", r.monthlyGross) { save(r.copy(monthlyGross = it)) }
+            MoneyField(if (r.employerPfInSalary) "Monthly CTC (salary before all deductions)" else "Monthly gross salary", r.monthlyGross) { save(r.copy(monthlyGross = it)) }
+            if (r.employerPfInSalary) Text("Employer PF, employee PF, PT and insurance are all taken from this CTC.",
+                style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
             Spacer(Modifier.height(10.dp))
             MoneyField("Overtime pay per hour", r.overtimeRatePerHour) { save(r.copy(overtimeRatePerHour = it)) }
             if (r.monthlyGross > 0 && r.overtimeRatePerHour == 0.0) {
@@ -228,7 +230,7 @@ private fun SalaryEditor(r: SalaryRules, save: (SalaryRules) -> Unit) {
             SoftSwitchRow("Provident Fund (PF)", "Employee share, % of basic", r.pfEnabled) { save(r.copy(pfEnabled = it)) }
             if (r.pfEnabled) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Box(Modifier.weight(1f)) { NumberField("Basic (% of gross)", r.basicPercent, "%") { save(r.copy(basicPercent = it.coerceIn(1.0, 100.0))) } }
+                    Box(Modifier.weight(1f)) { NumberField(if (r.employerPfInSalary) "Basic (% of CTC)" else "Basic (% of gross)", r.basicPercent, "%") { save(r.copy(basicPercent = it.coerceIn(1.0, 100.0))) } }
                     Box(Modifier.weight(1f)) { NumberField("PF rate", r.pfPercent, "%") { save(r.copy(pfPercent = it.coerceIn(0.0, 30.0))) } }
                 }
                 SoftSwitchRow("Limit PF to ₹ 15,000 basic", "Statutory ceiling → max ₹ 1,800 / month", r.pfCapOn) { save(r.copy(pfCapOn = it)) }
