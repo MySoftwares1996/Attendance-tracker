@@ -25,6 +25,19 @@ class SettingsRepository(context: Context) {
     private val _settings = MutableStateFlow(load())
     val settings: StateFlow<AppSettings> = _settings
 
+    /** Forget once-a-day reminder flags (after clearing records). */
+    fun clearOnceFlags() {
+        val e = prefs.edit()
+        prefs.all.keys.filter { it.startsWith("once_") }.forEach { e.remove(it) }
+        e.apply()
+    }
+
+    /** Wipe all settings (office, gates, hours, Wi-Fi…). Permissions are untouched. */
+    fun wipe() {
+        prefs.edit().clear().commit()
+        reload()
+    }
+
     /** Re-read everything from storage (after a restore). */
     fun reload() { _settings.value = load() }
 

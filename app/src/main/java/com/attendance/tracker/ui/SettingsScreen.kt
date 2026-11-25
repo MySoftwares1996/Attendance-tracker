@@ -47,6 +47,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Notifications
@@ -93,7 +94,7 @@ import java.time.DayOfWeek
 import java.util.Locale
 import java.util.UUID
 
-private enum class Page { SUMMARY, OFFICE, GATES, HOURS, LUNCH, UPDATES, ADVANCED, WIFI, BACKUP, CHECK }
+private enum class Page { SUMMARY, OFFICE, GATES, HOURS, LUNCH, UPDATES, ADVANCED, WIFI, BACKUP, CHECK, RESET }
 
 private val WIZARD = listOf(Page.OFFICE, Page.GATES, Page.HOURS, Page.LUNCH)
 
@@ -214,6 +215,7 @@ fun SettingsScreen() {
                     Page.ADVANCED -> AdvancedStep(settings)
                     Page.WIFI -> WifiStep()
                     Page.CHECK -> HealthStep { page = it }
+                    Page.RESET -> ResetStep(onWholeReset = { wizardStep = 0; page = Page.SUMMARY })
                     Page.BACKUP -> BackupStep()
                 }
                 if (inWizard) {
@@ -360,6 +362,9 @@ private fun Summary(s: AppSettings, open: (Page) -> Unit) {
             last > 0) { open(Page.BACKUP) }
         Divider()
         SummaryRow(rememberVectorPainter(Icons.Filled.Settings), "Advanced", "Accuracy, overtime", true) { open(Page.ADVANCED) }
+    }
+    SoftCard(padding = 8.dp) {
+        SummaryRow(rememberVectorPainter(Icons.Filled.Delete), "Reset", "Delete test records or start over", true) { open(Page.RESET) }
     }
 }
 
@@ -752,6 +757,94 @@ private fun LunchStep(s: AppSettings) {
                 "If you take longer, the longer lunch is deducted and your logout moves later by the extra time. " +
                 "Your net hours stay the same (${hoursLabel(s.schedule.netMinutes).removeSuffix(" per day")}).",
             style = MaterialTheme.typography.bodyMedium, color = c.textSecondary,
+        )
+    }
+}
+
+// ───────────────────────────── reset ─────────────────────────────
+
+@Composable
+private fun ResetStep(onWholeReset: () -> Unit) {
+    val ctx = LocalContext.current
+    val c = Soft.colors
+    val bm = com.attendance.tracker.backup.BackupManager
+    var keepToday by remember { mutableStateOf(false) }
+    var confirm by remember { mutableStateOf<String?>(null) } // "records" or "all"
+    var tick by remember { mutableIntStateOf(0) }
+    val todayStart = remember { java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli() }
+    val stats = remember(keepToday, tick) { AttendanceController.db.recordStats(if (keepToday) todayStart else null) }
+    val allStats = remember(tick) { AttendanceController.db.recordStats(null) }
+    val hasBackup = bm.backupUri(ctx) != null
+
+    StepTitle("Reset", "Remove test records, or start the app over.")
+
+    SoftCard {
+        CardHeader(rememberVectorPainter(Icons.Filled.Delete), "Clear attendance records", "Keeps your office, gates, hours and Wi-Fi",
+            c.warning, c.warningSoft)
+        Spacer(Modifier.height(14.dp))
+        Choices(listOf("All up to now" to false, "Before today" to true), keepToday) { keepToday = it }
+        Spacer(Modifier.height(12.dp))
+        Text(
+            if (stats.first == 0 && stats.second == 0) "Nothing to delete."
+            else "Deletes ${stats.first} punch${if (stats.first == 1) "" else "es"} across ${stats.second} day${if (stats.second == 1) "" else "s"}, " +
+                "plus lunches, on-duty, leave marks and totals" + if (keepToday) ". Today's records stay." else ". History will be empty.",
+            style = MaterialTheme.typography.bodyMedium, color = c.textSecondary,
+        )
+        Spacer(Modifier.height(12.dp))
+        SoftButton("Delete records", { confirm = "records" }, enabled = stats.first > 0 || stats.second > 0,
+            colors = c.warning.copy(alpha = 0.85f) to c.warning, icon = rememberVectorPainter(Icons.Filled.Delete))
+    }
+
+    SoftCard {
+        CardHeader(rememberVectorPainter(Icons.Filled.Delete), "Reset the whole app", "Records and setup", c.danger, c.dangerSoft)
+        Spacer(Modifier.height(10.dp))
+        Text("Deletes all ${allStats.first} punches and your office map, gates, hours and Wi-Fi. Tracking stops and setup starts again from step 1. App permissions stay.",
+            style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
+        Spacer(Modifier.height(12.dp))
+        SoftGhostButton("Reset everything", { confirm = "all" }, tint = c.danger, background = c.dangerSoft)
+    }
+
+    if (hasBackup) Text(
+        "You have a Google Drive backup. It is updated every night, so after deleting, tonight's backup will contain the cleared data. Use \u201cBack up first\u201d to keep a copy of the current records.",
+        style = MaterialTheme.typography.bodySmall, color = c.textSecondary,
+    )
+
+    confirm?.let { what ->
+        AlertDialog(
+            onDismissRequest = { confirm = null },
+            title = { Text(if (what == "all") "Reset everything?" else "Delete these records?") },
+            text = {
+                Text(
+                    (if (what == "all") "All records and your whole setup will be deleted."
+                    else "${stats.first} punches across ${stats.second} days will be deleted" + if (keepToday) " (today's stay)." else ".") +
+                        " This can't be undone.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (what == "all") {
+                        AttendanceController.resetEverything()
+                        Toast.makeText(ctx, "App reset. Let's set it up again.", Toast.LENGTH_LONG).show()
+                        confirm = null
+                        onWholeReset()
+                    } else {
+                        AttendanceController.clearRecords(keepToday)
+                        Toast.makeText(ctx, "Records deleted", Toast.LENGTH_SHORT).show()
+                        confirm = null
+                        tick++
+                    }
+                }) { Text("Delete", color = c.danger) }
+            },
+            dismissButton = {
+                Row {
+                    if (hasBackup) TextButton(onClick = {
+                        val ok = bm.backupNow(ctx)
+                        Toast.makeText(ctx, if (ok) "Backed up \u2014 now you can delete" else "Backup failed", Toast.LENGTH_SHORT).show()
+                    }) { Text("Back up first") }
+                    TextButton(onClick = { confirm = null }) { Text("Cancel") }
+                }
+            },
+            shape = RoundedCornerShape(28.dp), containerColor = c.card,
         )
     }
 }

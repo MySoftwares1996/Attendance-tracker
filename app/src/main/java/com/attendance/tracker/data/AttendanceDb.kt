@@ -78,6 +78,35 @@ class AttendanceDb(context: Context) :
             ContentValues().apply { put("day", day); put("mark", mark.name) }, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
+    // ---- reset ----
+    /** Punch count and number of days with records before [beforeMs] (or all when null). */
+    fun recordStats(beforeMs: Long?): Pair<Int, Int> {
+        val where = if (beforeMs != null) "WHERE time_ms < $beforeMs" else ""
+        val punches = readableDatabase.rawQuery("SELECT COUNT(*) FROM events $where ${if (where.isEmpty()) "WHERE" else "AND"} type IN ('CHECK_IN','CHECK_OUT')", null)
+            .use { if (it.moveToFirst()) it.getInt(0) else 0 }
+        val days = readableDatabase.rawQuery("SELECT COUNT(DISTINCT date(time_ms/1000,'unixepoch','localtime')) FROM events $where", null)
+            .use { if (it.moveToFirst()) it.getInt(0) else 0 }
+        return punches to days
+    }
+
+    /** Deletes attendance records before [beforeMs] / [beforeDay] (yyyy-MM-dd), or everything when null. */
+    fun clearRecords(beforeMs: Long?, beforeDay: String?) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            if (beforeMs == null || beforeDay == null) {
+                db.delete("events", null, null); db.delete("durations", null, null); db.delete("day_marks", null, null)
+            } else {
+                db.delete("events", "time_ms < ?", arrayOf(beforeMs.toString()))
+                db.delete("durations", "day < ?", arrayOf(beforeDay))
+                db.delete("day_marks", "day < ?", arrayOf(beforeDay))
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
     // ---- backup / restore ----
     fun dumpEvents(): List<List<Any?>> = readableDatabase.rawQuery("SELECT time_ms,type,detail,lat,lng,acc FROM events ORDER BY time_ms", null).use { c ->
         buildList { while (c.moveToNext()) add(listOf(c.getLong(0), c.getString(1), c.getString(2),

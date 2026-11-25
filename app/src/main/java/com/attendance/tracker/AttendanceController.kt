@@ -89,6 +89,48 @@ object AttendanceController {
         refresh()
     }
 
+    /**
+     * Deletes attendance records: everything, or only what is before today.
+     * Setup (office, gates, hours, Wi-Fi) is kept and tracking carries on.
+     */
+    @Synchronized
+    fun clearRecords(keepToday: Boolean) {
+        val today = LocalDate.now()
+        if (keepToday) {
+            db.clearRecords(today.atStartOfDay(zone()).toInstant().toEpochMilli(), today.toString())
+        } else {
+            db.clearRecords(null, null)
+            settings.lunch = LunchState()
+            settings.dutyStartMs = 0L
+            settings.pendingDutyOutMs = 0L
+            settings.pendingLunchOut = 0L; settings.pendingLunchIn = 0L
+            settings.lastHeartbeatMs = 0L
+            settings.clearOnceFlags()
+            app.getSharedPreferences("trust", Context.MODE_PRIVATE).edit().clear().apply()
+            // Start fresh: the next GPS reading decides inside/outside again.
+            engine.reset(Presence.UNKNOWN)
+            settings.presence = Presence.UNKNOWN
+            (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancelAll()
+        }
+        lastStatus = null
+        lastTickMs = 0L
+        _state.value = LiveState(presence = engine.presence, lunch = settings.lunch, trackingOn = settings.trackingEnabled)
+        refresh()
+    }
+
+    /** Deletes all records AND the whole setup; the app starts from the setup wizard again. */
+    @Synchronized
+    fun resetEverything() {
+        runCatching { com.attendance.tracker.service.TrackingService.stop(app) }
+        runCatching { com.attendance.tracker.service.GeofenceManager.unregister(app) }
+        clearRecords(keepToday = false)
+        settings.wipe()
+        engine.reset(Presence.UNKNOWN)
+        lastStatus = null
+        _state.value = LiveState(presence = Presence.UNKNOWN)
+        refresh()
+    }
+
     /** After a restore: re-read settings and state from storage. */
     @Synchronized
     fun reload() {
