@@ -271,10 +271,22 @@ object BackupManager {
         val existingMarks = db.dayMarks("0000-01-01", "9999-12-31")
         val newMarks = marks.filterKeys { it !in existingMarks && LocalDate.parse(it) !in busy }
         check(saveLocal(ctx, "before-import")) { "Couldn't save a safety copy first, so nothing was changed." }
+        // Optional salary values (only the ones present are changed).
+        val sal = json.optJSONObject("salary")
+        if (sal != null) {
+            val st = AttendanceController.settings
+            var r = st.salaryRules
+            if (sal.has("professionalTax")) r = r.copy(professionalTax = sal.getDouble("professionalTax"))
+            if (sal.has("insurance")) r = r.copy(insurance = sal.getDouble("insurance"))
+            if (sal.has("employerPfInSalary")) r = r.copy(employerPfInSalary = sal.getBoolean("employerPfInSalary"), pfEnabled = r.pfEnabled || sal.getBoolean("employerPfInSalary"))
+            if (sal.has("monthlyGross")) r = r.copy(monthlyGross = sal.getDouble("monthlyGross"))
+            st.salaryRules = r
+        }
         db.importBatch(toAdd, newMarks)
         AttendanceController.reload()
         backupSoon(ctx)
         val addedDays = days.size - busy.size
+        if (parsed.isEmpty() && marks.isEmpty() && sal != null) return@runCatching "Salary settings updated \u2713"
         "Imported $addedDays day${if (addedDays == 1) "" else "s"} (${toAdd.size} records, ${newMarks.size} marks)" +
             if (busy.isNotEmpty()) " · skipped ${busy.size} day${if (busy.size == 1) "" else "s"} already recorded" else ""
     }.getOrElse { "Import failed: ${it.message}. Nothing was changed." }
