@@ -586,7 +586,7 @@ private fun LiveAnalysis(
         stats.avgSec?.let { insights += Triple("⚖", "30-day average ${fmtDuration(it)} net per day · target ${fmtDuration(stats.targetSec)}",
             if (it >= stats.targetSec) c.success else c.warning) }
 
-        PermissionMeter { permOpen = true }
+        PermissionMeter()
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             insights.forEach { (icon, text, color) ->
                 Row(
@@ -804,8 +804,11 @@ private fun LocationCard(st: com.attendance.tracker.LiveState, maxAcc: Float, no
 
 /** "Permission: 1h 30m of 2h left" with a small bar; tap to use or change it. */
 @Composable
-private fun PermissionMeter(onClick: () -> Unit) {
+private fun PermissionMeter() {
     val c = Soft.colors
+    var open by remember { mutableStateOf(false) }
+    if (open) PermissionDialog(LocalDate.now()) { open = false }
+    val onClick = { open = true }
     val today = LocalDate.now()
     val allowance = AttendanceController.settings.permissionMonthMin
     if (allowance <= 0) return
