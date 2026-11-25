@@ -130,10 +130,14 @@ private data class LiveDay(
     val overtimeSec: Long,
 )
 
-private fun liveDay(nowMs: Long, plan: DayPlan?, timeline: List<AttendanceEvent>): LiveDay {
+private fun liveDay(nowMs: Long, plan: DayPlan?, timeline: List<AttendanceEvent>, dayDone: Boolean = false): LiveDay {
     val zone = ZoneId.systemDefault()
     val now = LocalDateTime.ofInstant(Instant.ofEpochMilli(nowMs), zone)
-    val segs = DayTimeline.segments(AttendanceController.timelineEvents(timeline), nowMs)
+    // Day complete and you've left: the day is closed at your last OUT, nothing keeps counting.
+    val lastOut = timeline.lastOrNull { it.type == com.attendance.tracker.data.EventType.CHECK_IN || it.type == com.attendance.tracker.data.EventType.CHECK_OUT }
+        ?.takeIf { it.type == com.attendance.tracker.data.EventType.CHECK_OUT }?.timeMs
+    val closeMs = if (dayDone && lastOut != null) lastOut else nowMs
+    val segs = DayTimeline.segments(AttendanceController.timelineEvents(timeline), closeMs)
     val tot = DayTimeline.totals(segs)
     val office = tot[DayTimeline.Kind.OFFICE] ?: 0L
     val duty = tot[DayTimeline.Kind.DUTY] ?: 0L
@@ -193,7 +197,7 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
     }
 
     val plan = st.plan
-    val live = liveDay(now, plan, st.today.timeline)
+    val live = liveDay(now, plan, st.today.timeline, dayDone = st.status == WorkStatus.DAY_COMPLETE)
     val stats = remember(st.today.punches.size, now / 60_000) { AttendanceController.workedStats(now) }
     val usualArrival = remember(LocalDate.now()) { AttendanceController.usualArrivalMin() }
 
@@ -503,12 +507,13 @@ private fun LiveAnalysis(
     SoftCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Live analysis", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+            val done = st.status == WorkStatus.DAY_COMPLETE
             Row(
-                Modifier.clip(Soft.pillShape).background(c.dangerSoft).padding(horizontal = 8.dp, vertical = 4.dp),
+                Modifier.clip(Soft.pillShape).background(if (done) c.successSoft else c.dangerSoft).padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                PulseDot(c.danger, true, 5.dp)
-                Text("LIVE", style = MaterialTheme.typography.labelSmall, color = c.danger)
+                if (!done) PulseDot(c.danger, true, 5.dp)
+                Text(if (done) "\u2713 DAY CLOSED" else "LIVE", style = MaterialTheme.typography.labelSmall, color = if (done) c.success else c.danger)
             }
         }
         Spacer(Modifier.height(14.dp))
@@ -540,7 +545,7 @@ private fun LiveAnalysis(
             Row {
                 Text(clock12(startMs), style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
                 Spacer(Modifier.weight(1f))
-                Text("now", style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+                Text(if (st.status == WorkStatus.DAY_COMPLETE) "last OUT" else "now", style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
                 Spacer(Modifier.weight(1f))
                 Text(if (endPlanMs > nowMs) clock12(endPlanMs) else clock12(nowMs), style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
             }

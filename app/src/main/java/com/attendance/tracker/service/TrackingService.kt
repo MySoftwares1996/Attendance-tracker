@@ -157,6 +157,9 @@ class TrackingService : LifecycleService() {
     private fun desiredMode(): Mode {
         val now = System.currentTimeMillis()
         if (now < burstUntilMs) return Mode.NEAR
+        // Day complete and you've left: rest until tomorrow (the office geofence wakes it if you go back).
+        if (AttendanceController.state.value.status == com.attendance.tracker.core.WorkStatus.DAY_COMPLETE &&
+            (AttendanceController.state.value.edgeDistanceM ?: 9_999.0) > 300.0) return Mode.SLEEP
         // Rest day, and not at / near the office: sleep to save battery.
         if (AttendanceController.isRestDay(now) && AttendanceController.state.value.presence != com.attendance.tracker.core.Presence.INSIDE &&
             (AttendanceController.state.value.edgeDistanceM ?: 9_999.0) > 300.0) return Mode.SLEEP
