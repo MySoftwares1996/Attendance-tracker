@@ -422,6 +422,9 @@ private fun OfficeStep(
     var focus by remember { mutableStateOf<LatLng?>(null) }
     var focusSeq by remember { mutableIntStateOf(0) }
     val shared = UiChrome.sharedLink.takeIf { UiChrome.sharedTarget == "office" }
+    // Start in finger-drawing mode when there's no shape yet.
+    var drawMode by remember { mutableStateOf(corners.isEmpty()) }
+    var boxRequest by remember { mutableIntStateOf(0) }
 
     fun saveArea() {
         if (corners.size < 3) return
@@ -444,32 +447,31 @@ private fun OfficeStep(
                 editableCorners = true,
                 fullScreen = true,
                 focus = focus, focusSeq = focusSeq,
-                onTap = { p -> corners.add(p); saveArea() },
+                // Taps only add corners while building a shape by tapping (never on top of a finished one).
+                onTap = { p -> if (!drawMode && corners.size < 3) { corners.add(p); saveArea() } },
                 onCornerMoved = { i, p -> if (i in corners.indices) { corners[i] = p; saveArea() } },
+                drawMode = drawMode,
+                boxRequest = boxRequest,
+                onDrawn = { pts -> corners.clear(); corners.addAll(pts); saveArea(); drawMode = false },
             )
         },
     ) {
         val area = GeoMath.areaM2(corners)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                when {
-                    corners.isEmpty() -> "Zoom in and tap each corner of your office"
-                    corners.size < 3 -> "${corners.size} corner${if (corners.size == 1) "" else "s"} \u00b7 tap ${3 - corners.size} more"
-                    else -> "${corners.size} corners \u00b7 ${areaLabel(area)} \u00b7 saved \u2713"
-                },
-                Modifier.weight(1f), style = MaterialTheme.typography.titleSmall,
-                color = if (corners.size >= 3) c.success else c.textPrimary,
-            )
-            if (corners.isNotEmpty()) {
-                SmallChip("Undo") { corners.removeAt(corners.lastIndex); saveArea() }
-                Spacer(Modifier.width(6.dp))
-                SmallChip("Clear") { corners.clear() }
-            }
+        // Two simple ways to make the shape
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ModeButton("\u270F\uFE0F  Draw", drawMode, Modifier.weight(1f)) { drawMode = !drawMode }
+            ModeButton("\u25A2  Quick box", false, Modifier.weight(1f)) { drawMode = false; boxRequest++ }
+            if (corners.isNotEmpty()) ModeButton("Clear", false, Modifier.weight(0.7f)) { corners.clear(); drawMode = true }
         }
         Text(
-            if (focus != null && corners.isEmpty()) "Found it! Now tap each corner of the compound around the pin."
-            else "Press and hold a corner to move it.",
-            style = MaterialTheme.typography.bodySmall, color = if (focus != null && corners.isEmpty()) c.accent else c.textSecondary,
+            when {
+                drawMode -> "Trace around your office with one finger \u2014 one continuous line. Lift your finger to finish."
+                corners.size >= 3 -> "${areaLabel(area)} \u00b7 saved \u2713  Drag any white dot to adjust."
+                focus != null -> "Found it! Tap Draw and trace around the pin, or tap Quick box."
+                else -> "Zoom to your office, then tap Draw and trace around it \u2014 or tap Quick box."
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = when { drawMode -> c.accent; corners.size >= 3 -> c.success; else -> c.textSecondary },
         )
         SoftField("Office name", name, keyboard = KeyboardType.Text) {
             name = it
@@ -482,7 +484,8 @@ private fun OfficeStep(
             initialText = shared,
             onFound = { p ->
                 focus = p; focusSeq++; linkOpen = false; UiChrome.sharedLink = null
-                Toast.makeText(ctx, "Location found \u2014 now tap the corners", Toast.LENGTH_SHORT).show()
+                drawMode = true
+                Toast.makeText(ctx, "Location found \u2014 trace around it with your finger", Toast.LENGTH_SHORT).show()
             },
             onDismiss = { linkOpen = false; UiChrome.sharedLink = null },
         )
@@ -543,6 +546,16 @@ private fun MapScaffold(
                 icon = rememberVectorPainter(if (primaryLabel == "Done") Icons.Filled.Check else Icons.AutoMirrored.Filled.KeyboardArrowRight),
             )
         }
+    }
+}
+
+@Composable
+private fun ModeButton(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val c = Soft.colors
+    val bg = animatedColor(if (selected) c.accent else c.cardMuted, "modeBg")
+    val fg = animatedColor(if (selected) Color.White else c.textPrimary, "modeFg")
+    Box(modifier.height(46.dp).clip(Soft.pillShape).background(bg).pressScale(onClick), contentAlignment = Alignment.Center) {
+        Text(label, color = fg, style = MaterialTheme.typography.labelLarge, maxLines = 1)
     }
 }
 

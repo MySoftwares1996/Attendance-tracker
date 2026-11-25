@@ -68,8 +68,10 @@ private fun LatLng.gp() = GeoPoint(lat, lng)
 
 /**
  * Interactive map used in Setup.
- *  - Tap the map → [onTap] (adds a corner or a gate)
- *  - Press & hold a corner, then drag → [onCornerMoved]
+ *  - Tap the map → [onTap] (adds a gate, or a corner)
+ *  - [drawMode]: trace the outline with one finger → [onDrawn]
+ *  - Touch and drag a corner straight away → [onCornerMoved]
+ *  - [boxRequest] changes → a neat rectangle around the screen centre → [onDrawn]
  */
 @Composable
 fun OfficeMap(
@@ -83,6 +85,9 @@ fun OfficeMap(
     focusSeq: Int = 0,
     onTap: (LatLng) -> Unit,
     onCornerMoved: (Int, LatLng) -> Unit = { _, _ -> },
+    drawMode: Boolean = false,
+    boxRequest: Int = 0,
+    onDrawn: (List<LatLng>) -> Unit = {},
 ) {
     val ctx = LocalContext.current
     val c = Soft.colors
@@ -113,6 +118,21 @@ fun OfficeMap(
         })
     }
     val copyright = remember { CopyrightOverlay(ctx) }
+    val drawn by rememberUpdatedState(onDrawn)
+    val density = ctx.resources.displayMetrics.density
+    val freehand = remember { FreehandOverlay(density) { drawn(it) } }
+    val cornerDrag = remember { CornerDragOverlay(density) { i, p -> moved(i, p) } }
+
+    // Quick box: a rectangle around the middle of the screen, ~40% of the visible width.
+    LaunchedEffect(boxRequest) {
+        if (boxRequest == 0) return@LaunchedEffect
+        val w = map.width.coerceAtLeast(1); val h = map.height.coerceAtLeast(1)
+        val half = (minOf(w, h) * 0.2f).toInt()
+        val cx = w / 2; val cy = h / 2
+        val pts = listOf(cx - half to cy - half, cx + half to cy - half, cx + half to cy + half, cx - half to cy + half)
+            .map { (x, y) -> map.projection.fromPixels(x, y).let { LatLng(it.latitude, it.longitude) } }
+        drawn(pts)
+    }
 
     // Map lifecycle
     val owner = LocalLifecycleOwner.current
@@ -169,8 +189,9 @@ fun OfficeMap(
             update = { m ->
                 m.overlays.clear()
                 m.overlays.add(events)
+                var poly: Polygon? = null
                 if (corners.size >= 2) {
-                    val poly = Polygon(m).apply {
+                    poly = Polygon(m).apply {
                         points = corners.map { it.gp() } + corners.first().gp()
                         fillPaint.color = AColor.argb(70, 91, 108, 255)
                         outlinePaint.color = AColor.rgb(91, 108, 255)
@@ -180,23 +201,18 @@ fun OfficeMap(
                     }
                     m.overlays.add(poly)
                 }
+                val cornerMarkers = mutableListOf<Marker>()
                 val cornerIcon = ContextCompat.getDrawable(ctx, R.drawable.map_corner)
-                corners.forEachIndexed { i, p ->
-                    m.overlays.add(Marker(m).apply {
+                corners.forEach { p ->
+                    val mk = Marker(m).apply {
                         position = p.gp()
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                         icon = cornerIcon
                         setInfoWindow(null)
-                        isDraggable = editableCorners
                         setOnMarkerClickListener { _, _ -> true }
-                        setOnMarkerDragListener(object : Marker.OnMarkerDragListener {
-                            override fun onMarkerDrag(marker: Marker) {}
-                            override fun onMarkerDragStart(marker: Marker) {}
-                            override fun onMarkerDragEnd(marker: Marker) {
-                                moved(i, LatLng(marker.position.latitude, marker.position.longitude))
-                            }
-                        })
-                    })
+                    }
+                    cornerMarkers += mk
+                    m.overlays.add(mk)
                 }
                 val gateIcon = ContextCompat.getDrawable(ctx, R.drawable.map_gate)
                 gates.forEach { g ->
@@ -218,6 +234,13 @@ fun OfficeMap(
                 }
                 m.overlays.add(myLoc)
                 m.overlays.add(copyright)
+                // Touch handlers go last so they get first look at each touch.
+                cornerDrag.enabled = editableCorners && !drawMode
+                cornerDrag.markers = cornerMarkers
+                cornerDrag.polygon = poly
+                m.overlays.add(cornerDrag)
+                freehand.enabled = drawMode
+                m.overlays.add(freehand)
                 m.invalidate()
             },
         )
