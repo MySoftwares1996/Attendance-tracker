@@ -265,7 +265,30 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
         }
 
         // ── questions waiting for you ──
-        st.pendingDutyOut?.let { outMs ->
+        // Left early with hours still short: offer permission first (On duty is the other choice).
+        val early = remember(st.status, st.today.punches.size, now / 60_000, AttendanceController.permissionMin(LocalDate.now())) {
+            AttendanceController.earlyLeaveShortfall()
+        }
+        if (early != null) {
+            val (short, need, left) = early
+            val use = if (left >= need) need else left
+            QuestionCard(
+                title = "You left early \u00b7 ${fmtDuration(short)} short of ${fmtDuration(AttendanceController.netTargetSec(LocalDate.now()))}",
+                text = if (use > 0) "Use ${fmtDuration(use * 60L)} permission to complete today (${fmtDuration(left * 60L)} left this month), or mark it On duty if it was official work."
+                    else "No permission left this month. Mark it On duty if it was official work.",
+                yes = if (use > 0) "Use ${fmtDuration(use * 60L)} permission" else "On duty",
+                no = if (use > 0) "On duty" else "Personal",
+                tint = Color(0xFF0E8C8C),
+                onYes = {
+                    if (use > 0) {
+                        AttendanceController.usePermissionForEarlyLeave(use)
+                        Toast.makeText(ctx, "${fmtDuration(use * 60L)} permission added", Toast.LENGTH_SHORT).show()
+                    } else dutyOpen = true
+                },
+                onNo = { if (use > 0) dutyOpen = true else AttendanceController.dismissPendingDuty() },
+            )
+        }
+        if (early == null) st.pendingDutyOut?.let { outMs ->
             QuestionCard(
                 title = "You left at ${clock12(outMs)} · official work?",
                 text = "On duty time counts as worked hours.",

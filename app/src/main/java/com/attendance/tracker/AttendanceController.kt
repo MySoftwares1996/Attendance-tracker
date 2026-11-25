@@ -873,6 +873,24 @@ object AttendanceController {
         return true
     }
 
+    /**
+     * You're out after lunch (or after the lunch-deduct time) with net time still short:
+     * returns (seconds short, permission minutes that would cover it, permission minutes left), else null.
+     */
+    fun earlyLeaveShortfall(nowMs: Long = System.currentTimeMillis()): Triple<Long, Int, Int>? {
+        val st = _state.value
+        if (st.status != WorkStatus.OUTSIDE_OFFICE || settings.dutyStartMs > 0) return null
+        val day = LocalDate.now()
+        val now = LocalDateTime.ofInstant(Instant.ofEpochMilli(nowMs), zone())
+        val (_, _, lunch) = presenceSec(st.today.timeline, nowMs)
+        if (lunch == 0L && now.hour * 60 + now.minute < settings.lunchDeductAtMin) return null
+        val short = netTargetSec(day) - netWorkedSec(st.today.timeline, nowMs, day)
+        if (short < 60) return null
+        val need = (((short + 59) / 60 + 29) / 30 * 30).toInt()
+        val left = permissionLeftMin(day) - permissionMin(day)
+        return Triple(short, need, left)
+    }
+
     fun usePermissionForEarlyLeave(minutes: Int) {
         val today = LocalDate.now()
         val add = minutes.coerceAtMost(permissionLeftMin(today) - permissionMin(today)).coerceAtLeast(0)
