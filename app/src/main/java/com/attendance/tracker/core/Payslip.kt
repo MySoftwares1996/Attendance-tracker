@@ -13,11 +13,16 @@ data class SalaryRules(
     /** Statutory PF wage ceiling: PF on at most ₹15,000 basic. */
     val pfCapOn: Boolean = true,
     val pfCapBasic: Double = 15_000.0,
+    /** Employer's PF share is part of your salary (CTC) and is taken off your pay too. */
+    val employerPfInSalary: Boolean = false,
+    val employerPfPercent: Double = 12.0,
     val esiEnabled: Boolean = true,
     val esiPercent: Double = 0.75,
     /** ESI applies only when gross is at or below this. */
     val esiGrossLimit: Double = 21_000.0,
     val professionalTax: Double = 0.0,
+    /** Health / group insurance premium per month. */
+    val insurance: Double = 0.0,
     val tds: Double = 0.0,
     val loanEmi: Double = 0.0,
     val deductAbsent: Boolean = true,
@@ -56,14 +61,17 @@ object PayCalculator {
         val basicEarned = r.monthlyGross * r.basicPercent / 100 * paidFraction
         val pfBase = if (r.pfCapOn) minOf(basicEarned, r.pfCapBasic) else basicEarned
         val pf = if (r.pfEnabled) r2(pfBase * r.pfPercent / 100) else 0.0
+        val employerPf = if (r.pfEnabled && r.employerPfInSalary) r2(pfBase * r.employerPfPercent / 100) else 0.0
         val esiBase = r.monthlyGross * paidFraction + ot
         val esi = if (r.esiEnabled && r.monthlyGross <= r.esiGrossLimit) r2(esiBase * r.esiPercent / 100) else 0.0
         val deductions = buildList {
             if (lopAbsent > 0) add(PayLine("Loss of pay – absent", lopAbsent, "$absentDays day${if (absentDays == 1) "" else "s"} × ₹%.0f".format(perDay)))
             if (lopHalf > 0) add(PayLine("Loss of pay – half days", lopHalf, "$halfDays × half day"))
             if (pf > 0) add(PayLine("Provident Fund (PF)", pf, "%.0f%% of basic ₹%,.0f".format(r.pfPercent, pfBase)))
+            if (employerPf > 0) add(PayLine("Employer PF (part of salary)", employerPf, "%.0f%% of basic ₹%,.0f".format(r.employerPfPercent, pfBase)))
             if (esi > 0) add(PayLine("ESI", esi, "%.2f%% of ₹%,.0f".format(r.esiPercent, esiBase)))
             if (r.professionalTax > 0) add(PayLine("Professional tax", r.professionalTax))
+            if (r.insurance > 0) add(PayLine("Insurance", r.insurance))
             if (r.tds > 0) add(PayLine("Income tax (TDS)", r.tds))
             if (r.loanEmi > 0) add(PayLine("Loan / salary advance", r.loanEmi))
             r.otherDeductions.filter { it.second > 0 }.forEach { add(PayLine(it.first, it.second)) }

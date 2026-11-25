@@ -262,6 +262,8 @@ class SettingsRepository(context: Context) {
                     overtimeRatePerHour = o.optDouble("otRate", 0.0),
                     pfEnabled = o.optBoolean("pf", d.pfEnabled), pfPercent = o.optDouble("pfPct", d.pfPercent),
                     pfCapOn = o.optBoolean("pfCap", d.pfCapOn), pfCapBasic = o.optDouble("pfCapBasic", d.pfCapBasic),
+                    employerPfInSalary = o.optBoolean("erPf", false), employerPfPercent = o.optDouble("erPfPct", d.employerPfPercent),
+                    insurance = o.optDouble("ins", 0.0),
                     esiEnabled = o.optBoolean("esi", d.esiEnabled), esiPercent = o.optDouble("esiPct", d.esiPercent),
                     esiGrossLimit = o.optDouble("esiLimit", d.esiGrossLimit),
                     professionalTax = o.optDouble("pt", 0.0), tds = o.optDouble("tds", 0.0), loanEmi = o.optDouble("loan", 0.0),
@@ -276,6 +278,7 @@ class SettingsRepository(context: Context) {
                 .put("pf", r.pfEnabled).put("pfPct", r.pfPercent).put("pfCap", r.pfCapOn).put("pfCapBasic", r.pfCapBasic)
                 .put("esi", r.esiEnabled).put("esiPct", r.esiPercent).put("esiLimit", r.esiGrossLimit)
                 .put("pt", r.professionalTax).put("tds", r.tds).put("loan", r.loanEmi)
+                .put("erPf", r.employerPfInSalary).put("erPfPct", r.employerPfPercent).put("ins", r.insurance)
                 .put("lopAbsent", r.deductAbsent).put("lopHalf", r.deductHalfDay)
                 .put("otherDed", arr(r.otherDeductions)).put("otherEarn", arr(r.otherEarnings))
             prefs.edit().putString("salaryRules", o.toString()).apply()

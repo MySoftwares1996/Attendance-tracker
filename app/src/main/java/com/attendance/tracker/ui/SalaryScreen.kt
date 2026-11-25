@@ -232,11 +232,15 @@ private fun SalaryEditor(r: SalaryRules, save: (SalaryRules) -> Unit) {
                     Box(Modifier.weight(1f)) { NumberField("PF rate", r.pfPercent, "%") { save(r.copy(pfPercent = it.coerceIn(0.0, 30.0))) } }
                 }
                 SoftSwitchRow("Limit PF to ₹ 15,000 basic", "Statutory ceiling → max ₹ 1,800 / month", r.pfCapOn) { save(r.copy(pfCapOn = it)) }
+                SoftSwitchRow("Employer PF is part of my salary", "Employer share also comes off your pay (CTC)", r.employerPfInSalary) { save(r.copy(employerPfInSalary = it)) }
+                if (r.employerPfInSalary) NumberField("Employer PF rate", r.employerPfPercent, "%") { save(r.copy(employerPfPercent = it.coerceIn(0.0, 30.0))) }
             }
             SoftSwitchRow("ESI", "0.75% of gross · only when gross ≤ ₹ 21,000", r.esiEnabled) { save(r.copy(esiEnabled = it)) }
             if (r.esiEnabled) NumberField("ESI rate", r.esiPercent, "%") { save(r.copy(esiPercent = it.coerceIn(0.0, 10.0))) }
             Spacer(Modifier.height(10.dp))
             MoneyField("Professional tax (per month)", r.professionalTax) { save(r.copy(professionalTax = it)) }
+            Spacer(Modifier.height(10.dp))
+            MoneyField("Insurance (per month)", r.insurance) { save(r.copy(insurance = it)) }
             Spacer(Modifier.height(10.dp))
             MoneyField("Income tax / TDS (per month)", r.tds) { save(r.copy(tds = it)) }
         }

@@ -38,4 +38,12 @@ class PayslipTest {
         val p = PayCalculator.payslip(r, 26, 0, absentDays = 3, halfDays = 2)
         assertEquals(30_000.0, p.net, 0.01)
     }
+
+    @Test fun employerPfAndInsuranceAreDeducted() {
+        val r = SalaryRules(monthlyGross = 40_000.0, esiEnabled = false, employerPfInSalary = true, insurance = 1_658.0, professionalTax = 200.0)
+        val p = PayCalculator.payslip(r, 26, 0, 0, 0)
+        // basic 20,000 capped at 15,000 → employee 1,800 + employer 1,800; PT 200 + insurance 1,658 = 1,858
+        assertEquals(1800.0 + 1800.0 + 1858.0, p.totalDeductions, 0.01)
+        assertEquals(40_000.0 - 5_458.0, p.net, 0.01)
+    }
 }
