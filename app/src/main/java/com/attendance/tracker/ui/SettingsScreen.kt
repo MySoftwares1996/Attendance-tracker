@@ -332,9 +332,9 @@ internal fun Summary(s: AppSettings, open: (Page) -> Unit) {
         Text("Tap anything to change it. Changes save automatically.", style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
     }
     // Auto-punch readiness: one score, and one tap to the health check that fixes the weakest item.
-    val ctxH = LocalContext.current
-    val health = rememberInBackground(Unit) { kotlinx.coroutines.runBlocking { com.attendance.tracker.health.HealthCheck.run(ctxH) } }
-    health?.let { h ->
+    val ctxR = LocalContext.current
+    val readiness = rememberInBackground(Unit) { kotlinx.coroutines.runBlocking { com.attendance.tracker.health.HealthCheck.run(ctxR) } }
+    readiness?.let { h ->
         val col = when { h.score >= 90 -> c.success; h.score >= 70 -> c.warning; else -> c.danger }
         val worst = h.checks.firstOrNull { it.level == com.attendance.tracker.health.Level.FAIL }
             ?: h.checks.firstOrNull { it.level == com.attendance.tracker.health.Level.WARN }
