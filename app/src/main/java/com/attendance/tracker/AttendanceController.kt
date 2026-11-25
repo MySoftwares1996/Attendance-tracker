@@ -94,6 +94,21 @@ object AttendanceController {
      * Setup (office, gates, hours, Wi-Fi) is kept and tracking carries on.
      */
     @Synchronized
+    /** Deletes records from [from] to [to] (both included). A copy is saved on the phone first. */
+    fun clearRange(from: LocalDate, to: LocalDate) {
+        if (to.isBefore(from)) return
+        com.attendance.tracker.backup.BackupManager.saveLocal(app, "before-reset")
+        val end = to.plusDays(1)
+        db.clearRange(from.atStartOfDay(zone()).toInstant().toEpochMilli(), end.atStartOfDay(zone()).toInstant().toEpochMilli(),
+            from.toString(), end.toString())
+        settings.permissions = settings.permissions.filterKeys { it < from.toString() || it >= end.toString() }
+        if (!LocalDate.now().isBefore(from) && !LocalDate.now().isAfter(to)) {
+            settings.lunch = LunchState(); settings.dutyStartMs = 0L
+            settings.pendingDutyOutMs = 0L; settings.pendingLunchOut = 0L; settings.pendingLunchIn = 0L
+        }
+        refresh()
+    }
+
     fun clearRecords(keepToday: Boolean) {
         // Always keep an on-phone copy first, so a reset can be undone from Backup → On-phone copies.
         com.attendance.tracker.backup.BackupManager.saveLocal(app, "before-reset")

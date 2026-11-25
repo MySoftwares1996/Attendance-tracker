@@ -112,6 +112,34 @@ class AttendanceDb(context: Context) :
         }
     }
 
+    /** Punch count and number of days with records in [fromMs, toMs). */
+    fun recordStatsRange(fromMs: Long, toMs: Long): Pair<Int, Int> {
+        val w = "time_ms >= $fromMs AND time_ms < $toMs"
+        val punches = readableDatabase.rawQuery("SELECT COUNT(*) FROM events WHERE $w AND type IN ('CHECK_IN','CHECK_OUT')", null)
+            .use { if (it.moveToFirst()) it.getInt(0) else 0 }
+        val days = readableDatabase.rawQuery("SELECT COUNT(DISTINCT date(time_ms/1000,'unixepoch','localtime')) FROM events WHERE $w", null)
+            .use { if (it.moveToFirst()) it.getInt(0) else 0 }
+        val marks = readableDatabase.rawQuery("SELECT COUNT(*) FROM day_marks WHERE day >= ? AND day < ?",
+            arrayOf(dayOf(fromMs), dayOf(toMs))).use { if (it.moveToFirst()) it.getInt(0) else 0 }
+        return punches to maxOf(days, if (marks > 0 && days == 0) marks else days)
+    }
+
+    private fun dayOf(ms: Long) = java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.systemDefault()).toLocalDate().toString()
+
+    /** Deletes records (events, totals, marks) from [fromDay] to [toDay] inclusive, in one transaction. */
+    fun clearRange(fromMs: Long, toMs: Long, fromDay: String, toDayExclusive: String) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete("events", "time_ms >= ? AND time_ms < ?", arrayOf(fromMs.toString(), toMs.toString()))
+            db.delete("durations", "day >= ? AND day < ?", arrayOf(fromDay, toDayExclusive))
+            db.delete("day_marks", "day >= ? AND day < ?", arrayOf(fromDay, toDayExclusive))
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
     // ---- backup / restore ----
     fun dumpEvents(): List<List<Any?>> = readableDatabase.rawQuery("SELECT time_ms,type,detail,lat,lng,acc FROM events ORDER BY time_ms", null).use { c ->
         buildList { while (c.moveToNext()) add(listOf(c.getLong(0), c.getString(1), c.getString(2),

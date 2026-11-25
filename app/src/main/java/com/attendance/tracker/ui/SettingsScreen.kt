@@ -1005,11 +1005,24 @@ private fun ResetStep(onWholeReset: () -> Unit) {
     val ctx = LocalContext.current
     val c = Soft.colors
     val bm = com.attendance.tracker.backup.BackupManager
-    var keepToday by remember { mutableStateOf(false) }
+    var mode by remember { mutableIntStateOf(1) } // 0 all, 1 before today, 2 dates
+    val keepToday = mode == 1
+    val today = remember { java.time.LocalDate.now() }
+    var from by remember { mutableStateOf(today.withDayOfMonth(1)) }
+    var to by remember { mutableStateOf(today.minusDays(1).coerceAtLeast(today.withDayOfMonth(1))) }
+    val zoneR = java.time.ZoneId.systemDefault()
+    fun pickDate(d: java.time.LocalDate, set: (java.time.LocalDate) -> Unit) =
+        android.app.DatePickerDialog(ctx, { _, y, m, dd -> set(java.time.LocalDate.of(y, m + 1, dd)) }, d.year, d.monthValue - 1, d.dayOfMonth)
+            .apply { datePicker.maxDate = System.currentTimeMillis() }.show()
+    val dayFmtR = java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy")
     var confirm by remember { mutableStateOf<String?>(null) } // "records" or "all"
     var tick by remember { mutableIntStateOf(0) }
     val todayStart = remember { java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli() }
-    val stats = remember(keepToday, tick) { AttendanceController.db.recordStats(if (keepToday) todayStart else null) }
+    val stats = remember(mode, from, to, tick) {
+        if (mode == 2) AttendanceController.db.recordStatsRange(from.atStartOfDay(zoneR).toInstant().toEpochMilli(),
+            to.plusDays(1).atStartOfDay(zoneR).toInstant().toEpochMilli())
+        else AttendanceController.db.recordStats(if (keepToday) todayStart else null)
+    }
     val allStats = remember(tick) { AttendanceController.db.recordStats(null) }
     val hasBackup = bm.backupUri(ctx) != null
 
@@ -1019,12 +1032,31 @@ private fun ResetStep(onWholeReset: () -> Unit) {
         CardHeader(rememberVectorPainter(Icons.Filled.Delete), "Clear attendance records", "Keeps your office, gates, hours and Wi-Fi",
             c.warning, c.warningSoft)
         Spacer(Modifier.height(14.dp))
-        Choices(listOf("All up to now" to false, "Before today" to true), keepToday) { keepToday = it }
+        Choices(listOf("All" to 0, "Before today" to 1, "Dates" to 2), mode) { mode = it }
+        if (mode == 2) {
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("From" to from, "To" to to).forEach { (label, d) ->
+                    Column(
+                        Modifier.weight(1f).clip(Soft.tileShape).background(c.accentSoft)
+                            .pressScale { if (label == "From") pickDate(from) { from = it; if (to.isBefore(it)) to = it } else pickDate(to) { to = it; if (it.isBefore(from)) from = it } }
+                            .padding(12.dp),
+                    ) {
+                        Text(label, style = MaterialTheme.typography.labelMedium, color = c.accent)
+                        Text(d.format(dayFmtR), style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
+                    }
+                }
+            }
+        }
         Spacer(Modifier.height(12.dp))
         Text(
             if (stats.first == 0 && stats.second == 0) "Nothing to delete."
             else "Deletes ${stats.first} punch${if (stats.first == 1) "" else "es"} across ${stats.second} day${if (stats.second == 1) "" else "s"}, " +
-                "plus lunches, on-duty, leave marks and totals" + if (keepToday) ". Today's records stay." else ". History will be empty.",
+                "plus lunches, on-duty, leave marks and totals" + when (mode) {
+                    1 -> ". Today's records stay."
+                    2 -> " from ${from.format(dayFmtR)} to ${to.format(dayFmtR)}. Other days stay."
+                    else -> ". History will be empty."
+                },
             style = MaterialTheme.typography.bodyMedium, color = c.textSecondary,
         )
         Spacer(Modifier.height(12.dp))
@@ -1042,7 +1074,7 @@ private fun ResetStep(onWholeReset: () -> Unit) {
     }
 
     if (hasBackup) Text(
-        "You have a Google Drive backup. It is updated every night, so after deleting, tonight's backup will contain the cleared data. Use \u201cBack up first\u201d to keep a copy of the current records.",
+        "Your Google Drive backup updates a minute after any change, so it will soon contain the cleared data. Use \u201cBack up first\u201d to keep a copy there too.",
         style = MaterialTheme.typography.bodySmall, color = c.textSecondary,
     )
 
@@ -1053,8 +1085,11 @@ private fun ResetStep(onWholeReset: () -> Unit) {
             text = {
                 Text(
                     (if (what == "all") "All records and your whole setup will be deleted."
-                    else "${stats.first} punches across ${stats.second} days will be deleted" + if (keepToday) " (today's stay)." else ".") +
-                        " This can't be undone.",
+                    else "${stats.first} punches across ${stats.second} days will be deleted" + when (mode) {
+                        1 -> " (today's stay)."
+                        2 -> " (${from.format(dayFmtR)} \u2013 ${to.format(dayFmtR)})."
+                        else -> "."
+                    }) + " A copy is saved on the phone first (Backup \u2192 On-phone copies \u2192 Before last reset).",
                 )
             },
             confirmButton = {
@@ -1065,7 +1100,7 @@ private fun ResetStep(onWholeReset: () -> Unit) {
                         confirm = null
                         onWholeReset()
                     } else {
-                        AttendanceController.clearRecords(keepToday)
+                        if (mode == 2) AttendanceController.clearRange(from, to) else AttendanceController.clearRecords(keepToday)
                         Toast.makeText(ctx, "Records deleted", Toast.LENGTH_SHORT).show()
                         confirm = null
                         tick++
