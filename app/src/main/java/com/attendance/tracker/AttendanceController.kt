@@ -443,7 +443,8 @@ object AttendanceController {
         val now = LocalDateTime.ofInstant(Instant.ofEpochMilli(nowMs), zone())
         val p = plan(nowMs)
         if (!p.workDay) return false
-        val dayStartMin = if (s.flexible) s.earliestStartMin else s.startMin
+        // No arrival window: on working days use precise GPS from 5 AM (it adapts by distance anyway).
+        val dayStartMin = if (s.flexible) 5 * 60 + 30 else s.startMin
         val opens = p.date.atStartOfDay().plusMinutes(dayStartMin.toLong() - 30)
         return now >= opens && now < p.cutoff
     }
@@ -665,7 +666,6 @@ object AttendanceController {
         lines += "Lunch deducted ${hm(lunchDeducted)}" + if (lunchTaken == 0L) " (not taken)" else ""
         totals[com.attendance.tracker.core.DayTimeline.Kind.DUTY]?.let { lines += "On duty ${hm(it)}" }
         val p = plan(close)
-        if (p.late) lines += "Late arrival"
         db.dayMark(day.toString())?.let { lines += it.label }
         return lines.joinToString("\n")
     }

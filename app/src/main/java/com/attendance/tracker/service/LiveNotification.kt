@@ -96,7 +96,7 @@ object LiveNotification {
             WorkStatus.NOT_STARTED -> {
                 title = "Ready · your day starts when you arrive"
                 chip = "Ready"
-                text = "On time until ${plan?.latestStart?.let { clock(it) } ?: "—"} · ${short(target)} net + ${sched.maxLunchMinutes}m lunch"
+                text = "Logout = arrival + ${short(target)} net + ${sched.maxLunchMinutes}m lunch"
             }
             WorkStatus.LATE -> {
                 title = "Running late"

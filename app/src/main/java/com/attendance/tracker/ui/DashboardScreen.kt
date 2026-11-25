@@ -395,8 +395,7 @@ private fun LiveHero(status: WorkStatus, tracking: Boolean, officeName: String?,
         val hint = when {
             plan?.dayOff != null -> "Marked as ${plan.dayOff} · enjoy your day"
             plan == null || !plan.workDay -> "No work scheduled today"
-            plan.start == null -> "Your day starts when you arrive · on time until ${clock12(plan.latestStart)}"
-            plan.late -> "Arrived after ${clock12(plan.latestStart)} · marked late"
+            plan.start == null -> "Your day starts when you arrive"
             else -> null
         }
         if (hint != null) Text(

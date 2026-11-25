@@ -759,16 +759,9 @@ private fun HoursStep(s: AppSettings) {
     fun pick(initial: Int, onPicked: (Int) -> Unit) =
         TimePickerDialog(ctx, { _, h, m -> onPicked(h * 60 + m) }, initial / 60, initial % 60, false).show()
 
-    StepTitle("Work hours", "Your day starts when you reach the office.")
+    StepTitle("Work hours", "Your day starts whenever you reach the office \u2014 no fixed start time.")
     SoftCard {
         Column {
-                Text("I usually arrive between (later = marked late)", style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TimeTile("From", sc.earliestStartMin, Modifier.weight(1f)) { pick(sc.earliestStartMin) { v -> save { it.copy(earliestStartMin = v) } } }
-                    TimeTile("To", sc.latestStartMin, Modifier.weight(1f)) { pick(sc.latestStartMin) { v -> save { it.copy(latestStartMin = v) } } }
-                }
-                Spacer(Modifier.height(18.dp))
                 Text("Net working hours per day (lunch not included)", style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
                 Spacer(Modifier.height(10.dp))
                 Choices(

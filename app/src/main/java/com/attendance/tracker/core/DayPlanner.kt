@@ -77,14 +77,13 @@ object DayPlanner {
         )
     }
 
+    /** Flexible day: starts the moment you first arrive; no arrival deadline and no "late". */
     private fun flexiblePlan(
         date: LocalDate, s: WorkSchedule,
         firstCheckIn: (LocalDate) -> LocalDateTime?, lunchTakenSec: (LocalDate) -> Long,
     ): DayPlan {
-        val earliest = date.at(s.earliestStartMin)
-        val latestStart = date.at(s.latestStartMin)
         val firstIn = firstCheckIn(date)
-        val start = firstIn?.let { maxOf(it, earliest) }
+        val start = firstIn
         val lunch = lunchTakenSec(date)
         val ex = extra(lunch, s)
         val baseEnd = start?.plusMinutes(s.requiredMinutes.toLong())
@@ -92,8 +91,8 @@ object DayPlanner {
         val cutoff = maxOf(date.at(s.overtimeUntilMin), end ?: date.at(s.overtimeUntilMin))
         return DayPlan(
             date = date, workDay = date.dayOfWeek in s.workDays, flexible = true,
-            start = start, latestStart = latestStart, baseEnd = baseEnd, expectedEnd = end, cutoff = cutoff,
-            firstIn = firstIn, late = firstIn != null && firstIn.isAfter(latestStart),
+            start = start, latestStart = null, baseEnd = baseEnd, expectedEnd = end, cutoff = cutoff,
+            firstIn = firstIn, late = false,
             lunchTakenSec = lunch, extraLunchSec = ex,
         )
     }

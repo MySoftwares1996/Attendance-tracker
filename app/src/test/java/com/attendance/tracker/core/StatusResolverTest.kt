@@ -64,16 +64,15 @@ class StatusResolverTest {
         assertEquals(at(18), plan(at(12), flex, at(9)).expectedEnd)
         assertEquals(at(19), plan(at(12), flex, at(10)).expectedEnd)
         assertEquals(at(20), plan(at(12), flex, at(11)).expectedEnd)
-        // Arriving before the earliest start counts from the earliest start.
-        assertEquals(at(17), plan(at(12), flex, at(7, 30)).expectedEnd)
+        // No arrival window: an early arrival starts the day right then.
+        assertEquals(at(16, 30), plan(at(12), flex, at(7, 30)).expectedEnd)
     }
 
-    @Test fun flexibleBeforeArrivalAndLate() {
+    @Test fun flexibleNeverLate() {
         assertEquals(WorkStatus.NOT_STARTED, status(at(9, 30), flex, Presence.OUTSIDE))
-        assertEquals(WorkStatus.LATE, status(at(11, 5), flex, Presence.OUTSIDE))
-        val p = plan(at(12), flex, at(11, 20))
-        assertTrue(p.late)
-        assertFalse(plan(at(12), flex, at(10, 59)).late)
+        assertEquals(WorkStatus.NOT_STARTED, status(at(14), flex, Presence.OUTSIDE))
+        assertFalse(plan(at(15), flex, at(13)).late)
+        assertEquals(at(22), plan(at(15), flex, at(13)).expectedEnd)
     }
 
     @Test fun flexibleExtraLunchAndOvertimeUntil11pm() {

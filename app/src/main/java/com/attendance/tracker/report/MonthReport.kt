@@ -64,8 +64,7 @@ object MonthReports {
             val required = (if (mark == DayMark.HALF_DAY) sched.netMinutes / 2 else sched.netMinutes) * 60L
             val firstIn = punches.firstOrNull { it.type == EventType.CHECK_IN }?.timeMs
             val lastOut = punches.lastOrNull { it.type == EventType.CHECK_OUT }?.timeMs
-            val late = firstIn != null && mark?.fullDayOff != true && Instant.ofEpochMilli(firstIn).atZone(zone).toLocalTime()
-                .let { it.hour * 60 + it.minute > sched.latestStartMin }
+            val late = false // no arrival deadline: the day starts whenever you arrive
             val workDay = date.dayOfWeek in sched.workDays
             val state = when {
                 date.isAfter(today) -> DayState.FUTURE
