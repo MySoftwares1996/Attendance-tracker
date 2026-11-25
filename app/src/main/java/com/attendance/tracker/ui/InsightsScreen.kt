@@ -139,19 +139,47 @@ fun InsightsScreen(onOpenSetup: (String) -> Unit) {
         if (d == null) {
             Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = c.accent) }
         } else {
-            StreakCard(d)
-            PayCard(d.thisMonth) { onOpenSetup("salary") }
-            MonthCompareCard(d)
-            ArrivalCard(d)
-            CommuteCard(d) { onOpenSetup("home") }
-            d.topGate?.let { (g, pct) ->
-                SoftCard {
-                    CardHeader(painterResource(R.drawable.ic_gate), "Most-used gate", null, c.success, c.successSoft)
-                    Spacer(Modifier.height(10.dp))
-                    Text(g, style = MaterialTheme.typography.headlineSmall, color = c.textPrimary)
-                    Text("$pct% of your INs and OUTs in the last 60 days", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+            // Take-home first (tap → Salary), then everything else as small tiles, two per row.
+            d.thisMonth.payslip()?.let { p ->
+                SoftCard(onClick = { onOpenSetup("salary") }) {
+                    Text("${d.thisMonth.month.format(java.time.format.DateTimeFormatter.ofPattern("MMMM"))} take-home (estimate)",
+                        style = MaterialTheme.typography.labelMedium, color = c.textSecondary)
+                    Text("\u20B9 %,.0f".format(p.net), style = MaterialTheme.typography.headlineMedium, color = c.textPrimary)
+                    Text("Salary \u20B9 %,.0f \u2212 deductions \u20B9 %,.0f \u00b7 tap for details".format(p.gross, p.totalDeductions),
+                        style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
                 }
             }
+            val m = d.thisMonth; val lm = d.lastMonth
+            val tiles = buildList {
+                add(Triple("\uD83D\uDD25 Streak", "${d.streak} day${if (d.streak == 1) "" else "s"}", "full hours in a row \u00b7 best ${d.bestStreak}"))
+                add(Triple("\uD83D\uDCC5 This month", m.avgSec?.let { fmtDuration(it) } ?: "\u2014", "avg net \u00b7 ${m.presentDays} days present"))
+                add(Triple("\u23F1 Overtime", fmtDuration(m.overtimeSec), "this month"))
+                val diff = if (m.avgSec != null && lm.avgSec != null) m.avgSec - lm.avgSec else null
+                add(Triple("\u2194 vs last month", diff?.let { (if (it >= 0) "+" else "\u2212") + fmtDuration(kotlin.math.abs(it)) } ?: "\u2014",
+                    lm.avgSec?.let { "last month avg ${fmtDuration(it)}" } ?: "no data last month"))
+                add(Triple("\uD83C\uDF05 Usual arrival", d.avgArrival?.let { clockMin(it) } ?: "\u2014",
+                    d.avgLogout?.let { "usually leave ${clockMin(it)}" } ?: "last 60 days"))
+                if (d.commuteAvg != null || d.commuteToday != null) add(Triple("\uD83D\uDE97 Commute",
+                    (d.commuteToday?.first ?: d.commuteAvg)?.let { "$it min" } ?: "\u2014",
+                    "avg ${d.commuteAvg ?: "\u2014"} min" + (d.bestDeparture?.let { " \u00b7 best leave ${clockMin(it.first)}" } ?: "")))
+                d.topGate?.let { (g, pct) -> add(Triple("\uD83D\uDEAA Top gate", g, "$pct% of punches")) }
+                add(Triple("\uD83C\uDFD6 Leave & absent", "${m.leaveDays} / ${m.absentDays}", "leave / absent this month"))
+            }
+            tiles.chunked(2).forEach { pair ->
+                Row(Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    pair.forEach { (label, value, sub) ->
+                        Column(Modifier.weight(1f).fillMaxHeight().clip(androidx.compose.foundation.shape.RoundedCornerShape(18.dp))
+                            .background(c.card).padding(horizontal = 12.dp, vertical = 10.dp)) {
+                            Text(label, style = MaterialTheme.typography.labelMedium, color = c.textSecondary, maxLines = 1)
+                            Spacer(Modifier.height(4.dp))
+                            Text(value, style = MaterialTheme.typography.titleLarge, color = c.textPrimary, maxLines = 1)
+                            Text(sub, style = MaterialTheme.typography.bodySmall, color = c.textSecondary, maxLines = 2)
+                        }
+                    }
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+            if (d.commuteDays == 0) MiniAction("Set home to measure commute") { onOpenSetup("home") }
         }
         Spacer(Modifier.height(NavBarClearance))
     }
