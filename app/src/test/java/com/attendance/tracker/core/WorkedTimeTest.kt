@@ -54,4 +54,16 @@ class WorkedTimeTest {
         assertEquals(8 * 3600L + 30 * 60, WorkedTime.averageSec(listOf(0, 8 * 3600L, 9 * 3600L, 0)))
         assertNull(WorkedTime.averageSec(listOf(0, 0)))
     }
+
+    @Test fun liveNetCountsUpFromArrivalAndLandsOnTarget() {
+        val a = 3600L; val t = 510 * 60L
+        // 6 minutes in, no lunch yet: shows 6m, not 0m.
+        assertEquals(360L, WorkedTime.liveNetSec(360, 0, 0, a, t))
+        // Plateau while the untaken lunch hour is absorbed.
+        assertEquals(t, WorkedTime.liveNetSec(t + 1800, 0, 0, a, t))
+        // At logout (target + allowance in office) it equals the final rule.
+        assertEquals(WorkedTime.netSec(t + a, 0, 0, a), WorkedTime.liveNetSec(t + a, 0, 0, a, t))
+        // Full lunch taken: same as the final rule all day.
+        assertEquals(4 * 3600L, WorkedTime.liveNetSec(4 * 3600, 0, 3600, a, t))
+    }
 }

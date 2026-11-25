@@ -48,7 +48,7 @@ object LiveNotification {
         val sched = AttendanceController.settings.settings.value.schedule
         val hasPunches = st.today.punches.isNotEmpty()
         val (office, duty, lunch) = if (hasPunches) AttendanceController.presenceSec(st.today.timeline, nowMs) else Triple(0L, 0L, 0L)
-        val net = WorkedTime.netSec(office, duty, lunch, AttendanceController.lunchAllowanceSec(today))
+        val net = AttendanceController.netFrom(office, duty, lunch, nowMs, today)
         val target = AttendanceController.netTargetSec(today)
         val endMs = plan?.expectedEnd?.atZone(zone)?.toInstant()?.toEpochMilli()
         val startMs = plan?.start?.atZone(zone)?.toInstant()?.toEpochMilli()

@@ -601,7 +601,21 @@ object AttendanceController {
     /** Net worked on [day]: office + on duty, minus lunch (at least the allowance, even if skipped). */
     fun netWorkedSec(ev: List<com.attendance.tracker.data.AttendanceEvent>, closeMs: Long, day: LocalDate): Long {
         val (office, duty, lunch) = presenceSec(ev, closeMs)
-        return com.attendance.tracker.core.WorkedTime.netSec(office, duty, lunch, lunchAllowanceSec(day))
+        return netFrom(office, duty, lunch, closeMs, day)
+    }
+
+    /**
+     * Net from office / duty / lunch seconds. Today, before logout time, the live rule is used
+     * so the number counts up from arrival; otherwise the untaken lunch allowance is fully deducted.
+     */
+    fun netFrom(office: Long, duty: Long, lunch: Long, closeMs: Long, day: LocalDate): Long {
+        val allowance = lunchAllowanceSec(day)
+        val today = LocalDateTime.ofInstant(Instant.ofEpochMilli(System.currentTimeMillis()), zone()).toLocalDate()
+        val end = if (day == today) runCatching { plan(closeMs).expectedEnd }.getOrNull() else null
+        val closing = LocalDateTime.ofInstant(Instant.ofEpochMilli(closeMs), zone())
+        return if (end != null && closing.isBefore(end))
+            com.attendance.tracker.core.WorkedTime.liveNetSec(office, duty, lunch, allowance, netTargetSec(day))
+        else com.attendance.tracker.core.WorkedTime.netSec(office, duty, lunch, allowance)
     }
 
     private fun trustStamp(): String = runCatching { com.attendance.tracker.security.TrustChecks.stamp(app) }.getOrDefault("")

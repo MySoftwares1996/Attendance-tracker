@@ -141,7 +141,10 @@ private fun liveDay(nowMs: Long, plan: DayPlan?, timeline: List<AttendanceEvent>
     val worked = office + duty
     val today = now.toLocalDate()
     val allowance = AttendanceController.lunchAllowanceSec(today)
-    val net = WorkedTime.netSec(office, duty, lunch, allowance)
+    val target = AttendanceController.netTargetSec(today)
+    val net = if (plan?.expectedEnd?.let { now.isBefore(it) } == true)
+        WorkedTime.liveNetSec(office, duty, lunch, allowance, target)
+    else WorkedTime.netSec(office, duty, lunch, allowance)
     val start = plan?.start
     val end = plan?.expectedEnd
     val progress = if (start != null && end != null) {
@@ -508,7 +511,9 @@ private fun LiveAnalysis(
             insights += Triple("\u2705",
                 "Net worked ${fmtDuration(live.netSec)} of ${fmtDuration(live.netTargetSec)}" +
                     (if (left > 0) " \u00b7 ${fmtDuration(left)} to go" else " \u00b7 target reached") +
-                    "\n${fmtDuration(live.lunchDeductSec)} lunch deducted" + if (live.lunchTakenSec == 0L) " (even if not taken)" else "",
+                    (if (live.lunchTakenSec == 0L && live.netSec >= live.workedSec)
+                        "\n${fmtDuration(live.lunchDeductSec)} lunch comes off after ${fmtDuration(live.netTargetSec)} (even if not taken)"
+                    else "\n${fmtDuration(live.lunchDeductSec)} lunch deducted" + if (live.lunchTakenSec == 0L) " (even if not taken)" else ""),
                 if (left == 0L) c.success else c.accent)
         }
         // 1. pace / finish

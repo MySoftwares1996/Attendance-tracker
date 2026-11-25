@@ -34,6 +34,17 @@ object WorkedTime {
     fun netSec(officeSec: Long, dutySec: Long, lunchSec: Long, allowanceSec: Long): Long =
         (officeSec + dutySec - (allowanceSec - lunchSec).coerceAtLeast(0)).coerceAtLeast(0)
 
+    /**
+     * Net while the day is still running: it counts up from the first minute in the office.
+     * The lunch hour you haven't taken yet is only taken off once your time passes the target,
+     * so the number never sits at 0 for the first hour, and it lands on exactly the target
+     * at logout (target + lunch allowance). After logout time the plain [netSec] applies.
+     */
+    fun liveNetSec(officeSec: Long, dutySec: Long, lunchSec: Long, allowanceSec: Long, targetSec: Long): Long {
+        val gross = officeSec + dutySec
+        return maxOf(minOf(gross, targetSec), netSec(officeSec, dutySec, lunchSec, allowanceSec)).coerceAtLeast(0)
+    }
+
     /** Average over days that have any worked time; null if there are none. */
     fun averageSec(dailySec: List<Long>): Long? {
         val worked = dailySec.filter { it > 0 }
