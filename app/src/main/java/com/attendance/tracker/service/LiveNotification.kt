@@ -30,7 +30,7 @@ object LiveNotification {
     private const val EXTRA_REQUEST_PROMOTED_ONGOING = "android.requestPromotedOngoing"
 
     private const val PUNCH_PILL_MS = 2 * 60_000L
-    private const val NEAR_LOGOUT_MS = 30 * 60_000L
+    private const val NEAR_LOGOUT_MS = 15 * 60_000L
 
     private val PILL_STATUSES = setOf(WorkStatus.IN_OFFICE, WorkStatus.OVERTIME, WorkStatus.ON_LUNCH, WorkStatus.LUNCH_EXCEEDED)
 

@@ -1345,7 +1345,7 @@ private fun AdvancedStep(s: AppSettings) {
         val allowed = remember { com.attendance.tracker.service.LiveNotification.liveUpdatesAllowed(ctx) }
         SoftSwitchRow(
             "Show Live Updates",
-            "Only at live moments, like system timers: 2 min after each IN/OUT, during lunch, the last 30 min before logout, and overtime \u2014 in the status bar and Live Alerts (OPPO, OnePlus, Realme)",
+            "Only at live moments, like system timers: 2 min after each IN/OUT, during lunch, the last 15 min before logout, and overtime \u2014 in the status bar and Live Alerts (OPPO, OnePlus, Realme)",
             live,
         ) {
             live = it; AttendanceController.settings.liveUpdates = it
