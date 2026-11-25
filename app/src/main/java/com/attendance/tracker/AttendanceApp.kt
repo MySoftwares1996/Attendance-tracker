@@ -64,6 +64,7 @@ class AttendanceApp : Application() {
         com.attendance.tracker.service.WatchdogWorker.schedule(this)
         com.attendance.tracker.backup.BackupManager.schedule(this)
         com.attendance.tracker.backup.BackupManager.watch(this)
+        runCatching { com.attendance.tracker.service.PostUpdateCheck.run(this) }
     }
 
     companion object {

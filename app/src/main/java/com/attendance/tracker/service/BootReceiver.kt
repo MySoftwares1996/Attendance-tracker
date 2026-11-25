@@ -17,5 +17,6 @@ class BootReceiver : BroadcastReceiver() {
             GeofenceManager.register(context)
             runCatching { TrackingService.start(context) }
         }
+        if (action == Intent.ACTION_MY_PACKAGE_REPLACED) PostUpdateCheck.run(context)
     }
 }

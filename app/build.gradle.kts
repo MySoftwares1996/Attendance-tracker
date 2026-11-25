@@ -39,7 +39,9 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // Shrink unused library code and resources (smaller APK, faster start).
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = if (releaseKeystore != null) signingConfigs.getByName("release")
             else signingConfigs.getByName("debug")
@@ -84,6 +86,8 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.9.1")
     // OpenStreetMap (no API key needed) for drawing the office area
     implementation("org.osmdroid:osmdroid-android:6.1.20")
+    // Installs the startup profiles shipped with Compose so the app opens faster.
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
 
     testImplementation("junit:junit:4.13.2")
 }

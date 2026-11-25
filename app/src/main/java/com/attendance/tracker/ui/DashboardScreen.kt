@@ -260,6 +260,17 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
                 ) { UiChrome.setupPage = "check"; onOpenSetup() }
             }
         }
+        // Walking detection makes gate punches faster (optional permission).
+        val motionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+            permTick++; if (ok) com.attendance.tracker.service.MotionWatcher.register(ctx)
+            else ctx.getSharedPreferences("perm", android.content.Context.MODE_PRIVATE).edit().putBoolean("motionDeclined", true).apply()
+        }
+        if (AttendanceController.settings.trackingEnabled && permTick >= 0 && !com.attendance.tracker.service.MotionWatcher.permitted(ctx) &&
+            android.os.Build.VERSION.SDK_INT >= 29 &&
+            !ctx.getSharedPreferences("perm", android.content.Context.MODE_PRIVATE).getBoolean("motionDeclined", false)) {
+            NoticeCard(painterResource(R.drawable.ic_gate), "Allow \u201cPhysical activity\u201d so the gate punch happens the moment you walk out", "Allow",
+                c.accent, c.accentSoft) { motionLauncher.launch(android.Manifest.permission.ACTIVITY_RECOGNITION) }
+        }
         if (PermissionsManager.autostartNeeded() && !PermissionsManager.autostartConfirmed(ctx) && permTick >= 0) {
             NoticeCard(painterResource(R.drawable.ic_system_update), "Turn on Autostart so your phone never stops auto-punch", "Open",
                 c.warning, c.warningSoft) {

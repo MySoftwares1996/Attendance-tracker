@@ -121,6 +121,7 @@ class TrackingService : LifecycleService() {
         AttendanceController.recordHeartbeat(System.currentTimeMillis(), resumed = true)
         if (intent?.getBooleanExtra(EXTRA_BURST, false) == true) burstUntilMs = System.currentTimeMillis() + BURST_MS
         GeofenceManager.register(this)
+        MotionWatcher.register(this)
         WatchdogWorker.schedule(this)
         applyMode(force = true)
         if (ticker?.isActive != true) {
