@@ -32,8 +32,18 @@ class FreehandOverlay(private val density: Float, private val onDone: (List<LatL
         c.drawPath(p, paint)
     }
 
+    private var multi = false
+
     override fun onTouchEvent(e: MotionEvent, map: MapView): Boolean {
         if (!active) return false
+        // Two fingers = pinch-zoom / move the map, even while drawing.
+        if (e.pointerCount > 1 || e.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
+            multi = true; pts.clear(); map.invalidate(); return false
+        }
+        if (multi) {
+            if (e.actionMasked == MotionEvent.ACTION_UP || e.actionMasked == MotionEvent.ACTION_CANCEL) multi = false
+            return false
+        }
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> { pts.clear(); pts += PointF(e.x, e.y) }
             MotionEvent.ACTION_MOVE -> { for (i in 0 until e.historySize) pts += PointF(e.getHistoricalX(i), e.getHistoricalY(i)); pts += PointF(e.x, e.y) }

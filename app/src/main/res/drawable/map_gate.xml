@@ -1,5 +1,10 @@
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
-    <size android:width="26dp" android:height="26dp" />
-    <solid android:color="#FF12B886" />
-    <stroke android:width="4dp" android:color="#FFFFFFFF" />
-</shape>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="oval">
+            <size android:width="36dp" android:height="36dp" />
+            <solid android:color="#FF12B886" />
+            <stroke android:width="4dp" android:color="#FFFFFFFF" />
+        </shape>
+    </item>
+    <item android:gravity="center" android:width="18dp" android:height="18dp" android:drawable="@drawable/ic_gate_white" />
+</layer-list>

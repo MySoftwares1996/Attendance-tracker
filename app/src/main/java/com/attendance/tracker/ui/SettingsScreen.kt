@@ -428,8 +428,14 @@ private fun OfficeStep(
 
     fun saveArea() {
         if (corners.size < 3) return
-        val gates = current().office?.gates ?: emptyList()
-        persist(ctx, current().copy(office = OfficeConfig.fromPolygon(name.ifBlank { "Office" }, corners.toList(), gates)), officeMoved = true)
+        val oldGates = current().office?.gates ?: emptyList()
+        val shape = OfficeConfig.fromPolygon(name.ifBlank { "Office" }, corners.toList(), emptyList())
+        // Gates near the new outline move onto it, so they stay on the boundary.
+        val gates = oldGates.map { g ->
+            val (snap, d) = shape.nearestOnBoundary(g.lat, g.lng)
+            if (d <= 60.0) g.copy(lat = snap.lat, lng = snap.lng) else g
+        }
+        persist(ctx, current().copy(office = shape.copy(gates = gates)), officeMoved = true)
     }
 
     MapScaffold(
@@ -606,6 +612,7 @@ private fun GatesStep(
         val name = GATE_NAMES.firstOrNull { it !in used } ?: "Gate ${off.gates.size + 1}"
         val g = Gate(UUID.randomUUID().toString(), name, at.lat, at.lng, 25.0)
         persist(ctx, current().copy(office = off.copy(gates = off.gates + g)), gatesChanged = true)
+        Toast.makeText(ctx, "\u2713 ${g.name} added", Toast.LENGTH_SHORT).show()
         renaming = g // one-tap naming
         return true
     }

@@ -68,7 +68,7 @@ object LiveNotification {
                     text = "Logout ${clock(endMs)} · ${short((endMs - nowMs) / 1000)} to go"
                     chip = short((endMs - nowMs) / 1000)
                     chronoWhen = endMs; countDown = true
-                } else text = "Logout time reached"
+                } else { text = "Logout time reached"; chip = "Done" }
             }
             WorkStatus.OVERTIME -> {
                 val ot = endMs?.let { (nowMs - it) / 1000 } ?: 0
@@ -81,7 +81,7 @@ object LiveNotification {
                 val left = sched.maxLunchMinutes * 60L - (plan?.lunchTakenSec ?: 0)
                 title = if (left >= 0) "On lunch · ${short(left)} left" else "Lunch over by ${short(-left)}"
                 text = "Logout ${endMs?.let { clock(it) } ?: "—"}" + if (left < 0) " (moved later)" else ""
-                chip = if (left >= 0) "Lunch ${short(left)}" else "Lunch +${short(-left)}"
+                chip = if (left >= 0) "\uD83C\uDF74 ${short(left)}" else "\uD83C\uDF74 +${short(-left)}"
                 chronoWhen = nowMs + left * 1000; countDown = left >= 0
             }
             WorkStatus.OUTSIDE_OFFICE -> {
@@ -93,6 +93,7 @@ object LiveNotification {
             }
             WorkStatus.NOT_STARTED -> {
                 title = "Ready · your day starts when you arrive"
+                chip = "Ready"
                 text = "On time until ${plan?.latestStart?.let { clock(it) } ?: "—"} · ${short(target)} net + ${sched.maxLunchMinutes}m lunch"
             }
             WorkStatus.LATE -> {
@@ -102,11 +103,13 @@ object LiveNotification {
             }
             WorkStatus.DAY_COMPLETE -> {
                 title = "Day complete · net ${short(net)}"
+                chip = "Done"
                 text = "Have a good evening"
                 progress = 100
             }
-            WorkStatus.DAY_OFF -> { title = plan?.dayOff ?: "Day off"; text = "Enjoy your day"; progress = null }
+            WorkStatus.DAY_OFF -> { title = plan?.dayOff ?: "Day off"; text = "Enjoy your day"; progress = null; chip = "Off" }
             else -> {
+                chip = if (st.status == WorkStatus.OUTSIDE_WORKING_HOURS) "Off" else "\u2022"
                 title = st.status.label
                 text = st.today.punches.lastOrNull()?.let { (if (it.type == EventType.CHECK_IN) "Last IN " else "Last OUT ") + clock(it.timeMs) } ?: "Auto attendance on"
                 progress = null

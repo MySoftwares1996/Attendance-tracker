@@ -54,14 +54,19 @@ import org.osmdroid.views.overlay.Polygon
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 
-/** Esri World Imagery (satellite) — easier to see walls and gates than a street map. */
+/**
+ * Esri World Imagery (satellite) — easier to see walls and gates than a street map.
+ * `blankTile=false` makes Esri return "not found" instead of a grey "Map data not yet available"
+ * picture where it has no close-up photos, so the map keeps showing (and enlarging) the closest
+ * real photo instead. New cache name so old placeholder tiles aren't reused.
+ */
 private val SatelliteTiles = object : OnlineTileSourceBase(
-    "EsriWorldImagery", 0, 19, 256, "",
+    "EsriWorldImageryV2", 0, 19, 256, "",
     arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/"),
     "Imagery © Esri",
 ) {
     override fun getTileURLString(pMapTileIndex: Long): String =
-        baseUrl + "${MapTileIndex.getZoom(pMapTileIndex)}/${MapTileIndex.getY(pMapTileIndex)}/${MapTileIndex.getX(pMapTileIndex)}"
+        baseUrl + "${MapTileIndex.getZoom(pMapTileIndex)}/${MapTileIndex.getY(pMapTileIndex)}/${MapTileIndex.getX(pMapTileIndex)}?blankTile=false"
 }
 
 private fun LatLng.gp() = GeoPoint(lat, lng)
@@ -106,7 +111,8 @@ fun OfficeMap(
             // Don't upscale tiles (that made satellite images blurry); allow close zoom.
             setTilesScaledToDpi(false)
             minZoomLevel = 3.0
-            maxZoomLevel = 21.0
+            // Beyond the imagery's own detail, tiles are enlarged so you can still zoom in to place points precisely.
+            maxZoomLevel = 22.0
             isHorizontalMapRepetitionEnabled = false
             isVerticalMapRepetitionEnabled = false
             controller.setZoom(4.5)
@@ -231,6 +237,17 @@ fun OfficeMap(
                     }
                     gateMarkers += mk
                     m.overlays.add(mk)
+                    // Name written on the map just above the gate
+                    m.overlays.add(Marker(m).apply {
+                        position = GeoPoint(g.lat, g.lng)
+                        setTextLabelBackgroundColor(AColor.argb(235, 18, 184, 134))
+                        setTextLabelForegroundColor(AColor.WHITE)
+                        setTextLabelFontSize((13 * density).toInt())
+                        setTextIcon(" ${g.name} ")
+                        setAnchor(Marker.ANCHOR_CENTER, 1.9f)
+                        setInfoWindow(null)
+                        setOnMarkerClickListener { _, _ -> false }
+                    })
                 }
                 focus?.let { f ->
                     m.overlays.add(Marker(m).apply {
@@ -280,6 +297,15 @@ fun OfficeMap(
                 Modifier.size(44.dp).shadow(8.dp, CircleShape).clip(CircleShape).background(c.card).pressScale { recenter++ },
                 contentAlignment = Alignment.Center,
             ) { Icon(rememberVectorPainter(Icons.Filled.LocationOn), "My location", tint = c.accent, modifier = Modifier.size(22.dp)) }
+            // Big zoom buttons (pinch with two fingers also works, even while drawing)
+            Column(Modifier.shadow(8.dp, Soft.pillShape).clip(Soft.pillShape).background(c.card)) {
+                listOf("+" to true, "\u2212" to false).forEach { (label, zoomIn) ->
+                    Box(
+                        Modifier.size(width = 44.dp, height = 48.dp).pressScale { if (zoomIn) map.controller.zoomIn() else map.controller.zoomOut() },
+                        contentAlignment = Alignment.Center,
+                    ) { Text(label, style = MaterialTheme.typography.headlineSmall, color = c.accent) }
+                }
+            }
         }
     }
 }
