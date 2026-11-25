@@ -1,5 +1,9 @@
 package com.attendance.tracker.ui
 
+import com.attendance.tracker.trailFor
+import com.attendance.tracker.regularisationText
+import com.attendance.tracker.regularisationList
+import com.attendance.tracker.longWeekends
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement

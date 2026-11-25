@@ -1,5 +1,6 @@
 package com.attendance.tracker.service
 
+import com.attendance.tracker.isRestDay
 import android.annotation.SuppressLint
 import android.app.AlarmManager
 import android.app.Notification

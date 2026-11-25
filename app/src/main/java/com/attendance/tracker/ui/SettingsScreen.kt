@@ -96,14 +96,14 @@ import java.time.DayOfWeek
 import java.util.Locale
 import java.util.UUID
 
-private enum class Page { SUMMARY, OFFICE, GATES, HOURS, LUNCH, UPDATES, ADVANCED, WIFI, BACKUP, CHECK, RESET, HOLIDAYS, HOME }
+internal enum class Page { SUMMARY, OFFICE, GATES, HOURS, LUNCH, UPDATES, ADVANCED, WIFI, BACKUP, CHECK, RESET, HOLIDAYS, HOME }
 
-private val WIZARD = listOf(Page.OFFICE, Page.GATES, Page.HOURS, Page.LUNCH)
+internal val WIZARD = listOf(Page.OFFICE, Page.GATES, Page.HOURS, Page.LUNCH)
 
-private data class CaptureUi(val label: String, val secondsLeft: Int, val total: Int, val best: Float?)
+internal data class CaptureUi(val label: String, val secondsLeft: Int, val total: Int, val best: Float?)
 
 /** Saves immediately and keeps tracking / geofences in sync. */
-private fun persist(ctx: Context, s: AppSettings, officeMoved: Boolean = false, gatesChanged: Boolean = false) {
+internal fun persist(ctx: Context, s: AppSettings, officeMoved: Boolean = false, gatesChanged: Boolean = false) {
     AttendanceController.settings.save(s)
     if (officeMoved) AttendanceController.onOfficeChanged() else AttendanceController.refresh()
     if (gatesChanged && !officeMoved) GeofenceManager.register(ctx)
@@ -113,7 +113,7 @@ private fun persist(ctx: Context, s: AppSettings, officeMoved: Boolean = false, 
     }
 }
 
-private fun current() = AttendanceController.settings.settings.value
+internal fun current() = AttendanceController.settings.settings.value
 
 @Composable
 fun SettingsScreen() {
@@ -285,7 +285,7 @@ fun SettingsScreen() {
 // ───────────────────────────── headers ─────────────────────────────
 
 @Composable
-private fun WizardHeader(step: Int, total: Int) {
+internal fun WizardHeader(step: Int, total: Int) {
     val c = Soft.colors
     Column(Modifier.padding(start = 4.dp, top = 4.dp)) {
         Text("Step ${step + 1} of $total", style = MaterialTheme.typography.labelLarge, color = c.accent)
@@ -300,7 +300,7 @@ private fun WizardHeader(step: Int, total: Int) {
 }
 
 @Composable
-private fun BackRow(onBack: () -> Unit) {
+internal fun BackRow(onBack: () -> Unit) {
     val c = Soft.colors
     Row(
         Modifier.clip(Soft.pillShape).pressScale(onBack).padding(vertical = 8.dp, horizontal = 4.dp),
@@ -313,7 +313,7 @@ private fun BackRow(onBack: () -> Unit) {
 }
 
 @Composable
-private fun StepTitle(title: String, subtitle: String) {
+internal fun StepTitle(title: String, subtitle: String) {
     val c = Soft.colors
     Column(Modifier.padding(start = 4.dp)) {
         Text(title, style = MaterialTheme.typography.headlineMedium, color = c.textPrimary)
@@ -325,7 +325,7 @@ private fun StepTitle(title: String, subtitle: String) {
 // ───────────────────────────── summary ─────────────────────────────
 
 @Composable
-private fun Summary(s: AppSettings, open: (Page) -> Unit) {
+internal fun Summary(s: AppSettings, open: (Page) -> Unit) {
     val c = Soft.colors
     Column(Modifier.padding(start = 4.dp, top = 4.dp)) {
         Text("Setup", style = MaterialTheme.typography.headlineMedium, color = c.textPrimary)
@@ -390,7 +390,7 @@ private fun Summary(s: AppSettings, open: (Page) -> Unit) {
 }
 
 @Composable
-private fun SummaryRow(icon: Painter, title: String, value: String, ok: Boolean, onClick: () -> Unit) {
+internal fun SummaryRow(icon: Painter, title: String, value: String, ok: Boolean, onClick: () -> Unit) {
     val c = Soft.colors
     Row(
         Modifier.fillMaxWidth().clip(Soft.tileShape).pressScale(onClick).padding(12.dp),
@@ -407,21 +407,21 @@ private fun SummaryRow(icon: Painter, title: String, value: String, ok: Boolean,
 }
 
 @Composable
-private fun Divider() = Box(Modifier.padding(start = 66.dp).fillMaxWidth().height(1.dp).background(Soft.colors.hairline))
+internal fun Divider() = Box(Modifier.padding(start = 66.dp).fillMaxWidth().height(1.dp).background(Soft.colors.hairline))
 
-private fun sizeLabel(r: Double) = when {
+internal fun sizeLabel(r: Double) = when {
     r <= 60 -> "Small (${r.toInt()} m)"
     r <= 120 -> "Medium (${r.toInt()} m)"
     r <= 220 -> "Large (${r.toInt()} m)"
     else -> "${r.toInt()} m"
 }
 
-private fun hoursLabel(min: Int) = if (min % 60 == 0) "${min / 60} h per day" else "${min / 60}.${(min % 60) * 10 / 60} h per day"
+internal fun hoursLabel(min: Int) = if (min % 60 == 0) "${min / 60} h per day" else "${min / 60}.${(min % 60) * 10 / 60} h per day"
 
-private val MON_FRI = setOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY, DayOfWeek.FRIDAY)
-private val MON_SAT = MON_FRI + DayOfWeek.SATURDAY
+internal val MON_FRI = setOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY, DayOfWeek.FRIDAY)
+internal val MON_SAT = MON_FRI + DayOfWeek.SATURDAY
 
-private fun daysLabel(d: Set<DayOfWeek>) = when (d) {
+internal fun daysLabel(d: Set<DayOfWeek>) = when (d) {
     MON_FRI -> "Mon–Fri"
     MON_SAT -> "Mon–Sat"
     DayOfWeek.entries.toSet() -> "Every day"
@@ -431,7 +431,7 @@ private fun daysLabel(d: Set<DayOfWeek>) = when (d) {
 // ───────────────────────────── step 1: office ─────────────────────────────
 
 @Composable
-private fun OfficeStep(
+internal fun OfficeStep(
     s: AppSettings, wizard: Boolean, stepLabel: String?, showBack: Boolean, onBack: () -> Unit, onNext: () -> Unit,
 ) {
     val ctx = LocalContext.current
@@ -521,7 +521,7 @@ private fun OfficeStep(
 
 /** Full-screen map with a floating top bar and a bottom panel. */
 @Composable
-private fun MapScaffold(
+internal fun MapScaffold(
     title: String, stepLabel: String?, showBack: Boolean, onBack: () -> Unit,
     onPasteLink: (() -> Unit)? = null,
     primaryLabel: String, primaryEnabled: Boolean, onPrimary: () -> Unit,
@@ -577,7 +577,7 @@ private fun MapScaffold(
 }
 
 @Composable
-private fun ModeButton(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+internal fun ModeButton(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val c = Soft.colors
     val bg = animatedColor(if (selected) c.accent else c.cardMuted, "modeBg")
     val fg = animatedColor(if (selected) Color.White else c.textPrimary, "modeFg")
@@ -586,7 +586,7 @@ private fun ModeButton(label: String, selected: Boolean, modifier: Modifier, onC
     }
 }
 
-private fun areaLabel(m2: Double): String {
+internal fun areaLabel(m2: Double): String {
     val acres = m2 / 4046.86
     return if (acres >= 0.25) "%.2f acres".format(acres) else "${m2.toInt()} m²"
 }
@@ -594,7 +594,7 @@ private fun areaLabel(m2: Double): String {
 // ───────────────────────────── step 2: gates ─────────────────────────────
 
 @Composable
-private fun GatesStep(
+internal fun GatesStep(
     s: AppSettings, busy: Boolean, capture: (String, (Double, Double, Float) -> Unit) -> Unit,
     wizard: Boolean, stepLabel: String?, showBack: Boolean, onBack: () -> Unit, onNext: () -> Unit,
 ) {
@@ -749,702 +749,12 @@ private fun GatesStep(
     }
 }
 
-private val GATE_NAMES = listOf("Main Gate", "Back Gate", "Side Gate", "Parking Gate", "Staff Gate", "Gate 2")
+internal val GATE_NAMES = listOf("Main Gate", "Back Gate", "Side Gate", "Parking Gate", "Staff Gate", "Gate 2")
 
 @Composable
-private fun RoundIcon(icon: Painter, desc: String, onClick: () -> Unit) {
+internal fun RoundIcon(icon: Painter, desc: String, onClick: () -> Unit) {
     Box(Modifier.size(40.dp).clip(CircleShape).pressScale(onClick), contentAlignment = Alignment.Center) {
         Icon(icon, desc, tint = Soft.colors.textSecondary, modifier = Modifier.size(18.dp))
-    }
-}
-
-// ───────────────────────────── step 3: hours ─────────────────────────────
-
-@Composable
-private fun HoursStep(s: AppSettings) {
-    val ctx = LocalContext.current
-    val c = Soft.colors
-    val sc = s.schedule
-    fun save(f: (com.attendance.tracker.core.WorkSchedule) -> com.attendance.tracker.core.WorkSchedule) =
-        persist(ctx, current().copy(schedule = f(current().schedule)))
-    fun pick(initial: Int, onPicked: (Int) -> Unit) =
-        TimePickerDialog(ctx, { _, h, m -> onPicked(h * 60 + m) }, initial / 60, initial % 60, false).show()
-
-    StepTitle("Work hours", "Your day starts whenever you reach the office \u2014 no fixed start time.")
-    SoftCard {
-        Column {
-                Text("Net working hours per day (lunch not included)", style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
-                Spacer(Modifier.height(10.dp))
-                Choices(
-                    listOf("7½h" to 450, "8h" to 480, "8½h" to 510, "9h" to 540, "9½h" to 570),
-                    sc.netMinutes,
-                ) { v -> save { it.copy(netMinutes = v) } }
-                val r = sc.requiredMinutes // net + lunch = time at the office
-                Text(
-                    "${hoursLabel(sc.netMinutes).removeSuffix(" per day")} net + ${sc.maxLunchMinutes}m lunch = ${hoursLabel(r).removeSuffix(" per day")} at the office\nIn at 9 AM → out ${fmt12((540 + r) % 1440)}  ·  10 AM → ${fmt12((600 + r) % 1440)}  ·  11 AM → ${fmt12((660 + r) % 1440)}",
-                    Modifier.padding(top = 12.dp).fillMaxWidth().clip(Soft.tileShape).background(c.accentSoft).padding(12.dp),
-                    style = MaterialTheme.typography.bodySmall, color = c.accent,
-                )
-        }
-    }
-    SoftCard {
-        Text("Working days", style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
-        Spacer(Modifier.height(12.dp))
-        val preset = when (sc.workDays) { MON_FRI -> 0; MON_SAT -> 1; else -> 2 }
-        var custom by remember { mutableStateOf(preset == 2) }
-        Choices(listOf("Mon–Fri" to 0, "Mon–Sat" to 1, "Choose" to 2), if (custom) 2 else preset) { v ->
-            custom = v == 2
-            when (v) {
-                0 -> save { it.copy(workDays = MON_FRI) }
-                1 -> save { it.copy(workDays = MON_SAT) }
-            }
-        }
-        AnimatedVisibility(custom) {
-            Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                DayOfWeek.entries.forEach { d ->
-                    DayDot(d.getDisplayName(java.time.format.TextStyle.NARROW, Locale.getDefault()), d in sc.workDays, Modifier.weight(1f)) {
-                        val nd = if (d in sc.workDays) sc.workDays - d else sc.workDays + d
-                        if (nd.isNotEmpty()) save { it.copy(workDays = nd) }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ───────────────────────────── step 4: lunch ─────────────────────────────
-
-@Composable
-private fun LunchStep(s: AppSettings) {
-    val ctx = LocalContext.current
-    val c = Soft.colors
-    StepTitle("Lunch break", "How much lunch is deducted from your day? Take it any time.")
-    SoftCard {
-        Choices(listOf("30 min" to 30, "45 min" to 45, "1 hour" to 60, "1½ hours" to 90), s.schedule.maxLunchMinutes) { v ->
-            persist(ctx, current().copy(schedule = current().schedule.copy(maxLunchMinutes = v)))
-        }
-        Spacer(Modifier.height(14.dp))
-        Text(
-            "This much lunch is always deducted from your working hours \u2014 even if you don't take lunch. " +
-                "If you take longer, the longer lunch is deducted and your logout moves later by the extra time. " +
-                "Your net hours stay the same (${hoursLabel(s.schedule.netMinutes).removeSuffix(" per day")}).",
-            style = MaterialTheme.typography.bodyMedium, color = c.textSecondary,
-        )
-    }
-}
-
-// ───────────────────────────── holidays ─────────────────────────────
-
-@Composable
-private fun HolidaysStep() {
-    val ctx = LocalContext.current
-    val c = Soft.colors
-    val st = AttendanceController.settings
-    var tick by remember { mutableIntStateOf(0) }
-    var national by remember { mutableStateOf(st.holNational) }
-    var newYear by remember { mutableStateOf(st.holNewYear) }
-    var mayDay by remember { mutableStateOf(st.holMayDay) }
-    var xmas by remember { mutableStateOf(st.holChristmas) }
-    var paste by remember { mutableStateOf("") }
-    var addName by remember { mutableStateOf("") }
-    val custom = remember(tick) { st.customHolidays.toSortedMap() }
-    fun changed() { tick++; AttendanceController.refresh() }
-
-    StepTitle("Holidays", "These days count as days off \u2014 never absent.")
-    SoftCard {
-        CardHeader(rememberVectorPainter(Icons.Filled.DateRange), "Fixed public holidays")
-        Spacer(Modifier.height(6.dp))
-        SoftSwitchRow("National holidays", "26 Jan Republic Day \u00b7 15 Aug Independence Day \u00b7 2 Oct Gandhi Jayanti", national) { national = it; st.holNational = it; changed() }
-        SoftSwitchRow("New Year (1 Jan)", null, newYear) { newYear = it; st.holNewYear = it; changed() }
-        SoftSwitchRow("May Day (1 May)", null, mayDay) { mayDay = it; st.holMayDay = it; changed() }
-        SoftSwitchRow("Christmas (25 Dec)", null, xmas) { xmas = it; st.holChristmas = it; changed() }
-        Text("Festivals like Pongal, Diwali, Holi or Eid fall on different dates each year \u2014 add them below from your company's list.",
-            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-    }
-    SoftCard {
-        CardHeader(rememberVectorPainter(Icons.Filled.Add), "Add a holiday")
-        Spacer(Modifier.height(10.dp))
-        SoftField("Name (e.g. Pongal)", addName, keyboard = KeyboardType.Text) { addName = it }
-        Spacer(Modifier.height(10.dp))
-        SoftButton("Pick date & add", {
-            val now = java.time.LocalDate.now()
-            android.app.DatePickerDialog(ctx, { _, y, m, d ->
-                val date = java.time.LocalDate.of(y, m + 1, d)
-                st.customHolidays = st.customHolidays + (date.toString() to addName.ifBlank { "Holiday" }.trim())
-                addName = ""; changed()
-                Toast.makeText(ctx, "Holiday added", Toast.LENGTH_SHORT).show()
-            }, now.year, now.monthValue - 1, now.dayOfMonth).show()
-        }, icon = rememberVectorPainter(Icons.Filled.DateRange))
-    }
-    SoftCard {
-        CardHeader(rememberVectorPainter(Icons.Filled.Edit), "Paste your company's list", "One per line, e.g. 14-01-2027 Pongal")
-        Spacer(Modifier.height(10.dp))
-        androidx.compose.material3.OutlinedTextField(
-            value = paste, onValueChange = { paste = it }, minLines = 4, maxLines = 10,
-            placeholder = { Text("14-01-2027 Pongal\n29-10-2027 Diwali\n2027-03-22 Holi") },
-            shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(10.dp))
-        SoftGhostButton("Import list", {
-            val list = com.attendance.tracker.core.Insights.parseHolidays(paste)
-            if (list.isEmpty()) Toast.makeText(ctx, "No dates found \u2014 use e.g. 14-01-2027 Pongal", Toast.LENGTH_LONG).show()
-            else {
-                st.customHolidays = st.customHolidays + list.associate { (d, n) -> d.toString() to n }
-                paste = ""; changed()
-                Toast.makeText(ctx, "${list.size} holidays added", Toast.LENGTH_SHORT).show()
-            }
-        })
-    }
-    if (custom.isNotEmpty()) SoftCard(padding = 12.dp) {
-        Text("Your holidays", Modifier.padding(4.dp), style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
-        custom.forEach { (date, name) ->
-            Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(name, style = MaterialTheme.typography.bodyLarge, color = c.textPrimary)
-                    Text(runCatching { java.time.LocalDate.parse(date).format(java.time.format.DateTimeFormatter.ofPattern("EEE, d MMM yyyy")) }.getOrDefault(date),
-                        style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-                }
-                RoundIcon(rememberVectorPainter(Icons.Filled.Close), "Remove") { st.customHolidays = st.customHolidays - date; changed() }
-            }
-        }
-    }
-}
-
-// ───────────────────────────── home (commute) ─────────────────────────────
-
-@Composable
-private fun HomeStep() {
-    val ctx = LocalContext.current
-    val c = Soft.colors
-    val scope = rememberCoroutineScope()
-    val st = AttendanceController.settings
-    var home by remember { mutableStateOf(if (st.hasHome) LatLng(st.homeLat, st.homeLng) else null) }
-    var seq by remember { mutableIntStateOf(if (st.hasHome) 1 else 0) }
-    var capturing by remember { mutableStateOf(false) }
-    fun save(p: LatLng) {
-        st.homeLat = p.lat; st.homeLng = p.lng; st.atHome = null
-        home = p; seq++
-        Toast.makeText(ctx, "Home saved", Toast.LENGTH_SHORT).show()
-    }
-    StepTitle("Home (commute)", "Used only to measure your travel time. It stays on this phone.")
-    OfficeMap(
-        modifier = Modifier.fillMaxWidth().height(320.dp),
-        corners = st.settings.value.office?.polygon ?: emptyList(),
-        gates = emptyList(),
-        editableCorners = false,
-        focus = home, focusSeq = seq,
-        onTap = { p -> save(p) },
-    )
-    Text(if (home == null) "Tap your home on the map, or use your current location." else "Tap the map to move your home pin.",
-        style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
-    SoftButton(if (capturing) "Getting location\u2026" else "I'm at home now", {
-        if (!AttendanceController.hasFineLocation(ctx)) return@SoftButton
-        capturing = true
-        scope.launch {
-            val r = LocationCapture.capture(ctx, durationMs = 10_000L, maxAccuracyM = 40f)
-            capturing = false
-            if (r == null) Toast.makeText(ctx, "Couldn't get GPS \u2014 tap the map instead", Toast.LENGTH_LONG).show()
-            else save(LatLng(r.point.lat, r.point.lng))
-        }
-    }, enabled = !capturing, icon = rememberVectorPainter(Icons.Filled.Home))
-    if (home != null) SoftGhostButton("Remove home", { st.clearHome(); home = null }, tint = c.danger, background = c.dangerSoft)
-}
-
-// ───────────────────────────── pay ─────────────────────────────
-
-// ───────────────────────────── reset ─────────────────────────────
-
-@Composable
-private fun ResetStep(onWholeReset: () -> Unit) {
-    val ctx = LocalContext.current
-    val c = Soft.colors
-    val bm = com.attendance.tracker.backup.BackupManager
-    var mode by remember { mutableIntStateOf(1) } // 0 all, 1 before today, 2 dates
-    val keepToday = mode == 1
-    val today = remember { java.time.LocalDate.now() }
-    var from by remember { mutableStateOf(today.withDayOfMonth(1)) }
-    var to by remember { mutableStateOf(today.minusDays(1).coerceAtLeast(today.withDayOfMonth(1))) }
-    val zoneR = java.time.ZoneId.systemDefault()
-    fun pickDate(d: java.time.LocalDate, set: (java.time.LocalDate) -> Unit) =
-        android.app.DatePickerDialog(ctx, { _, y, m, dd -> set(java.time.LocalDate.of(y, m + 1, dd)) }, d.year, d.monthValue - 1, d.dayOfMonth)
-            .apply { datePicker.maxDate = System.currentTimeMillis() }.show()
-    val dayFmtR = java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy")
-    var confirm by remember { mutableStateOf<String?>(null) } // "records" or "all"
-    var tick by remember { mutableIntStateOf(0) }
-    val todayStart = remember { java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli() }
-    val stats = remember(mode, from, to, tick) {
-        if (mode == 2) AttendanceController.db.recordStatsRange(from.atStartOfDay(zoneR).toInstant().toEpochMilli(),
-            to.plusDays(1).atStartOfDay(zoneR).toInstant().toEpochMilli())
-        else AttendanceController.db.recordStats(if (keepToday) todayStart else null)
-    }
-    val allStats = remember(tick) { AttendanceController.db.recordStats(null) }
-    val hasBackup = bm.backupUri(ctx) != null
-
-    StepTitle("Reset", "Remove test records, or start the app over.")
-
-    SoftCard {
-        CardHeader(rememberVectorPainter(Icons.Filled.Delete), "Clear attendance records", "Keeps your office, gates, hours and Wi-Fi",
-            c.warning, c.warningSoft)
-        Spacer(Modifier.height(14.dp))
-        Choices(listOf("All" to 0, "Before today" to 1, "Dates" to 2), mode) { mode = it }
-        if (mode == 2) {
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("From" to from, "To" to to).forEach { (label, d) ->
-                    Column(
-                        Modifier.weight(1f).clip(Soft.tileShape).background(c.accentSoft)
-                            .pressScale { if (label == "From") pickDate(from) { from = it; if (to.isBefore(it)) to = it } else pickDate(to) { to = it; if (it.isBefore(from)) from = it } }
-                            .padding(12.dp),
-                    ) {
-                        Text(label, style = MaterialTheme.typography.labelMedium, color = c.accent)
-                        Text(d.format(dayFmtR), style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
-                    }
-                }
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-        Text(
-            if (stats.first == 0 && stats.second == 0) "Nothing to delete."
-            else "Deletes ${stats.first} punch${if (stats.first == 1) "" else "es"} across ${stats.second} day${if (stats.second == 1) "" else "s"}, " +
-                "plus lunches, on-duty, leave marks and totals" + when (mode) {
-                    1 -> ". Today's records stay."
-                    2 -> " from ${from.format(dayFmtR)} to ${to.format(dayFmtR)}. Other days stay."
-                    else -> ". History will be empty."
-                },
-            style = MaterialTheme.typography.bodyMedium, color = c.textSecondary,
-        )
-        Spacer(Modifier.height(12.dp))
-        SoftButton("Delete records", { confirm = "records" }, enabled = stats.first > 0 || stats.second > 0,
-            colors = c.warning.copy(alpha = 0.85f) to c.warning, icon = rememberVectorPainter(Icons.Filled.Delete))
-    }
-
-    SoftCard {
-        CardHeader(rememberVectorPainter(Icons.Filled.Delete), "Reset the whole app", "Records and setup", c.danger, c.dangerSoft)
-        Spacer(Modifier.height(10.dp))
-        Text("Deletes all ${allStats.first} punches and your office map, gates, hours and Wi-Fi. Tracking stops and setup starts again from step 1. App permissions stay.",
-            style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
-        Spacer(Modifier.height(12.dp))
-        SoftGhostButton("Reset everything", { confirm = "all" }, tint = c.danger, background = c.dangerSoft)
-    }
-
-    if (hasBackup) Text(
-        "Your Google Drive backup updates a minute after any change, so it will soon contain the cleared data. Use \u201cBack up first\u201d to keep a copy there too.",
-        style = MaterialTheme.typography.bodySmall, color = c.textSecondary,
-    )
-
-    confirm?.let { what ->
-        AlertDialog(
-            onDismissRequest = { confirm = null },
-            title = { Text(if (what == "all") "Reset everything?" else "Delete these records?") },
-            text = {
-                Text(
-                    (if (what == "all") "All records and your whole setup will be deleted."
-                    else "${stats.first} punches across ${stats.second} days will be deleted" + when (mode) {
-                        1 -> " (today's stay)."
-                        2 -> " (${from.format(dayFmtR)} \u2013 ${to.format(dayFmtR)})."
-                        else -> "."
-                    }) + " A copy is saved on the phone first (Backup \u2192 On-phone copies \u2192 Before last reset).",
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    if (what == "all") {
-                        AttendanceController.resetEverything()
-                        Toast.makeText(ctx, "App reset. Let's set it up again.", Toast.LENGTH_LONG).show()
-                        confirm = null
-                        onWholeReset()
-                    } else {
-                        if (mode == 2) AttendanceController.clearRange(from, to) else AttendanceController.clearRecords(keepToday)
-                        Toast.makeText(ctx, "Records deleted", Toast.LENGTH_SHORT).show()
-                        confirm = null
-                        tick++
-                    }
-                }) { Text("Delete", color = c.danger) }
-            },
-            dismissButton = {
-                Row {
-                    if (hasBackup) TextButton(onClick = {
-                        val ok = bm.backupNow(ctx)
-                        Toast.makeText(ctx, if (ok) "Backed up \u2014 now you can delete" else "Backup failed", Toast.LENGTH_SHORT).show()
-                    }) { Text("Back up first") }
-                    TextButton(onClick = { confirm = null }) { Text("Cancel") }
-                }
-            },
-            shape = RoundedCornerShape(28.dp), containerColor = c.card,
-        )
-    }
-}
-
-// ───────────────────────────── health check ─────────────────────────────
-
-@Composable
-private fun HealthStep(open: (Page) -> Unit) {
-    val ctx = LocalContext.current
-    val c = Soft.colors
-    val scope = rememberCoroutineScope()
-    var report by remember { mutableStateOf<com.attendance.tracker.health.HealthReport?>(null) }
-    var tick by remember { mutableIntStateOf(0) }
-    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) { tick++; onPauseOrDispose { } }
-    LaunchedEffect(tick) { report = com.attendance.tracker.health.HealthCheck.run(ctx) }
-    val pm = com.attendance.tracker.permissions.PermissionsManager
-    fun go(i: android.content.Intent) { runCatching { ctx.startActivity(i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } }
-    fun fix(f: com.attendance.tracker.health.Fix) {
-        when (f) {
-            com.attendance.tracker.health.Fix.APP_SETTINGS, com.attendance.tracker.health.Fix.BACKGROUND -> go(pm.appSettingsIntent(ctx))
-            com.attendance.tracker.health.Fix.LOCATION_ON -> go(android.content.Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS))
-            com.attendance.tracker.health.Fix.BATTERY -> go(pm.batteryIntent(ctx))
-            com.attendance.tracker.health.Fix.NOTIFICATIONS -> go(pm.notificationSettingsIntent(ctx))
-            com.attendance.tracker.health.Fix.UNUSED -> go(pm.unusedAppIntent(ctx))
-            com.attendance.tracker.health.Fix.AUTOSTART -> { pm.openAutostartSettings(ctx); pm.setAutostartConfirmed(ctx) }
-            com.attendance.tracker.health.Fix.OFFICE -> open(Page.OFFICE)
-            com.attendance.tracker.health.Fix.GATES -> open(Page.GATES)
-            com.attendance.tracker.health.Fix.WIFI -> open(Page.WIFI)
-            com.attendance.tracker.health.Fix.DATE_SETTINGS -> go(android.content.Intent(android.provider.Settings.ACTION_DATE_SETTINGS))
-            com.attendance.tracker.health.Fix.START_TRACKING -> {
-                AttendanceController.settings.userPaused = false
-                runCatching { TrackingService.start(ctx) }
-                tick++
-            }
-        }
-    }
-
-    StepTitle("Auto-punch health", "Everything automatic IN/OUT depends on, checked live.")
-    val r = report
-    SoftCard {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            val score = r?.score ?: 0
-            val col = when { score >= 85 -> c.success; score >= 60 -> c.warning; else -> c.danger }
-            ProgressRing(score / 100f, col, col.copy(alpha = 0.15f), Modifier.size(84.dp), stroke = 9.dp) {
-                Text(if (r == null) "\u2026" else "$score", style = MaterialTheme.typography.headlineSmall, color = c.textPrimary)
-            }
-            Spacer(Modifier.width(16.dp))
-            Column {
-                Text(
-                    when { r == null -> "Checking\u2026"; r.problems == 0 -> "All good"; else -> "${r.problems} thing${if (r.problems == 1) "" else "s"} to fix" },
-                    style = MaterialTheme.typography.titleLarge, color = c.textPrimary,
-                )
-                Text("Score out of 100", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-            }
-        }
-    }
-    r?.let { rep ->
-        SoftCard(padding = 12.dp) {
-            rep.checks.sortedBy { it.level.ordinal.let { o -> listOf(3, 1, 0, 2)[o] } }.forEach { ch ->
-                val (sym, col) = when (ch.level) {
-                    com.attendance.tracker.health.Level.OK -> "\u2713" to c.success
-                    com.attendance.tracker.health.Level.WARN -> "!" to c.warning
-                    com.attendance.tracker.health.Level.FAIL -> "\u2715" to c.danger
-                    com.attendance.tracker.health.Level.TIP -> "i" to c.accent
-                }
-                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp, horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(26.dp).clip(CircleShape).background(col), contentAlignment = Alignment.Center) {
-                        Text(sym, color = Color.White, style = MaterialTheme.typography.labelLarge)
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(ch.title, style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
-                        Text(ch.detail, style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-                    }
-                    val f = ch.fix
-                    if (f != null && ch.level != com.attendance.tracker.health.Level.OK) {
-                        Spacer(Modifier.width(8.dp))
-                        Text("Fix", Modifier.clip(Soft.pillShape).background(col).pressScale { fix(f) }.padding(horizontal = 14.dp, vertical = 8.dp),
-                            color = Color.White, style = MaterialTheme.typography.labelMedium)
-                    }
-                }
-            }
-        }
-    }
-    SoftGhostButton("Re-check", { tick++ })
-    SoftButton("Share diagnostics", { scope.launch { com.attendance.tracker.health.HealthCheck.shareDiagnostics(ctx) } })
-    Text("The diagnostics file lists your setup and the last 7 days of punches, so a problem can be traced. Share it only with someone you trust.",
-        style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-}
-
-// ───────────────────────────── office Wi-Fi ─────────────────────────────
-
-@Composable
-private fun WifiStep() {
-    val ctx = LocalContext.current
-    val c = Soft.colors
-    var saved by remember { mutableStateOf(AttendanceController.settings.officeWifi) }
-    var current by remember { mutableStateOf(com.attendance.tracker.service.WifiHelper.current(ctx)) }
-    StepTitle("Office Wi-Fi", "A second signal that you're inside \u2014 useful when GPS is weak deep in the building.")
-    SoftCard {
-        CardHeader(painterResource(R.drawable.ic_target), "Connected now")
-        Spacer(Modifier.height(12.dp))
-        val cur = current
-        if (cur == null) {
-            Text("Not connected to Wi-Fi. Connect to the office Wi-Fi, then tap Refresh.",
-                style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
-        } else {
-            Text(cur.ssid, style = MaterialTheme.typography.titleLarge, color = c.textPrimary)
-        }
-        Spacer(Modifier.height(12.dp))
-        val already = cur != null && saved.any { it.ssid == cur.ssid }
-        if (cur != null && !already) {
-            SoftButton("Add \u201c${cur.ssid}\u201d as office Wi-Fi", {
-                saved = saved + cur
-                AttendanceController.settings.officeWifi = saved
-                Toast.makeText(ctx, "Saved", Toast.LENGTH_SHORT).show()
-            }, icon = rememberVectorPainter(Icons.Filled.Add))
-            Spacer(Modifier.height(8.dp))
-        }
-        SoftGhostButton("Refresh", { current = com.attendance.tracker.service.WifiHelper.current(ctx) })
-    }
-    if (saved.isNotEmpty()) SoftCard {
-        Text("Saved office networks", style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
-        Spacer(Modifier.height(8.dp))
-        saved.forEach { w ->
-            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(w.ssid, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = c.textPrimary)
-                RoundIcon(rememberVectorPainter(Icons.Filled.Close), "Remove") {
-                    saved = saved.filter { it.ssid != w.ssid }
-                    AttendanceController.settings.officeWifi = saved
-                }
-            }
-        }
-    }
-    SoftCard {
-        Text("How it's used", style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
-        Text(
-            "While you're on office Wi-Fi, a weak GPS reading can't punch you OUT by mistake. Leaving is still detected by GPS and your gates. " +
-                "If tracking starts while you're deep inside and GPS can't place you, Wi-Fi marks you IN.",
-            style = MaterialTheme.typography.bodySmall, color = c.textSecondary,
-        )
-    }
-}
-
-// ───────────────────────────── backup ─────────────────────────────
-
-@Composable
-private fun BackupStep() {
-    val ctx = LocalContext.current
-    val c = Soft.colors
-    val bm = com.attendance.tracker.backup.BackupManager
-    var uri by remember { mutableStateOf(bm.backupUri(ctx)) }
-    var last by remember { mutableStateOf(bm.lastBackupMs(ctx)) }
-    var restoreUri by remember { mutableStateOf<android.net.Uri?>(null) }
-    val create = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json")
-    ) { u ->
-        if (u != null) {
-            val ok = bm.setBackupUri(ctx, u)
-            uri = bm.backupUri(ctx); last = bm.lastBackupMs(ctx)
-            Toast.makeText(ctx, if (ok) "Backed up" else "Couldn't write the backup there", Toast.LENGTH_LONG).show()
-        }
-    }
-    val pick = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
-    ) { u -> if (u != null) restoreUri = u }
-
-    StepTitle("Backup", "Keep your attendance history, office map and gates safe.")
-    SoftCard {
-        CardHeader(painterResource(R.drawable.ic_shield), "Backup file on Google Drive", "Updated a minute after every change", c.success, c.successSoft)
-        Spacer(Modifier.height(12.dp))
-        if (uri == null) {
-            Text("Tap below, choose Google Drive in the file picker, pick a folder and tap Save.",
-                style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
-            Spacer(Modifier.height(12.dp))
-            SoftButton("Choose Google Drive location", { create.launch("attendance-backup.json") })
-        } else {
-            InfoLine("Last backup", if (last > 0) "${fmtTime(last)} \u00b7 ${java.time.Instant.ofEpochMilli(last).atZone(java.time.ZoneId.systemDefault()).toLocalDate()}" else "\u2014",
-                if (last > 0) c.success else c.warning)
-            Spacer(Modifier.height(10.dp))
-            SoftButton("Back up now", {
-                val ok = bm.backupNow(ctx); last = bm.lastBackupMs(ctx)
-                Toast.makeText(ctx, if (ok) "Backed up" else "Backup failed \u2014 choose the location again", Toast.LENGTH_LONG).show()
-            }, colors = c.success.copy(alpha = 0.85f) to c.success)
-            Spacer(Modifier.height(8.dp))
-            SoftGhostButton("Change location", { create.launch("attendance-backup.json") })
-        }
-    }
-    var copies by remember { mutableStateOf(bm.localCopies(ctx)) }
-    var restoreFile by remember { mutableStateOf<java.io.File?>(null) }
-    SoftCard {
-        CardHeader(painterResource(R.drawable.ic_system_update), "Restore")
-        Spacer(Modifier.height(10.dp))
-        Text("Pick your backup file (e.g. from Google Drive). It's fully checked first; nothing changes unless it's complete, " +
-            "and a copy of the current data is saved on the phone so you can undo.",
-            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-        Spacer(Modifier.height(12.dp))
-        SoftGhostButton("Restore from backup file", { pick.launch(arrayOf("application/json", "application/octet-stream", "*/*")) })
-        val importer = androidx.activity.compose.rememberLauncherForActivityResult(
-            androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
-        ) { u ->
-            if (u != null) {
-                val msg = bm.importRecords(ctx, u); copies = bm.localCopies(ctx)
-                Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        SoftGhostButton("Import past records (adds, never replaces)", { importer.launch(arrayOf("application/json", "application/octet-stream", "*/*")) })
-        bm.preRestoreCopy(ctx)?.let { f ->
-            Spacer(Modifier.height(8.dp))
-            SoftGhostButton("Undo last restore", { restoreFile = f })
-        }
-    }
-    SoftCard {
-        CardHeader(painterResource(R.drawable.ic_shield), "On-phone copies", "Daily, and before every restore or reset", c.success, c.successSoft)
-        Spacer(Modifier.height(6.dp))
-        if (copies.isEmpty()) Text("The first copy is made automatically within a minute of any change.",
-            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-        copies.take(8).forEach { f ->
-            val label = when {
-                f.name.startsWith("before-restore") -> "Before last restore"
-                f.name.startsWith("before-reset") -> "Before last reset"
-                f.name.startsWith("before-import") -> "Before last import"
-                else -> f.name.removePrefix("auto-").removeSuffix(".json")
-            }
-            Row(Modifier.fillMaxWidth().clip(Soft.tileShape).pressScale { restoreFile = f }.padding(vertical = 10.dp, horizontal = 4.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(label, style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
-                    Text("Saved ${fmtTime(f.lastModified())} · ${java.time.Instant.ofEpochMilli(f.lastModified()).atZone(java.time.ZoneId.systemDefault()).toLocalDate()}",
-                        style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-                }
-                Text("Restore", style = MaterialTheme.typography.labelLarge, color = c.accent)
-            }
-        }
-        Spacer(Modifier.height(6.dp))
-        Text("On-phone copies are removed if the app is uninstalled — keep the Google Drive file too.",
-            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-    }
-    SoftCard {
-        Text("What's backed up", style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
-        Text("Everything: every IN/OUT with its GPS position, lunch, on duty, home trips, day marks and permission; " +
-            "office map, gates, home location, office Wi-Fi, hours, holidays, salary and all settings. " +
-            "Backed up a minute after every punch or change, plus nightly. Android's own Google backup also covers it.",
-            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-    }
-
-    // Confirm with a preview of what the backup holds (checked before anything changes).
-    val pending: Pair<String, Result<com.attendance.tracker.backup.BackupManager.Info>>? = remember(restoreUri, restoreFile) {
-        restoreUri?.let { "file" to bm.inspect(ctx, it) } ?: restoreFile?.let { it.name to bm.inspect(it) }
-    }
-    pending?.let { (_, info) ->
-        val close = { restoreUri = null; restoreFile = null }
-        AlertDialog(
-            onDismissRequest = close,
-            title = { Text(if (info.isSuccess) "Restore this backup?" else "Can't restore this file") },
-            text = {
-                info.fold({ i ->
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        InfoLine("Made on", if (i.createdAt > 0) "${fmtTime(i.createdAt)} · ${java.time.Instant.ofEpochMilli(i.createdAt).atZone(java.time.ZoneId.systemDefault()).toLocalDate()}" else "—")
-                        InfoLine("Records", "${i.events}")
-                        InfoLine("Day marks", "${i.marks}")
-                        InfoLine("Office map", if (i.hasOffice) "Yes · ${i.gates} gate${if (i.gates == 1) "" else "s"}" else "No")
-                        InfoLine("Settings", "${i.settings}")
-                        InfoLine("Checksum", if (i.verified) "Verified ✓" else "Older format (no checksum)", if (i.verified) c.success else c.warning)
-                        Spacer(Modifier.height(6.dp))
-                        Text("This replaces the data on this phone. A copy of the current data is saved first, so you can undo.",
-                            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-                    }
-                }, { e -> Text(e.message ?: "This file can't be used. Nothing was changed.") })
-            },
-            confirmButton = {
-                if (info.isSuccess) TextButton(onClick = {
-                    val f = restoreFile; val u = restoreUri
-                    // Undoing a restore must not overwrite the copy it is restoring from.
-                    val err = if (f != null) bm.restore(ctx, f, saveCurrent = f.name != "before-restore.json") else if (u != null) bm.restore(ctx, u) else null
-                    close(); copies = bm.localCopies(ctx)
-                    Toast.makeText(ctx, err ?: "Restored ✓ everything verified", Toast.LENGTH_LONG).show()
-                }) { Text("Restore") }
-                else TextButton(onClick = close) { Text("OK") }
-            },
-            dismissButton = { if (info.isSuccess) TextButton(onClick = close) { Text("Cancel") } },
-            shape = RoundedCornerShape(28.dp), containerColor = c.card,
-        )
-    }
-}
-
-// ───────────────────────────── advanced ─────────────────────────────
-
-@Composable
-private fun AdvancedStep(s: AppSettings) {
-    val ctx = LocalContext.current
-    val c = Soft.colors
-    val sc = s.schedule
-    val acc = s.accuracy
-    fun pick(initial: Int, onPicked: (Int) -> Unit) =
-        TimePickerDialog(ctx, { _, h, m -> onPicked(h * 60 + m) }, initial / 60, initial % 60, false).show()
-
-    StepTitle("Advanced", "You normally don't need to change these.")
-    SoftCard {
-        CardHeader(rememberVectorPainter(Icons.Filled.Settings), "Appearance")
-        Spacer(Modifier.height(10.dp))
-        var tm by remember { mutableIntStateOf(AttendanceController.settings.themeMode) }
-        Choices(listOf("Phone" to 0, "Light" to 1, "Dark" to 2, "7PM\u20137AM" to 3), tm) { tm = it; AttendanceController.settings.themeMode = it }
-        Spacer(Modifier.height(6.dp))
-        Text("\u201c7PM\u20137AM\u201d switches to dark automatically in the evening.", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-    }
-    SoftCard {
-        CardHeader(rememberVectorPainter(Icons.Filled.Notifications), "Reminders & automation")
-        Spacer(Modifier.height(6.dp))
-        val st = AttendanceController.settings
-        var a1 by remember { mutableStateOf(st.autoLunch) }
-        var a2 by remember { mutableStateOf(st.remindBeforeLogout) }
-        var a3 by remember { mutableStateOf(st.remindHoursDone) }
-        var a4 by remember { mutableStateOf(st.remindLunchOver) }
-        SoftSwitchRow("Ask \u201cWas this lunch?\u201d after a break", null, a1) { a1 = it; st.autoLunch = it }
-        SoftSwitchRow("Remind 15 min before logout", null, a2) { a2 = it; st.remindBeforeLogout = it }
-        SoftSwitchRow("Tell me when hours are complete", null, a3) { a3 = it; st.remindHoursDone = it }
-        SoftSwitchRow("Lunch reminders", null, a4) { a4 = it; st.remindLunchOver = it }
-        var a5 by remember { mutableStateOf(st.askDuty) }
-        var a6 by remember { mutableStateOf(st.autoSummary) }
-        var early by remember { mutableStateOf(st.earlyLeaveAlarm) }
-        SoftSwitchRow("Alarm if I leave early", null, early) { early = it; st.earlyLeaveAlarm = it }
-        SoftSwitchRow("Ask \u201cOfficial work?\u201d when I go out", null, a5) { a5 = it; st.askDuty = it }
-        SoftSwitchRow("End-of-day summary", null, a6) { a6 = it; st.autoSummary = it }
-    }
-    SoftCard {
-        CardHeader(rememberVectorPainter(Icons.Filled.Notifications), "Live Updates")
-        Spacer(Modifier.height(6.dp))
-        var live by remember { mutableStateOf(AttendanceController.settings.liveUpdates) }
-        val allowed = remember { com.attendance.tracker.service.LiveNotification.liveUpdatesAllowed(ctx) }
-        SoftSwitchRow(
-            "Show Live Updates",
-            "Status-bar pill after each punch, on lunch, near logout and in overtime",
-            live,
-        ) {
-            live = it; AttendanceController.settings.liveUpdates = it
-            com.attendance.tracker.service.TrackingService.refreshNotification(ctx)
-        }
-        Text(
-            when (allowed) {
-                null -> "Your Android version shows this as a normal live notification. The status-bar chip needs Android 16."
-                true -> "Allowed by Android \u2713"
-                false -> "Android has Live Updates turned off for this app. Turn on \u201cLive updates\u201d (and \u201cShow Live Updates on Live Alerts\u201d) in the app's notification settings."
-            },
-            style = MaterialTheme.typography.bodySmall, color = if (allowed == false) c.warning else c.textSecondary,
-        )
-        Spacer(Modifier.height(8.dp))
-        SoftGhostButton("Open notification settings", {
-            runCatching { ctx.startActivity(com.attendance.tracker.permissions.PermissionsManager.notificationSettingsIntent(ctx).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
-        })
-    }
-    SoftCard {
-        CardHeader(rememberVectorPainter(Icons.Filled.Notifications), "Punch sound")
-        Spacer(Modifier.height(6.dp))
-        var sound by remember { mutableStateOf(AttendanceController.settings.punchSound) }
-        SoftSwitchRow(
-            "Sound & vibration on IN / OUT",
-            null,
-            sound,
-        ) { v -> sound = v; AttendanceController.settings.punchSound = v }
-    }
-    SoftCard {
-        CardHeader(painterResource(R.drawable.ic_shield), "IN / OUT detection")
-        Spacer(Modifier.height(10.dp))
-        // One simple choice instead of raw GPS numbers. Fake-GPS apps are always blocked.
-        val level = when { acc.confirmSamples <= 2 -> 0; acc.confirmSamples >= 4 -> 2; else -> 1 }
-        Choices(listOf("Faster" to 0, "Balanced" to 1, "Safer" to 2), level) { v ->
-            val (m, n) = when (v) { 0 -> 50f to 2; 2 -> 30f to 4; else -> 35f to 3 }
-            persist(ctx, current().copy(accuracy = current().accuracy.copy(maxAccuracyM = m, confirmSamples = n, rejectMock = true)))
-        }
-        Spacer(Modifier.height(6.dp))
-        Text("Balanced is recommended. Faster punches sooner at the gate; Safer waits for more GPS readings.",
-            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
     }
 }
 
@@ -1452,7 +762,7 @@ private fun AdvancedStep(s: AppSettings) {
 
 /** Row of big tappable choices; the selected one is filled. */
 @Composable
-private fun <T> Choices(options: List<Pair<String, T>>, selected: T, onSelect: (T) -> Unit) {
+internal fun <T> Choices(options: List<Pair<String, T>>, selected: T, onSelect: (T) -> Unit) {
     val c = Soft.colors
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         options.forEach { (label, value) ->
@@ -1468,14 +778,14 @@ private fun <T> Choices(options: List<Pair<String, T>>, selected: T, onSelect: (
     }
 }
 
-private fun fmt12(min: Int): String {
+internal fun fmt12(min: Int): String {
     val h = min / 60; val m = min % 60
     val h12 = if (h % 12 == 0) 12 else h % 12
     return "%d:%02d %s".format(h12, m, if (h < 12) "AM" else "PM")
 }
 
 @Composable
-private fun DayDot(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+internal fun DayDot(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val c = Soft.colors
     val bg = animatedColor(if (selected) c.accent else c.cardMuted, "dayBg")
     val fg = animatedColor(if (selected) Color.White else c.textSecondary, "dayFg")
@@ -1485,7 +795,7 @@ private fun DayDot(label: String, selected: Boolean, modifier: Modifier, onClick
 }
 
 @Composable
-private fun SoftField(
+internal fun SoftField(
     label: String, value: String, suffix: String? = null,
     keyboard: KeyboardType = KeyboardType.Number, onChange: (String) -> Unit,
 ) {

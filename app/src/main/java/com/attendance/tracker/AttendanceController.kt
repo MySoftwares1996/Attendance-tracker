@@ -69,7 +69,7 @@ data class LiveState(
  */
 @SuppressLint("StaticFieldLeak")
 object AttendanceController {
-    private lateinit var app: Context
+    internal lateinit var app: Context
     lateinit var settings: SettingsRepository; private set
     lateinit var db: AttendanceDb; private set
 
@@ -162,7 +162,7 @@ object AttendanceController {
         refresh()
     }
 
-    private fun zone(): ZoneId = ZoneId.systemDefault()
+    internal fun zone(): ZoneId = ZoneId.systemDefault()
     private fun dayKey(ms: Long): String = Instant.ofEpochMilli(ms).atZone(zone()).toLocalDate().toString()
 
     @Synchronized
@@ -221,66 +221,14 @@ object AttendanceController {
 
     // ───────────── gate-crossing trail (GPS points around each punch) ─────────────
 
-    private val trail = ArrayDeque<LocationSample>()
+    internal val trail = ArrayDeque<LocationSample>()
 
     data class TrailPoint(val lat: Double, val lng: Double, val acc: Float, val timeMs: Long)
     data class Trail(val punchMs: Long, val kind: String, val gate: String?, val points: List<TrailPoint>)
 
-    private fun trailDir() = java.io.File(app.filesDir, "trails").apply { mkdirs() }
-
-    private fun saveTrail(punchMs: Long, kind: String, gate: String?) = runCatching {
-        val pts = trail.filter { it.timeMs >= punchMs - 4 * 60_000 }
-        val arr = org.json.JSONArray()
-        pts.forEach { arr.put(org.json.JSONArray().put(it.lat).put(it.lng).put(it.accuracyM.toDouble()).put(it.timeMs)) }
-        val o = org.json.JSONObject().put("punch", punchMs).put("kind", kind).put("gate", gate ?: "").put("pts", arr)
-        java.io.File(trailDir(), "$punchMs.json").writeText(o.toString())
-        // keep two months
-        val old = System.currentTimeMillis() - 62L * 86_400_000
-        trailDir().listFiles().orEmpty().filter { it.lastModified() < old }.forEach { it.delete() }
-    }
-
-    /** The GPS points recorded around the punch at [punchMs], if saved. */
-    fun trailFor(punchMs: Long): Trail? = runCatching {
-        val o = org.json.JSONObject(java.io.File(trailDir(), "$punchMs.json").readText())
-        val a = o.getJSONArray("pts")
-        Trail(o.getLong("punch"), o.getString("kind"), o.optString("gate").ifBlank { null },
-            (0 until a.length()).map { i -> a.getJSONArray(i).let { TrailPoint(it.getDouble(0), it.getDouble(1), it.getDouble(2).toFloat(), it.getLong(3)) } })
-    }.getOrNull()
-
     // ───────────── regularisation list ─────────────
 
     data class RegItem(val date: LocalDate, val issue: String, val detail: String)
-
-    /** Days of [month] (up to yesterday) that need HR action: absent, short, manual punches, early leave. */
-    fun regularisationList(month: java.time.YearMonth): List<RegItem> {
-        val r = com.attendance.tracker.report.MonthReports.build(month)
-        val today = LocalDate.now()
-        fun hm(sec: Long) = "${sec / 3600}h ${"%02d".format((sec % 3600) / 60)}m"
-        return r.days.filter { it.date.isBefore(today) }.mapNotNull { d ->
-            val inT = d.firstInMs?.let { clock(it) } ?: "\u2014"
-            val outT = d.lastOutMs?.let { clock(it) } ?: "\u2014"
-            val manual = d.punches.count { it.detail.startsWith(MANUAL_PREFIX) }
-            val target = netTargetSec(d.date)
-            val issue = com.attendance.tracker.core.Regularisation.issue(
-                absentUnmarked = d.state == com.attendance.tracker.report.DayState.ABSENT && d.mark == null,
-                hasIn = d.firstInMs != null, hasOut = d.lastOutMs != null,
-                workedSec = d.workedSec, targetSec = target, manualPunches = manual,
-            ) ?: return@mapNotNull null
-            val detail = when (issue) {
-                "Absent" -> "No punches recorded"
-                "Missed OUT" -> "IN $inT, no OUT recorded"
-                "Manual punch" -> "$manual manual punch${if (manual > 1) "es" else ""} \u00b7 IN $inT \u00b7 OUT $outT"
-                else -> "IN $inT \u00b7 OUT $outT \u00b7 net ${hm(d.workedSec)}"
-            }
-            RegItem(d.date, issue, detail)
-        }
-    }
-
-    fun regularisationText(items: List<RegItem>): String {
-        val f = java.time.format.DateTimeFormatter.ofPattern("EEE, d MMM yyyy")
-        return "Attendance regularisation request\n\n" + items.joinToString("\n") { "\u2022 ${it.date.format(f)}: ${it.issue} (${it.detail})" } +
-            "\n\nKindly regularise the above days."
-    }
 
     // ───────────── long weekends ─────────────
 
@@ -288,47 +236,11 @@ object AttendanceController {
         val totalDays: Int get() = (java.time.temporal.ChronoUnit.DAYS.between(from, to) + 1).toInt()
     }
 
-    /** Best upcoming breaks: 1–2 leave days that join a holiday and the weekend into 4+ days off. */
-    fun longWeekends(horizonDays: Long = 200): List<LongWeekend> {
-        val today = LocalDate.now()
-        val wd = settings.settings.value.schedule.workDays
-        val marks = db.dayMarks(today.toString(), today.plusDays(horizonDays + 10).toString())
-        fun off(d: LocalDate) = d.dayOfWeek !in wd || com.attendance.tracker.data.Holidays.name(d) != null || marks[d.toString()]?.fullDayOff == true
-        return com.attendance.tracker.core.LongWeekends.find(today, horizonDays, ::off, com.attendance.tracker.data.Holidays::name)
-            .map { LongWeekend(it.leaveDays, it.from, it.to, it.holiday) }
-    }
-
     // ───────────── permission history ─────────────
-
-    /** Permission per day in [month], newest first. */
-    fun permissionHistory(month: java.time.YearMonth): List<Pair<LocalDate, Int>> =
-        settings.permissions.filterKeys { it.startsWith(month.toString()) }.map { LocalDate.parse(it.key) to it.value }.sortedByDescending { it.first }
 
     // ───────────── rest days (tracking sleeps) ─────────────
 
-    /** Leave, holiday or a non-working day: GPS can sleep (the geofence still wakes it at the office). */
-    fun isRestDay(nowMs: Long = System.currentTimeMillis()): Boolean {
-        val p = plan(nowMs)
-        return !p.workDay || p.dayOff != null
-    }
-
     // ───────────── weekly report ─────────────
-
-    private fun weeklyReport(today: LocalDate) {
-        val monday = today.with(java.time.DayOfWeek.MONDAY)
-        val days = generateSequence(monday) { it.plusDays(1) }.takeWhile { !it.isAfter(today) }.toList()
-        var present = 0; var total = 0L
-        days.forEach { d ->
-            val ev = db.events(d.atStartOfDay(zone()).toInstant().toEpochMilli(), d.plusDays(1).atStartOfDay(zone()).toInstant().toEpochMilli())
-            if (ev.any { it.type == EventType.CHECK_IN }) { present++; total += netWorkedSec(ev, ev.maxOf { it.timeMs }, d) }
-        }
-        val avg = if (present > 0) total / present else 0L
-        val perm = settings.permissionUsedInMonth(today.toString())
-        val reg = regularisationList(java.time.YearMonth.from(today)).count { !it.date.isBefore(monday) }
-        val leave = leavesIn(today.year).count { !it.date.isBefore(monday) && !it.date.isAfter(today) }
-        notify(4205, "Your week: $present day${if (present == 1) "" else "s"} present \u00b7 avg ${avg / 3600}h ${"%02d".format((avg % 3600) / 60)}m",
-            "Permission this month ${perm / 60}h ${perm % 60}m \u00b7 leave this week $leave" + if (reg > 0) " \u00b7 $reg day${if (reg == 1) "" else "s"} to regularise" else " \u00b7 nothing to regularise")
-    }
 
     /** Called periodically by the tracking service; accumulates time per status. */
     @Synchronized
@@ -515,52 +427,6 @@ object AttendanceController {
     }
 
     data class LeaveDay(val date: LocalDate, val type: LeaveType, val half: Boolean, val reason: String)
-
-    /** Working days from [from] to [to] (weekends and holidays skipped). */
-    fun leaveWorkingDays(from: LocalDate, to: LocalDate): List<LocalDate> {
-        val wd = settings.settings.value.schedule.workDays
-        return generateSequence(from) { it.plusDays(1) }.takeWhile { !it.isAfter(to) }
-            .filter { it.dayOfWeek in wd && com.attendance.tracker.data.Holidays.name(it) == null }.toList()
-    }
-
-    /** Applies leave: marks each working day (half day = Half day mark). Note = "CL · reason". */
-    fun applyLeave(from: LocalDate, to: LocalDate, type: LeaveType, half: Boolean, reason: String): Int {
-        val days = leaveWorkingDays(from, to)
-        days.forEach { d ->
-            val mark = if (half && type != LeaveType.UNPAID) DayMark.HALF_DAY else type.mark
-            db.setDayMarkWithNote(d.toString(), mark, com.attendance.tracker.core.LeaveNote.format(type.code, half, reason))
-        }
-        refresh()
-        return days.size
-    }
-
-    fun cancelLeave(day: LocalDate) { db.setDayMark(day.toString(), null); refresh() }
-
-    /** Leaves applied in [year] (from their notes). */
-    fun leavesIn(year: Int): List<LeaveDay> = db.marksWithNotes("$year-01-01", "$year-12-31").mapNotNull { (day, _, note) ->
-        val p = com.attendance.tracker.core.LeaveNote.parse(note) ?: return@mapNotNull null
-        val type = LeaveType.entries.firstOrNull { it.code == p.code } ?: return@mapNotNull null
-        LeaveDay(LocalDate.parse(day), type, p.half, p.reason)
-    }
-
-    /** Used and left per type this year (half days count 0.5). */
-    fun leaveBalance(year: Int = LocalDate.now().year): Map<LeaveType, Pair<Double, Double>> {
-        val used = leavesIn(year).groupBy { it.type }.mapValues { (_, l) -> l.sumOf { if (it.half) 0.5 else 1.0 } }
-        val q = settings.leaveQuota
-        return LeaveType.entries.filter { it != LeaveType.UNPAID }.associateWith { t ->
-            val u = used[t] ?: 0.0
-            u to ((q[t.code] ?: 0.0) - u)
-        }
-    }
-
-    fun leaveRequestText(from: LocalDate, to: LocalDate, type: LeaveType, half: Boolean, reason: String, days: Int): String {
-        val f = java.time.format.DateTimeFormatter.ofPattern("EEE, d MMM yyyy")
-        val range = if (from == to) from.format(f) else "${from.format(f)} to ${to.format(f)}"
-        return "Leave request \u2013 ${type.label}\n" +
-            "Date: $range" + (if (half) " (half day)" else "") + "\n" +
-            "Working days: ${if (half) "0.5" else "$days"}\n" +
-            (if (reason.isNotBlank()) "Reason: ${reason.trim()}\n" else "") + "\nKindly approve."
-    }
 
     // ───────────── permission ─────────────
 
@@ -780,49 +646,10 @@ object AttendanceController {
 
     data class ReportDiff(val date: LocalDate, val status: String, val companyMin: Int, val appMin: Int?, val mark: DayMark?)
 
-    /** Day-by-day comparison of the company report with this app's own records. */
-    fun compareReport(rows: List<com.attendance.tracker.core.CompanyReport.Row>): List<ReportDiff> = rows.sortedBy { it.date }.map { r ->
-        val ev = db.events(r.date.atStartOfDay(zone()).toInstant().toEpochMilli(), r.date.plusDays(1).atStartOfDay(zone()).toInstant().toEpochMilli())
-        val app = if (ev.any { it.type == EventType.CHECK_IN }) (netWorkedSec(ev, ev.maxOf { it.timeMs }, r.date) / 60).toInt() else null
-        ReportDiff(r.date, r.status, r.totalMin, app, db.dayMark(r.date.toString()))
-    }
+    internal fun clock(ms: Long) = clock(LocalDateTime.ofInstant(Instant.ofEpochMilli(ms), zone()))
+    internal fun clock(t: LocalDateTime) = "%d:%02d %s".format(if (t.hour % 12 == 0) 12 else t.hour % 12, t.minute, if (t.hour < 12) "AM" else "PM")
 
-    /** Adds the report's days that have no records in the app (IN, outside time as a break, OUT, and marks). */
-    fun importReportDays(rows: List<com.attendance.tracker.core.CompanyReport.Row>): Int {
-        val events = mutableListOf<Triple<Long, EventType, String>>()
-        val marks = mutableMapOf<String, String>()
-        val existingMarks = db.dayMarks("0000-01-01", "9999-12-31")
-        var days = 0
-        rows.filter { !it.date.isAfter(LocalDate.now().minusDays(1)) }.forEach { r ->
-            val ev = db.events(r.date.atStartOfDay(zone()).toInstant().toEpochMilli(), r.date.plusDays(1).atStartOfDay(zone()).toInstant().toEpochMilli())
-            if (ev.any { it.type == EventType.CHECK_IN || it.type == EventType.CHECK_OUT }) return@forEach
-            fun at(min: Int) = r.date.atStartOfDay(zone()).plusMinutes(min.toLong()).toInstant().toEpochMilli()
-            val src = MANUAL_PREFIX + "Imported from company report"
-            if (r.worked && r.outMin > r.inMin) {
-                events += Triple(at(r.inMin), EventType.CHECK_IN, src)
-                if (r.outsideMin > 0) {
-                    val ls = maxOf(13 * 60 + 30, r.inMin + 1).coerceAtMost(r.outMin - r.outsideMin - 1)
-                    events += Triple(at(ls), EventType.LUNCH_START, "Imported \u00b7 outside time (time of day estimated)")
-                    events += Triple(at(ls + r.outsideMin), EventType.LUNCH_END, "Imported")
-                }
-                events += Triple(at(r.outMin), EventType.CHECK_OUT, src)
-                days++
-            }
-            val mark = when (r.status) { "AA" -> DayMark.ABSENT; "HH" -> DayMark.HOLIDAY; "XA", "AX" -> DayMark.HALF_DAY; else -> null }
-            if (mark != null && r.date.toString() !in existingMarks) { marks[r.date.toString()] = mark.name; if (!r.worked) days++ }
-        }
-        if (events.isEmpty() && marks.isEmpty()) return 0
-        com.attendance.tracker.backup.BackupManager.saveLocal(app, "before-import")
-        db.importBatch(events, marks)
-        com.attendance.tracker.backup.BackupManager.backupSoon(app)
-        refresh()
-        return days
-    }
-
-    private fun clock(ms: Long) = clock(LocalDateTime.ofInstant(Instant.ofEpochMilli(ms), zone()))
-    private fun clock(t: LocalDateTime) = "%d:%02d %s".format(if (t.hour % 12 == 0) 12 else t.hour % 12, t.minute, if (t.hour < 12) "AM" else "PM")
-
-    private fun notify(id: Int, title: String, text: String) {
+    internal fun notify(id: Int, title: String, text: String) {
         val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val pi = PendingIntent.getActivity(app, 7, Intent(app, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         runCatching {
