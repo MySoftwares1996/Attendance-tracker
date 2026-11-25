@@ -190,7 +190,7 @@ private fun MonthCalendar(r: MonthReport, selected: LocalDate, onMonth: (YearMon
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Legend(c.success, "Full"); Legend(c.warning, "Short"); Legend(c.danger, "Absent"); Legend(Color(0xFF8E63E0), "Leave")
+            Legend(c.success, "Full"); Legend(c.warning, "Short"); Legend(c.danger, "Absent"); Legend(Color(0xFF8E63E0), "Leave / holiday")
         }
     }
 }
@@ -206,6 +206,8 @@ private fun MonthSummary(r: MonthReport, onPdf: () -> Unit, onCsv: () -> Unit) {
         InfoLine("Total worked", fmtDuration(r.totalSec))
         InfoLine("Overtime", fmtDuration(r.overtimeSec))
         InfoLine("Leave days", "${r.leaveDays}")
+        if (r.holidayDays > 0) InfoLine("Holidays", "${r.holidayDays}")
+        r.pay()?.let { p -> InfoLine("Estimated pay", "\u20B9 %,.0f".format(p.total), c.success) }
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             SoftButton("Share PDF", onPdf, Modifier.weight(1f))

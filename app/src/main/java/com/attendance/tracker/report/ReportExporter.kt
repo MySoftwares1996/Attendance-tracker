@@ -34,17 +34,18 @@ object ReportExporter {
         val f = File(dir(ctx), "attendance-${r.month}.csv")
         val sb = StringBuilder("﻿") // BOM so Excel reads UTF-8 correctly
         sb.append("Date,Day,First IN,Last OUT,Net worked (h:mm),Lunch (h:mm),Overtime (h:mm),Day mark,Punches\n")
-        r.days.filter { it.workedSec > 0 || it.mark != null || it.punches.isNotEmpty() }.forEach { d ->
+        r.days.filter { it.workedSec > 0 || it.mark != null || it.holiday != null || it.punches.isNotEmpty() }.forEach { d ->
             fun q(s: String) = "\"" + s.replace("\"", "\"\"") + "\""
             sb.append(listOf(
                 d.date.toString(), d.date.dayOfWeek.name.take(3), t(d.firstInMs), t(d.lastOutMs),
-                hm(d.workedSec), hm(d.lunchSec), hm(d.overtimeSec), d.mark?.label ?: "", punchList(d),
+                hm(d.workedSec), hm(d.lunchSec), hm(d.overtimeSec), d.mark?.label ?: d.holiday ?: "", punchList(d),
             ).joinToString(",") { q(it) }).append('\n')
         }
         sb.append('\n')
         sb.append("\"Days present\",${r.presentDays}\n\"Average per day\",\"${hm(r.avgSec ?: 0)}\"\n")
         sb.append("\"Total worked\",\"${hm(r.totalSec)}\"\n\"Overtime\",\"${hm(r.overtimeSec)}\"\n")
-        sb.append("\"Leave days\",${r.leaveDays}\n")
+        sb.append("\"Leave days\",${r.leaveDays}\n\"Holidays\",${r.holidayDays}\n")
+        r.pay()?.let { p -> sb.append("\"Estimated pay\",\"%.0f\"\n\"Overtime pay\",\"%.0f\"\n\"Deductions\",\"%.0f\"\n".format(p.total, p.overtimePay, p.deductions)) }
         f.writeText(sb.toString())
         share(ctx, f, "text/csv", "Attendance ${r.month.format(monthFmt)}")
     }
@@ -76,7 +77,7 @@ object ReportExporter {
                 val stats = listOf(
                     "Days present" to "${r.presentDays}", "Average / day" to hm(r.avgSec ?: 0).ifBlank { "—" },
                     "Total worked" to hm(r.totalSec).ifBlank { "0:00" }, "Overtime" to hm(r.overtimeSec).ifBlank { "0:00" },
-                    "Leave days" to "${r.leaveDays}", "Working days" to "${r.days.count { it.workedSec > 0 || it.mark != null }}",
+                    "Leave days" to "${r.leaveDays}", r.pay()?.let { "Est. pay" to "\u20B9 %,.0f".format(it.total) } ?: ("Holidays" to "${r.holidayDays}"),
                 )
                 stats.forEachIndexed { i, (k, v) ->
                     val x = M + (i % 3) * 175f; val yy = y + (i / 3) * 30f
@@ -91,14 +92,14 @@ object ReportExporter {
         }
         newPage()
         r.days.forEach { d ->
-            if (d.workedSec == 0L && d.mark == null && d.punches.isEmpty()) return@forEach
+            if (d.workedSec == 0L && d.mark == null && d.holiday == null && d.punches.isEmpty()) return@forEach
             if (y > H - M) newPage()
             val c = page!!.canvas
             val manual = d.punches.count { it.detail.startsWith(AttendanceController.MANUAL_PREFIX) }
             val cells = listOf(
                 d.date.format(dateFmt), t(d.firstInMs), t(d.lastOutMs), hm(d.workedSec), hm(d.lunchSec), hm(d.overtimeSec),
                 "",
-                listOfNotNull(d.mark?.label, if (manual > 0) "$manual manual punch${if (manual > 1) "es" else ""}" else null).joinToString(", "),
+                listOfNotNull(d.mark?.label ?: d.holiday, if (manual > 0) "$manual manual punch${if (manual > 1) "es" else ""}" else null).joinToString(", "),
             )
             cells.forEachIndexed { i, v -> c.drawText(v, cols[i], y, body) }
             y += 6; c.drawLine(M, y, W - M, y, line); y += 12

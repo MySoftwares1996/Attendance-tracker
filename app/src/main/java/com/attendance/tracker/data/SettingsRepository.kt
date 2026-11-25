@@ -181,6 +181,37 @@ class SettingsRepository(context: Context) {
     var pendingLunchOut: Long get() = prefs.getLong("pendingLunchOut", 0L); set(v) = prefs.edit().putLong("pendingLunchOut", v).apply()
     var pendingLunchIn: Long get() = prefs.getLong("pendingLunchIn", 0L); set(v) = prefs.edit().putLong("pendingLunchIn", v).apply()
 
+    // ---- holidays ----
+    /** Fixed national holidays (26 Jan, 15 Aug, 2 Oct). */
+    var holNational: Boolean get() = flag("holNational"); set(v) = setFlag("holNational", v)
+    var holNewYear: Boolean get() = flag("holNewYear", false); set(v) = setFlag("holNewYear", v)
+    var holMayDay: Boolean get() = flag("holMayDay", false); set(v) = setFlag("holMayDay", v)
+    var holChristmas: Boolean get() = flag("holChristmas", false); set(v) = setFlag("holChristmas", v)
+    /** Company / festival holidays added by the user: yyyy-MM-dd → name. */
+    var customHolidays: Map<String, String>
+        get() = runCatching {
+            val o = JSONObject(prefs.getString("holCustom", "{}")!!)
+            o.keys().asSequence().associateWith { o.getString(it) }
+        }.getOrDefault(emptyMap())
+        set(v) { val o = JSONObject(); v.forEach { (k, n) -> o.put(k, n) }; prefs.edit().putString("holCustom", o.toString()).apply() }
+
+    // ---- commute ----
+    var homeLat: Double get() = java.lang.Double.longBitsToDouble(prefs.getLong("homeLat", 0L)); set(v) = prefs.edit().putLong("homeLat", v.toRawBits()).apply()
+    var homeLng: Double get() = java.lang.Double.longBitsToDouble(prefs.getLong("homeLng", 0L)); set(v) = prefs.edit().putLong("homeLng", v.toRawBits()).apply()
+    val hasHome: Boolean get() = prefs.contains("homeLat")
+    fun clearHome() = prefs.edit().remove("homeLat").remove("homeLng").remove("atHome").apply()
+    /** null = not known yet */
+    var atHome: Boolean?
+        get() = if (prefs.contains("atHome")) prefs.getBoolean("atHome", false) else null
+        set(v) { if (v == null) prefs.edit().remove("atHome").apply() else prefs.edit().putBoolean("atHome", v).apply() }
+    var lastAtHomeMs: Long get() = prefs.getLong("lastAtHome", 0L); set(v) = prefs.edit().putLong("lastAtHome", v).apply()
+
+    // ---- pay ----
+    var monthlySalary: Float get() = prefs.getFloat("salary", 0f); set(v) = prefs.edit().putFloat("salary", v).apply()
+    var overtimeRate: Float get() = prefs.getFloat("otRate", 0f); set(v) = prefs.edit().putFloat("otRate", v).apply()
+    var deductAbsent: Boolean get() = flag("dedAbsent"); set(v) = setFlag("dedAbsent", v)
+    var deductHalfDay: Boolean get() = flag("dedHalf", false); set(v) = setFlag("dedHalf", v)
+
     /** Show the tracking notification as an Android 16 Live Update (status-bar chip / Live Alerts). */
     var liveUpdates: Boolean get() = flag("liveUpdates"); set(v) = setFlag("liveUpdates", v)
 

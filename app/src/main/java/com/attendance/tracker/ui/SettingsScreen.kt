@@ -48,6 +48,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Notifications
@@ -94,7 +96,7 @@ import java.time.DayOfWeek
 import java.util.Locale
 import java.util.UUID
 
-private enum class Page { SUMMARY, OFFICE, GATES, HOURS, LUNCH, UPDATES, ADVANCED, WIFI, BACKUP, CHECK, RESET }
+private enum class Page { SUMMARY, OFFICE, GATES, HOURS, LUNCH, UPDATES, ADVANCED, WIFI, BACKUP, CHECK, RESET, HOLIDAYS, HOME, PAY }
 
 private val WIZARD = listOf(Page.OFFICE, Page.GATES, Page.HOURS, Page.LUNCH)
 
@@ -170,7 +172,10 @@ fun SettingsScreen() {
 
     // Opened from the health notice on Today
     LaunchedEffect(UiChrome.setupPage) {
-        if (UiChrome.setupPage == "check") { wizardStep = -1; page = Page.CHECK; UiChrome.setupPage = null }
+        val target = when (UiChrome.setupPage) {
+            "check" -> Page.CHECK; "pay" -> Page.PAY; "home" -> Page.HOME; "holidays" -> Page.HOLIDAYS; else -> null
+        }
+        if (target != null) { wizardStep = -1; page = target; UiChrome.setupPage = null }
     }
 
     // Map pages are full screen: hide the bottom tabs and draw under the status bar.
@@ -216,6 +221,9 @@ fun SettingsScreen() {
                     Page.WIFI -> WifiStep()
                     Page.CHECK -> HealthStep { page = it }
                     Page.RESET -> ResetStep(onWholeReset = { wizardStep = 0; page = Page.SUMMARY })
+                    Page.HOLIDAYS -> HolidaysStep()
+                    Page.HOME -> HomeStep()
+                    Page.PAY -> PayStep()
                     Page.BACKUP -> BackupStep()
                 }
                 if (inWizard) {
@@ -346,6 +354,19 @@ private fun Summary(s: AppSettings, open: (Page) -> Unit) {
             "${hoursLabel(sc.netMinutes).removeSuffix(" per day")} net + ${sc.maxLunchMinutes}m lunch · ${daysLabel(sc.workDays)}", true) { open(Page.HOURS) }
         Divider()
         SummaryRow(painterResource(R.drawable.ic_lunch), "Lunch", "${sc.maxLunchMinutes} min per day", true) { open(Page.LUNCH) }
+        Divider()
+        val stg = AttendanceController.settings
+        val nextHol = remember { com.attendance.tracker.data.Holidays.upcoming(days = 120).firstOrNull() }
+        SummaryRow(rememberVectorPainter(Icons.Filled.DateRange), "Holidays",
+            nextHol?.let { "Next: ${it.second} \u00b7 ${it.first.dayOfMonth} ${it.first.month.getDisplayName(java.time.format.TextStyle.SHORT, Locale.getDefault())}" }
+                ?: "Add your company's holiday list", true) { open(Page.HOLIDAYS) }
+        Divider()
+        SummaryRow(rememberVectorPainter(Icons.Filled.Home), "Home (commute)",
+            if (stg.hasHome) "Set \u00b7 commute is measured" else "Optional \u00b7 measure travel time", stg.hasHome) { open(Page.HOME) }
+        Divider()
+        SummaryRow(painterResource(R.drawable.ic_shield), "Salary & overtime",
+            if (stg.monthlySalary > 0f) "\u20B9 %,.0f / month \u00b7 OT \u20B9 %,.0f / h".format(stg.monthlySalary, stg.overtimeRate) else "Optional \u00b7 see estimated pay",
+            stg.monthlySalary > 0f) { open(Page.PAY) }
         Divider()
         val wifi = AttendanceController.settings.officeWifi
         SummaryRow(painterResource(R.drawable.ic_target), "Office Wi-Fi",
@@ -819,6 +840,161 @@ private fun LunchStep(s: AppSettings) {
                 "Your net hours stay the same (${hoursLabel(s.schedule.netMinutes).removeSuffix(" per day")}).",
             style = MaterialTheme.typography.bodyMedium, color = c.textSecondary,
         )
+    }
+}
+
+// ───────────────────────────── holidays ─────────────────────────────
+
+@Composable
+private fun HolidaysStep() {
+    val ctx = LocalContext.current
+    val c = Soft.colors
+    val st = AttendanceController.settings
+    var tick by remember { mutableIntStateOf(0) }
+    var national by remember { mutableStateOf(st.holNational) }
+    var newYear by remember { mutableStateOf(st.holNewYear) }
+    var mayDay by remember { mutableStateOf(st.holMayDay) }
+    var xmas by remember { mutableStateOf(st.holChristmas) }
+    var paste by remember { mutableStateOf("") }
+    var addName by remember { mutableStateOf("") }
+    val custom = remember(tick) { st.customHolidays.toSortedMap() }
+    fun changed() { tick++; AttendanceController.refresh() }
+
+    StepTitle("Holidays", "These days count as days off \u2014 never absent.")
+    SoftCard {
+        CardHeader(rememberVectorPainter(Icons.Filled.DateRange), "Fixed public holidays")
+        Spacer(Modifier.height(6.dp))
+        SoftSwitchRow("National holidays", "26 Jan Republic Day \u00b7 15 Aug Independence Day \u00b7 2 Oct Gandhi Jayanti", national) { national = it; st.holNational = it; changed() }
+        SoftSwitchRow("New Year (1 Jan)", null, newYear) { newYear = it; st.holNewYear = it; changed() }
+        SoftSwitchRow("May Day (1 May)", null, mayDay) { mayDay = it; st.holMayDay = it; changed() }
+        SoftSwitchRow("Christmas (25 Dec)", null, xmas) { xmas = it; st.holChristmas = it; changed() }
+        Text("Festivals like Pongal, Diwali, Holi or Eid fall on different dates each year \u2014 add them below from your company's list.",
+            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+    }
+    SoftCard {
+        CardHeader(rememberVectorPainter(Icons.Filled.Add), "Add a holiday")
+        Spacer(Modifier.height(10.dp))
+        SoftField("Name (e.g. Pongal)", addName, keyboard = KeyboardType.Text) { addName = it }
+        Spacer(Modifier.height(10.dp))
+        SoftButton("Pick date & add", {
+            val now = java.time.LocalDate.now()
+            android.app.DatePickerDialog(ctx, { _, y, m, d ->
+                val date = java.time.LocalDate.of(y, m + 1, d)
+                st.customHolidays = st.customHolidays + (date.toString() to addName.ifBlank { "Holiday" }.trim())
+                addName = ""; changed()
+                Toast.makeText(ctx, "Holiday added", Toast.LENGTH_SHORT).show()
+            }, now.year, now.monthValue - 1, now.dayOfMonth).show()
+        }, icon = rememberVectorPainter(Icons.Filled.DateRange))
+    }
+    SoftCard {
+        CardHeader(rememberVectorPainter(Icons.Filled.Edit), "Paste your company's list", "One per line, e.g. 14-01-2027 Pongal")
+        Spacer(Modifier.height(10.dp))
+        androidx.compose.material3.OutlinedTextField(
+            value = paste, onValueChange = { paste = it }, minLines = 4, maxLines = 10,
+            placeholder = { Text("14-01-2027 Pongal\n29-10-2027 Diwali\n2027-03-22 Holi") },
+            shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(10.dp))
+        SoftGhostButton("Import list", {
+            val list = com.attendance.tracker.core.Insights.parseHolidays(paste)
+            if (list.isEmpty()) Toast.makeText(ctx, "No dates found \u2014 use e.g. 14-01-2027 Pongal", Toast.LENGTH_LONG).show()
+            else {
+                st.customHolidays = st.customHolidays + list.associate { (d, n) -> d.toString() to n }
+                paste = ""; changed()
+                Toast.makeText(ctx, "${list.size} holidays added", Toast.LENGTH_SHORT).show()
+            }
+        })
+    }
+    if (custom.isNotEmpty()) SoftCard(padding = 12.dp) {
+        Text("Your holidays", Modifier.padding(4.dp), style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+        custom.forEach { (date, name) ->
+            Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(name, style = MaterialTheme.typography.bodyLarge, color = c.textPrimary)
+                    Text(runCatching { java.time.LocalDate.parse(date).format(java.time.format.DateTimeFormatter.ofPattern("EEE, d MMM yyyy")) }.getOrDefault(date),
+                        style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+                }
+                RoundIcon(rememberVectorPainter(Icons.Filled.Close), "Remove") { st.customHolidays = st.customHolidays - date; changed() }
+            }
+        }
+    }
+}
+
+// ───────────────────────────── home (commute) ─────────────────────────────
+
+@Composable
+private fun HomeStep() {
+    val ctx = LocalContext.current
+    val c = Soft.colors
+    val scope = rememberCoroutineScope()
+    val st = AttendanceController.settings
+    var home by remember { mutableStateOf(if (st.hasHome) LatLng(st.homeLat, st.homeLng) else null) }
+    var seq by remember { mutableIntStateOf(if (st.hasHome) 1 else 0) }
+    var capturing by remember { mutableStateOf(false) }
+    fun save(p: LatLng) {
+        st.homeLat = p.lat; st.homeLng = p.lng; st.atHome = null
+        home = p; seq++
+        Toast.makeText(ctx, "Home saved", Toast.LENGTH_SHORT).show()
+    }
+    StepTitle("Home (commute)", "Used only to measure your travel time. It stays on this phone.")
+    OfficeMap(
+        modifier = Modifier.fillMaxWidth().height(320.dp),
+        corners = st.settings.value.office?.polygon ?: emptyList(),
+        gates = emptyList(),
+        editableCorners = false,
+        focus = home, focusSeq = seq,
+        onTap = { p -> save(p) },
+    )
+    Text(if (home == null) "Tap your home on the map, or use your current location." else "Tap the map to move your home pin.",
+        style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
+    SoftButton(if (capturing) "Getting location\u2026" else "I'm at home now", {
+        if (!AttendanceController.hasFineLocation(ctx)) return@SoftButton
+        capturing = true
+        scope.launch {
+            val r = LocationCapture.capture(ctx, durationMs = 10_000L, maxAccuracyM = 40f)
+            capturing = false
+            if (r == null) Toast.makeText(ctx, "Couldn't get GPS \u2014 tap the map instead", Toast.LENGTH_LONG).show()
+            else save(LatLng(r.point.lat, r.point.lng))
+        }
+    }, enabled = !capturing, icon = rememberVectorPainter(Icons.Filled.Home))
+    if (home != null) SoftGhostButton("Remove home", { st.clearHome(); home = null }, tint = c.danger, background = c.dangerSoft)
+}
+
+// ───────────────────────────── pay ─────────────────────────────
+
+@Composable
+private fun PayStep() {
+    val c = Soft.colors
+    val st = AttendanceController.settings
+    var salary by remember { mutableStateOf(if (st.monthlySalary > 0f) "%.0f".format(st.monthlySalary) else "") }
+    var rate by remember { mutableStateOf(if (st.overtimeRate > 0f) "%.0f".format(st.overtimeRate) else "") }
+    var dedAbsent by remember { mutableStateOf(st.deductAbsent) }
+    var dedHalf by remember { mutableStateOf(st.deductHalfDay) }
+    val suggested = salary.toFloatOrNull()?.let { s -> s / 26f / (st.settings.value.schedule.netMinutes / 60f) }
+
+    StepTitle("Salary & overtime", "Used only for your estimated pay in Insights. Stays on this phone.")
+    SoftCard {
+        SoftField("Monthly salary (\u20B9)", salary) {
+            salary = it.filter { ch -> ch.isDigit() || ch == '.' }; st.monthlySalary = salary.toFloatOrNull() ?: 0f
+        }
+        Spacer(Modifier.height(12.dp))
+        SoftField("Overtime pay per hour (\u20B9)", rate) {
+            rate = it.filter { ch -> ch.isDigit() || ch == '.' }; st.overtimeRate = rate.toFloatOrNull() ?: 0f
+        }
+        if (suggested != null && rate.isBlank()) {
+            Spacer(Modifier.height(8.dp))
+            MiniAction("Use your hourly rate: \u20B9 %.0f / h".format(suggested)) {
+                rate = "%.0f".format(suggested); st.overtimeRate = suggested
+            }
+        }
+        Text("Overtime = net time beyond your daily target.", Modifier.padding(top = 8.dp),
+            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+    }
+    SoftCard {
+        CardHeader(rememberVectorPainter(Icons.Filled.Settings), "Deductions")
+        SoftSwitchRow("Deduct absent days", "A working day with no punches and no leave mark", dedAbsent) { dedAbsent = it; st.deductAbsent = it }
+        SoftSwitchRow("Deduct half for half days", null, dedHalf) { dedHalf = it; st.deductHalfDay = it }
+        Text("Leave, sick leave, WFH and holidays are treated as paid.", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
     }
 }
 

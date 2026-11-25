@@ -23,6 +23,8 @@ data class DayReport(
     val mark: DayMark?,
     val state: DayState,
     val punches: List<AttendanceEvent>,
+    /** Public / company holiday name, if any. */
+    val holiday: String? = null,
 )
 
 data class MonthReport(
@@ -35,7 +37,22 @@ data class MonthReport(
     val lateDays: Int,
     val leaveDays: Int,
     val targetSec: Long,
-)
+    val holidayDays: Int = 0,
+    /** Days you're expected to work this month (work days minus holidays) — basis for one day's pay. */
+    val workingDays: Int = 0,
+    val absentDays: Int = 0,
+    val halfDays: Int = 0,
+) {
+    /** Estimated pay with the user's pay rules, or null when no salary is set. */
+    fun pay(): com.attendance.tracker.core.Insights.Pay? {
+        val s = AttendanceController.settings
+        if (s.monthlySalary <= 0f) return null
+        return com.attendance.tracker.core.Insights.pay(
+            com.attendance.tracker.core.Insights.PayRules(s.monthlySalary.toDouble(), s.overtimeRate.toDouble(), s.deductAbsent, s.deductHalfDay),
+            workingDays, overtimeSec, absentDays, halfDays,
+        )
+    }
+}
 
 /** Builds the month view / report from the attendance log. */
 object MonthReports {
@@ -61,14 +78,15 @@ object MonthReports {
                 if (it.type == EventType.LUNCH_END) { open?.let { s -> lunch += (it.timeMs - s) / 1000 }; open = null }
             }
             val mark = marks[date.toString()]
+            val holiday = if (mark == null) com.attendance.tracker.data.Holidays.name(date) else null
             val required = (if (mark == DayMark.HALF_DAY) sched.netMinutes / 2 else sched.netMinutes) * 60L
             val firstIn = punches.firstOrNull { it.type == EventType.CHECK_IN }?.timeMs
             val lastOut = punches.lastOrNull { it.type == EventType.CHECK_OUT }?.timeMs
             val late = false // no arrival deadline: the day starts whenever you arrive
-            val workDay = date.dayOfWeek in sched.workDays
+            val workDay = date.dayOfWeek in sched.workDays && holiday == null
             val state = when {
                 date.isAfter(today) -> DayState.FUTURE
-                mark?.fullDayOff == true -> DayState.LEAVE
+                mark?.fullDayOff == true || (holiday != null && worked == 0L) -> DayState.LEAVE
                 worked == 0L && date == today -> DayState.TODAY
                 worked == 0L -> if (workDay) DayState.ABSENT else DayState.OFF
                 late -> DayState.LATE
@@ -77,7 +95,7 @@ object MonthReports {
                 else -> DayState.OK
             }
             DayReport(date, firstIn, lastOut, worked, lunch, if (worked > 0) (worked - required).coerceAtLeast(0) else 0,
-                late, mark, state, punches)
+                late, mark, state, punches, holiday)
         }
         val workedDays = days.filter { it.workedSec > 0 }
         return MonthReport(
@@ -89,6 +107,10 @@ object MonthReports {
             lateDays = days.count { it.late },
             leaveDays = days.count { it.mark?.fullDayOff == true },
             targetSec = sched.netMinutes * 60L,
+            holidayDays = days.count { it.holiday != null && it.date.dayOfWeek in sched.workDays },
+            workingDays = days.count { it.date.dayOfWeek in sched.workDays && it.holiday == null },
+            absentDays = days.count { it.state == DayState.ABSENT },
+            halfDays = days.count { it.mark == DayMark.HALF_DAY },
         )
     }
 }

@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -152,6 +153,7 @@ private fun MainContent() {
             when (t) {
                 0 -> DashboardScreen(onOpenSetup = { tab = 2 })
                 1 -> HistoryScreen()
+                3 -> InsightsScreen(onOpenSetup = { page -> UiChrome.setupPage = page; tab = 2 })
                 else -> SettingsScreen()
             }
         }
@@ -198,6 +200,7 @@ private fun SoftNavBar(selected: Int, onSelect: (Int) -> Unit, modifier: Modifie
     ) {
         NavItem(Icons.Filled.Home, "Today", selected == 0, Modifier.weight(1f)) { onSelect(0) }
         NavItem(Icons.Filled.DateRange, "History", selected == 1, Modifier.weight(1f)) { onSelect(1) }
+        NavItem(Icons.Filled.Star, "Insights", selected == 3, Modifier.weight(1f)) { onSelect(3) }
         NavItem(Icons.Filled.Settings, "Setup", selected == 2, Modifier.weight(1f)) { onSelect(2) }
     }
 }

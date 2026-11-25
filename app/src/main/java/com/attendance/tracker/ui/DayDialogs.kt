@@ -88,9 +88,10 @@ fun DayMarkDialog(day: LocalDate, onDismiss: () -> Unit) {
 
 /** Add an IN / OUT the phone missed, with a reason. Saved as a clearly labelled manual punch. */
 @Composable
-fun ManualPunchDialog(day: LocalDate, onDismiss: () -> Unit) {
+fun ManualPunchDialog(initialDay: LocalDate, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     val c = Soft.colors
+    var day by remember { mutableStateOf(initialDay) }
     var isIn by remember { mutableStateOf(true) }
     val nowT = LocalDateTime.now()
     var minutes by remember { mutableIntStateOf(if (day == nowT.toLocalDate()) nowT.hour * 60 + nowT.minute else 9 * 60) }
@@ -100,7 +101,21 @@ fun ManualPunchDialog(day: LocalDate, onDismiss: () -> Unit) {
         title = { Text("Add missed punch") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text(day.format(dayTitle), style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
+                // Date: tap to pick any past day (not the future)
+                Column(
+                    Modifier.fillMaxWidth().clip(Soft.tileShape).background(c.accentSoft)
+                        .pressScale {
+                            android.app.DatePickerDialog(ctx, { _, y, m, d -> day = LocalDate.of(y, m + 1, d) },
+                                day.year, day.monthValue - 1, day.dayOfMonth).apply {
+                                datePicker.maxDate = System.currentTimeMillis()
+                            }.show()
+                        }
+                        .padding(16.dp),
+                ) {
+                    Text("Date", style = MaterialTheme.typography.labelMedium, color = c.accent)
+                    Text(if (day == LocalDate.now()) "Today \u00b7 " + day.format(dayTitle) else day.format(dayTitle),
+                        style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+                }
                 Row(Modifier.fillMaxWidth().height(48.dp).clip(Soft.pillShape).background(c.cardMuted).padding(4.dp)) {
                     listOf(true to "IN", false to "OUT").forEach { (v, label) ->
                         val sel = v == isIn

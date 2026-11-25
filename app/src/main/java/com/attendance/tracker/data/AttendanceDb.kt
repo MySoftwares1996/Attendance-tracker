@@ -14,6 +14,8 @@ enum class EventType(val label: String) {
     TRACKING("Tracking"),
     DUTY_START("On duty"),
     DUTY_END("Back from duty"),
+    LEFT_HOME("Left home"),
+    REACHED_HOME("Reached home"),
 }
 
 data class AttendanceEvent(

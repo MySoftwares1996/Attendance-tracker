@@ -148,6 +148,7 @@ object AttendanceController {
     @Synchronized
     fun onLocation(sample: LocationSample, nowMs: Long = System.currentTimeMillis()) {
         val s = settings.settings.value
+        trackHome(sample)
         val res = engine.process(sample, s.office, s.accuracy, nowMs, onOfficeWifi = officeWifiSince > 0)
         var st = _state.value.copy(lastFix = sample)
         when (res) {
@@ -248,6 +249,35 @@ object AttendanceController {
         return wasOn && !connected && engine.presence == Presence.INSIDE
     }
 
+    // ───────────── commute (home → office) ─────────────
+
+    /** Notes when you leave home and get back, to measure travel time. */
+    private fun trackHome(sample: LocationSample) {
+        if (!settings.hasHome || sample.isMock || sample.accuracyM > 60f) return
+        val d = com.attendance.tracker.core.GeoMath.distanceM(sample.lat, sample.lng, settings.homeLat, settings.homeLng)
+        val was = settings.atHome
+        if (d <= 120) {
+            if (was == false) db.insertEvent(sample.timeMs, EventType.REACHED_HOME, "Reached home")
+            if (was != true) settings.atHome = true
+            settings.lastAtHomeMs = sample.timeMs
+        } else if (d > 250) {
+            // Left: timed at the last moment you were seen at home.
+            if (was == true) db.insertEvent(settings.lastAtHomeMs.takeIf { it > 0 } ?: sample.timeMs, EventType.LEFT_HOME, "Left home")
+            if (was != false) settings.atHome = false
+        }
+    }
+
+    /** Today's (or [day]'s) morning commute in minutes and the departure time, if known. */
+    fun commute(day: LocalDate): Pair<Long, Long>? {
+        val from = day.atStartOfDay(zone()).toInstant().toEpochMilli()
+        val to = day.plusDays(1).atStartOfDay(zone()).toInstant().toEpochMilli()
+        val ev = db.events(from - 6 * 3_600_000L, to)
+        val firstIn = ev.firstOrNull { it.type == EventType.CHECK_IN && it.timeMs >= from }?.timeMs ?: return null
+        val lefts = ev.filter { it.type == EventType.LEFT_HOME }.map { it.timeMs }
+        val min = com.attendance.tracker.core.Insights.commuteMinutes(lefts, firstIn) ?: return null
+        return min to lefts.filter { it < firstIn }.max()
+    }
+
     /** True while the engine is confirming a possible punch (service polls faster). */
     val pendingChange: Boolean get() = engine.hasPendingChange
 
@@ -301,7 +331,10 @@ object AttendanceController {
         var sched = settings.settings.value.schedule
         if (mark == DayMark.HALF_DAY) sched = sched.copy(netMinutes = sched.netMinutes / 2, maxLunchMinutes = 0)
         val p = DayPlanner.plan(now, sched, ::firstCheckIn) { lunchTakenSec(it, nowMs) }
-        return if (mark?.fullDayOff == true) p.copy(workDay = false, dayOff = mark.label) else p
+        if (mark?.fullDayOff == true) return p.copy(workDay = false, dayOff = mark.label)
+        // Public / company holiday (a day mark set by you always wins)
+        if (mark == null) com.attendance.tracker.data.Holidays.name(now.toLocalDate())?.let { return p.copy(workDay = false, dayOff = "Holiday \u00b7 $it") }
+        return p
     }
 
     fun dayMark(day: LocalDate): DayMark? = db.dayMark(day.toString())

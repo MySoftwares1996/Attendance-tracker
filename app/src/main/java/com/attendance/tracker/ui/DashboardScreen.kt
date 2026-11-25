@@ -538,6 +538,10 @@ private fun LiveAnalysis(
                 else -> Triple("🌅", "Arrived right on your usual time ($usual)", c.success)
             }
         }
+        // commute
+        AttendanceController.commute(LocalDate.now())?.let { (min, left) ->
+            insights += Triple("\uD83D\uDE97", "Commute today $min min \u00b7 left home ${clock12(left)}", c.textSecondary)
+        }
         // 4. lunch
         if (plan?.start != null && plan.dayOff == null) {
             val taken = plan.lunchTakenSec
