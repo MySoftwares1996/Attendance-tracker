@@ -11,6 +11,7 @@ class EarlyLeaveReceiver : BroadcastReceiver() {
             USE_PERMISSION -> AttendanceController.usePermissionForEarlyLeave(intent.getIntExtra(EXTRA_MIN, 0))
             ON_DUTY -> AttendanceController.earlyLeaveOnDuty()
             DISMISS -> AttendanceController.dismissEarlyLeave()
+            RECORD_IN -> AttendanceController.recordInNow()
         }
     }
 
@@ -19,5 +20,6 @@ class EarlyLeaveReceiver : BroadcastReceiver() {
         const val ON_DUTY = "com.attendance.tracker.EARLY_DUTY"
         const val DISMISS = "com.attendance.tracker.EARLY_DISMISS"
         const val EXTRA_MIN = "min"
+        const val RECORD_IN = "com.attendance.tracker.MORNING_IN"
     }
 }

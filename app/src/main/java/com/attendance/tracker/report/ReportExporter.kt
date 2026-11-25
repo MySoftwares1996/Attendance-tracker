@@ -83,7 +83,9 @@ object ReportExporter {
                 val stats = listOf(
                     "Days present" to "${r.presentDays}", "Average / day" to hm(r.avgSec ?: 0).ifBlank { "—" },
                     "Total worked" to hm(r.totalSec).ifBlank { "0:00" }, "Overtime" to hm(r.overtimeSec).ifBlank { "0:00" },
-                    "Leave days" to "${r.leaveDays}", r.payslip()?.let { "Take-home" to "\u20B9 %,.0f".format(it.net) } ?: ("Holidays" to "${r.holidayDays}"),
+                    "Leave days" to "${r.leaveDays}", "Absent days" to "${r.absentDays}", "Half days" to "${r.halfDays}",
+                    "Permission used" to (hm(r.permissionMin * 60L).ifBlank { "0:00" }), "Holidays" to "${r.holidayDays}",
+                    r.payslip()?.let { "Take-home (est.)" to "\u20B9 %,.0f".format(it.net) } ?: ("Working days" to "${r.workingDays}"),
                 )
                 stats.forEachIndexed { i, (k, v) ->
                     val x = M + (i % 3) * 175f; val yy = y + (i / 3) * 30f
@@ -91,21 +93,25 @@ object ReportExporter {
                     c.drawText(v, x, yy + 13, title.apply { textSize = 13f })
                 }
                 title.textSize = 18f
-                y += 72
+                y += 102
             }
             headers.forEachIndexed { i, h -> c.drawText(h.uppercase(), cols[i], y, head) }
             y += 6; c.drawLine(M, y, W - M, y, line); y += 13
         }
         newPage()
         r.days.forEach { d ->
-            if (d.workedSec == 0L && d.mark == null && d.holiday == null && d.punches.isEmpty()) return@forEach
+            if (d.workedSec == 0L && d.mark == null && d.holiday == null && d.punches.isEmpty() &&
+                d.state != com.attendance.tracker.report.DayState.ABSENT) return@forEach
             if (y > H - M) newPage()
             val c = page!!.canvas
             val manual = d.punches.count { it.detail.startsWith(AttendanceController.MANUAL_PREFIX) }
             val cells = listOf(
                 d.date.format(dateFmt), t(d.firstInMs), t(d.lastOutMs), hm(d.workedSec), hm(d.lunchSec), hm(d.overtimeSec),
                 "",
-                listOfNotNull(d.mark?.label ?: d.holiday, if (manual > 0) "$manual manual punch${if (manual > 1) "es" else ""}" else null).joinToString(", "),
+                listOfNotNull(d.mark?.label ?: d.holiday,
+                    if (d.permissionMin > 0) "Permission ${hm(d.permissionMin * 60L)}" else null,
+                    if (d.state == com.attendance.tracker.report.DayState.ABSENT && d.mark == null) "Absent" else null,
+                    if (manual > 0) "$manual manual punch${if (manual > 1) "es" else ""}" else null).joinToString(", "),
             )
             cells.forEachIndexed { i, v -> c.drawText(v, cols[i], y, body) }
             y += 6; c.drawLine(M, y, W - M, y, line); y += 12

@@ -1,6 +1,8 @@
 package com.attendance.tracker.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
@@ -96,9 +98,24 @@ private val AppTypography = Typography(
     labelSmall = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.8.sp),
 )
 
+/** Theme choice: 0 follow phone, 1 light, 2 dark, 3 dark from 7 PM to 7 AM. */
+object ThemeMode {
+    var mode by androidx.compose.runtime.mutableIntStateOf(0)
+}
+
 @Composable
 fun AttendanceTheme(content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
+    val system = isSystemInDarkTheme()
+    // Re-check the clock every minute for the evening schedule.
+    val hour by androidx.compose.runtime.produceState(java.time.LocalTime.now().hour) {
+        while (true) { kotlinx.coroutines.delay(60_000); value = java.time.LocalTime.now().hour }
+    }
+    val dark = when (ThemeMode.mode) {
+        1 -> false
+        2 -> true
+        3 -> hour >= 19 || hour < 7
+        else -> system
+    }
     val soft = if (dark) DarkSoft else LightSoft
     val scheme = if (dark) darkColorScheme(
         primary = soft.accent, onPrimary = Color(0xFF0E1016),

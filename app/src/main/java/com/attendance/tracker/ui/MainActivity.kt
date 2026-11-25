@@ -122,6 +122,7 @@ class MainActivity : ComponentActivity() {
 
     /** Google Maps → Share → Attendance Tracker. */
     private fun handleShare(intent: android.content.Intent?) {
+        intent?.getStringExtra("openSetupPage")?.let { UiChrome.setupPage = it; UiChrome.requestTab = 2; intent.removeExtra("openSetupPage"); return }
         // An import file opened or shared into the app (e.g. from WhatsApp, Files or Drive).
         val stream: android.net.Uri? = when (intent?.action) {
             android.content.Intent.ACTION_VIEW -> intent.data

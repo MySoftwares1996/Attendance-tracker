@@ -200,7 +200,9 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
     var punchOpen by remember { mutableStateOf(false) }
     var dutyOpen by remember { mutableStateOf(false) }
     var permOpen by remember { mutableStateOf(false) }
+    var planOpen by remember { mutableStateOf(false) }
     if (permOpen) PermissionDialog(LocalDate.now()) { permOpen = false }
+    if (planOpen) LeaveByDialog { planOpen = false }
     if (markOpen) DayMarkDialog(LocalDate.now()) { markOpen = false }
     if (punchOpen) ManualPunchDialog(LocalDate.now()) { punchOpen = false }
     if (dutyOpen) DutyReasonDialog(onPick = { AttendanceController.confirmPendingDuty(it); dutyOpen = false }, onDismiss = { dutyOpen = false })
@@ -294,6 +296,7 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
             val permToday = AttendanceController.permissionMin(LocalDate.now())
             ActionChip(if (permToday > 0) "⏱  Permission ${if (permToday % 60 == 0) "${permToday / 60}h" else "${permToday / 60}h ${permToday % 60}m"}" else "⏱  Permission",
                 Color(0xFF0E8C8C), Color(0x1F0E8C8C)) { permOpen = true }
+            ActionChip("\uD83D\uDEAA  Leave by\u2026", c.warning, c.warningSoft) { planOpen = true }
             ActionChip("📅  ${if (plan?.dayOff != null) plan.dayOff else "Mark today"}", c.accent, c.accentSoft) { markOpen = true }
             ActionChip("✎  Missed punch", c.accent, c.accentSoft) { punchOpen = true }
             ActionChip("↪  Share today", c.success, c.successSoft) {
@@ -571,10 +574,19 @@ private fun LiveAnalysis(
         val weekTarget = week.count { it.first.dayOfWeek in workDays } * stats.targetSec
         if (weekTarget > 0) insights += Triple("📈",
             "This week ${fmtDuration(weekWorked)} of ${fmtDuration(weekTarget)} (${(weekWorked * 100 / weekTarget)}%)", c.accent)
+        // 5b. weekly balance: extra time on earlier days offsets today
+        val balance = remember(LocalDate.now(), st.today.punches.size) { AttendanceController.weekBalanceSec() }
+        if (kotlin.math.abs(balance) >= 60) {
+            val end = plan?.expectedEnd
+            insights += if (balance > 0) Triple("\u2696", "Week balance +${fmtDuration(balance)}" +
+                (if (end != null && plan?.dayOff == null) " \u00b7 you could leave at ${clock12(end.minusSeconds(balance))} and still be even" else ""), c.success)
+            else Triple("\u2696", "Week balance \u2212${fmtDuration(-balance)} \u00b7 stay a little longer this week to catch up", c.warning)
+        }
         // 6. average
         stats.avgSec?.let { insights += Triple("⚖", "30-day average ${fmtDuration(it)} net per day · target ${fmtDuration(stats.targetSec)}",
             if (it >= stats.targetSec) c.success else c.warning) }
 
+        PermissionMeter { permOpen = true }
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             insights.forEach { (icon, text, color) ->
                 Row(
@@ -788,4 +800,83 @@ private fun LocationCard(st: com.attendance.tracker.LiveState, maxAcc: Float, no
         InfoLine("Last check", last?.let { "${((nowMs - it) / 1000).coerceAtLeast(0)}s ago" } ?: "—")
         st.lastGateUsed?.let { InfoLine("Last gate used", it) }
     }
+}
+
+/** "Permission: 1h 30m of 2h left" with a small bar; tap to use or change it. */
+@Composable
+private fun PermissionMeter(onClick: () -> Unit) {
+    val c = Soft.colors
+    val today = LocalDate.now()
+    val allowance = AttendanceController.settings.permissionMonthMin
+    if (allowance <= 0) return
+    val used = AttendanceController.settings.permissionUsedInMonth(today.toString())
+    val left = (allowance - used).coerceAtLeast(0)
+    val teal = Color(0xFF0E8C8C)
+    Column(Modifier.fillMaxWidth().clip(Soft.tileShape).background(teal.copy(alpha = 0.08f)).pressScale(onClick).padding(horizontal = 12.dp, vertical = 10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("\u23F1", Modifier.width(26.dp), style = MaterialTheme.typography.titleSmall)
+            Text("Permission this month: ${fmtDuration(left * 60L)} left of ${fmtDuration(allowance * 60L)}",
+                Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = c.textPrimary)
+        }
+        Spacer(Modifier.height(6.dp))
+        Box(Modifier.fillMaxWidth().height(6.dp).clip(Soft.pillShape).background(c.cardMuted)) {
+            if (used > 0) Box(Modifier.fillMaxWidth((used.toFloat() / allowance).coerceIn(0f, 1f)).height(6.dp).clip(Soft.pillShape)
+                .background(if (left == 0) c.danger else teal))
+        }
+    }
+}
+
+/** "Leave by" planner: pick a time and see whether it works, and what permission it would need. */
+@Composable
+private fun LeaveByDialog(onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    val c = Soft.colors
+    val today = LocalDate.now()
+    val nowT = java.time.LocalDateTime.now()
+    val end = AttendanceController.state.value.plan?.expectedEnd
+    var minutes by remember { mutableStateOf(((end ?: nowT.plusHours(1)).let { it.hour * 60 + it.minute }).coerceAtMost(23 * 60 + 59)) }
+    val atMs = today.atStartOfDay(java.time.ZoneId.systemDefault()).plusMinutes(minutes.toLong()).toInstant().toEpochMilli()
+    val net = AttendanceController.projectedNetAt(atMs)
+    val target = AttendanceController.netTargetSec(today)
+    val short = (target - net).coerceAtLeast(0)
+    val balance = remember { AttendanceController.weekBalanceSec() }
+    val permLeft = AttendanceController.permissionLeftMin(today) - AttendanceController.permissionMin(today)
+    val needMin = (((short + 59) / 60 + 29) / 30 * 30).toInt()
+    fun clk(m: Int) = "%d:%02d %s".format(if ((m / 60) % 12 == 0) 12 else (m / 60) % 12, m % 60, if (m < 720) "AM" else "PM")
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Leave by\u2026") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    Modifier.fillMaxWidth().clip(Soft.tileShape).background(c.accentSoft)
+                        .pressScale { android.app.TimePickerDialog(ctx, { _, h, m -> minutes = h * 60 + m }, minutes / 60, minutes % 60, false).show() }
+                        .padding(14.dp),
+                ) {
+                    Text("I want to leave at", style = MaterialTheme.typography.labelMedium, color = c.accent)
+                    Text(clk(minutes), style = MaterialTheme.typography.headlineSmall, color = c.textPrimary)
+                }
+                Text("Net by then: ${fmtDuration(net)} of ${fmtDuration(target)}", style = MaterialTheme.typography.bodyMedium, color = c.textPrimary)
+                Text(
+                    when {
+                        short == 0L -> "\u2705 That works \u2014 your hours are complete by then."
+                        balance >= short -> "\u2696 ${fmtDuration(short)} short, but your week balance (+${fmtDuration(balance)}) covers it."
+                        permLeft >= needMin -> "\u23F1 ${fmtDuration(short)} short \u2014 use ${fmtDuration(needMin * 60L)} permission (${fmtDuration(permLeft * 60L)} left), or arrive ${fmtDuration(short)} earlier tomorrow."
+                        else -> "\u26A0 ${fmtDuration(short)} short and only ${fmtDuration(permLeft.coerceAtLeast(0) * 60L)} permission left. Stay until ${end?.let { clk(it.hour * 60 + it.minute) } ?: "your logout"}."
+                    },
+                    style = MaterialTheme.typography.bodyMedium, color = if (short == 0L) c.success else c.textPrimary,
+                )
+            }
+        },
+        confirmButton = {
+            if (short > 0 && balance < short && permLeft >= needMin) TextButton(onClick = {
+                AttendanceController.setPermission(today, AttendanceController.permissionMin(today) + needMin)
+                Toast.makeText(ctx, "${fmtDuration(needMin * 60L)} permission added \u00b7 logout moved earlier", Toast.LENGTH_LONG).show()
+                onDismiss()
+            }) { Text("Use ${fmtDuration(needMin * 60L)} permission") }
+            else TextButton(onClick = onDismiss) { Text("OK") }
+        },
+        dismissButton = { if (short > 0 && balance < short && permLeft >= needMin) TextButton(onClick = onDismiss) { Text("Cancel") } },
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp), containerColor = c.card,
+    )
 }

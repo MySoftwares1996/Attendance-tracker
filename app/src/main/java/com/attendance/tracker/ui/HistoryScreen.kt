@@ -158,6 +158,10 @@ fun HistoryScreen() {
                     Text("Days before you started using the app: set them Present or Absent in one go.",
                         style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
                     Spacer(Modifier.height(8.dp))
+                    var cmpOpen by remember { mutableStateOf(false) }
+                    if (cmpOpen) CompanyCompareDialog { cmpOpen = false; markTick++ }
+                    MiniAction("\u21C4 Compare with company report") { cmpOpen = true }
+                    Spacer(Modifier.height(6.dp))
                     MiniAction("⬇ Import records file") { importer.launch(arrayOf("application/json", "application/octet-stream", "text/*", "*/*")) }
                 }
             }
@@ -267,7 +271,7 @@ private fun MonthSummary(r: MonthReport, onPdf: () -> Unit, onCsv: () -> Unit) {
         r.payslip()?.let { p -> InfoLine("Take-home (estimate)", "\u20B9 %,.0f".format(p.net), c.success) }
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SoftButton("Share PDF", onPdf, Modifier.weight(1f))
+            SoftButton("HR report (PDF)", onPdf, Modifier.weight(1f))
             SoftGhostButton("Excel (CSV)", onCsv, Modifier.weight(1f))
         }
     }

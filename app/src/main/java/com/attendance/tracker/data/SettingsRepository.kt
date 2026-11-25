@@ -181,6 +181,11 @@ class SettingsRepository(context: Context) {
     /** Ring an alarm when you leave before your net hours are complete. */
     var earlyLeaveAlarm: Boolean get() = flag("earlyLeaveAlarm"); set(v) = setFlag("earlyLeaveAlarm", v)
 
+    /** 0 follow phone, 1 light, 2 dark, 3 dark from 7 PM to 7 AM. */
+    var themeMode: Int
+        get() = prefs.getInt("themeMode", 0)
+        set(v) { prefs.edit().putInt("themeMode", v).apply(); com.attendance.tracker.ui.ThemeMode.mode = v }
+
     // ---- permission (short leave that counts as worked time) ----
     /** Permission you're allowed per month, in minutes (default 2 hours). */
     var permissionMonthMin: Int

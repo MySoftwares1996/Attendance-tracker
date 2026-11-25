@@ -1417,6 +1417,14 @@ private fun AdvancedStep(s: AppSettings) {
 
     StepTitle("Advanced", "You normally don't need to change these.")
     SoftCard {
+        CardHeader(rememberVectorPainter(Icons.Filled.Settings), "Appearance")
+        Spacer(Modifier.height(10.dp))
+        var tm by remember { mutableIntStateOf(AttendanceController.settings.themeMode) }
+        Choices(listOf("Phone" to 0, "Light" to 1, "Dark" to 2, "7PM\u20137AM" to 3), tm) { tm = it; AttendanceController.settings.themeMode = it }
+        Spacer(Modifier.height(6.dp))
+        Text("\u201c7PM\u20137AM\u201d switches to dark automatically in the evening.", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+    }
+    SoftCard {
         CardHeader(rememberVectorPainter(Icons.Filled.Notifications), "Reminders & automation")
         Spacer(Modifier.height(6.dp))
         val st = AttendanceController.settings

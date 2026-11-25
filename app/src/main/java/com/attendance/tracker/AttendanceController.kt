@@ -84,6 +84,7 @@ object AttendanceController {
         app = context.applicationContext
         settings = SettingsRepository(app)
         db = AttendanceDb(app)
+        com.attendance.tracker.ui.ThemeMode.mode = settings.themeMode
         engine.reset(settings.presence)
         _state.value = LiveState(presence = engine.presence, lunch = settings.lunch)
         refresh()
@@ -508,12 +509,139 @@ object AttendanceController {
             notify(4202, "Your ${req / 60}h${if (req % 60 > 0) " ${req % 60}m" else ""} net hours are complete \u2014 you can leave \uD83C\uDF89",
                 "Time in office from now counts as overtime.")
         }
+        // Morning check: near the office (or on its Wi-Fi) but no IN recorded yet.
+        val minOfDay = now.hour * 60 + now.minute
+        if (plan.workDay && plan.dayOff == null && plan.start == null && minOfDay in (10 * 60 + 30) until 13 * 60) {
+            val st = _state.value
+            val fresh = st.lastAcceptedMs?.let { nowMs - it < 10 * 60_000 } == true
+            val near = onOfficeWifi || (fresh && (st.edgeDistanceM ?: 9999.0) < 150.0)
+            if (near && settings.firstTime("morning_$day")) morningCheck(nowMs)
+        }
+        // Lunch reminder: in the office, no lunch yet by 2 PM (the hour comes off at 4 PM anyway).
+        if (status == WorkStatus.IN_OFFICE && settings.remindLunchOver && plan.lunchTakenSec == 0L && !lunch.active &&
+            minOfDay in (14 * 60) until settings.lunchDeductAtMin && settings.firstTime("lunchremind_$day")) {
+            val at = settings.lunchDeductAtMin
+            notify(4204, "No lunch yet \uD83C\uDF74",
+                "Take your break \u2014 the ${settings.settings.value.schedule.maxLunchMinutes} min is deducted at ${"%d:%02d %s".format(if ((at / 60) % 12 == 0) 12 else (at / 60) % 12, at % 60, if (at < 720) "AM" else "PM")} even if you skip it.")
+        }
         if (lunch.active && settings.remindLunchOver) {
             val over = plan.lunchTakenSec - settings.settings.value.schedule.maxLunchMinutes * 60L
             if (over >= 5 * 60 && settings.firstTime("lunchover_$day")) {
                 notify(4203, "Lunch is ${over / 60} min over", "Logout moves to ${end?.let { clock(it) } ?: "later"}.")
             }
         }
+    }
+
+    private fun morningCheck(nowMs: Long) {
+        val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val rec = PendingIntent.getBroadcast(app, 84, Intent(app, EarlyLeaveReceiver::class.java).setAction(EarlyLeaveReceiver.RECORD_IN),
+            PendingIntent.FLAG_IMMUTABLE)
+        runCatching {
+            nm.notify(MORNING_ID, NotificationCompat.Builder(app, AttendanceApp.CHANNEL_EARLY_LEAVE)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle("You're at the office but no IN is recorded")
+                .setContentText("Tap \u201cI'm in\u201d to record it now, or add the real time as a missed punch.")
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .addAction(0, "I'm in \u00b7 record ${clock(nowMs)}", rec)
+                .setContentIntent(PendingIntent.getActivity(app, 7, Intent(app, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE))
+                .setAutoCancel(true).build())
+        }
+    }
+
+    /** "I'm in" from the morning check: a clearly labelled manual IN at the moment of the tap. */
+    fun recordInNow() {
+        (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(MORNING_ID)
+        if (plan().start == null) addManualPunch(true, System.currentTimeMillis(), "Confirmed at morning check")
+    }
+
+    /** The phone froze tracking during work hours (battery saver / app killer). */
+    fun notifyTrackingFrozen(gapMin: Long) {
+        val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val open = PendingIntent.getActivity(app, 85, Intent(app, MainActivity::class.java).putExtra("openSetupPage", "check"), PendingIntent.FLAG_IMMUTABLE)
+        runCatching {
+            nm.notify(FROZEN_ID, NotificationCompat.Builder(app, AttendanceApp.CHANNEL_REMINDERS)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle("Tracking was paused by the phone for $gapMin min")
+                .setContentText("Battery saving stopped the app. Tap to fix it so punches aren't missed.")
+                .setContentIntent(open).setAutoCancel(true).build())
+        }
+    }
+
+    // ───────────── weekly balance / planner ─────────────
+
+    /** Net minus target summed over this week's finished working days (Mon … yesterday). */
+    fun weekBalanceSec(today: LocalDate = LocalDate.now()): Long {
+        var sum = 0L
+        var d = today.with(java.time.DayOfWeek.MONDAY)
+        val sched = settings.settings.value.schedule
+        while (d.isBefore(today)) {
+            val ev = db.events(d.atStartOfDay(zone()).toInstant().toEpochMilli(), d.plusDays(1).atStartOfDay(zone()).toInstant().toEpochMilli())
+            val mark = db.dayMark(d.toString())
+            if (d.dayOfWeek in sched.workDays && mark?.fullDayOff != true && mark != DayMark.PRESENT && mark != DayMark.ABSENT &&
+                ev.any { it.type == EventType.CHECK_IN }) {
+                sum += netWorkedSec(ev, ev.maxOf { it.timeMs }, d) - netTargetSec(d)
+            }
+            d = d.plusDays(1)
+        }
+        return sum
+    }
+
+    /** Net you'd have if you stay until [atMs] (only time inside the office keeps counting). */
+    fun projectedNetAt(atMs: Long): Long {
+        val nowMs = System.currentTimeMillis()
+        val day = LocalDate.now()
+        val st = _state.value
+        val (office, duty, lunch) = if (st.today.punches.isEmpty()) Triple(0L, 0L, 0L) else presenceSec(st.today.timeline, nowMs)
+        val inside = st.status == WorkStatus.IN_OFFICE || st.status == WorkStatus.OVERTIME
+        val extra = if (inside) ((atMs - nowMs) / 1000).coerceAtLeast(0) else 0L
+        val closing = LocalDateTime.ofInstant(Instant.ofEpochMilli(atMs), zone())
+        val deduct = com.attendance.tracker.core.WorkedTime.deductLunchNow(lunch, false, closing.hour * 60 + closing.minute, settings.lunchDeductAtMin)
+        val perm = permissionMin(day) * 60L
+        return if (deduct) com.attendance.tracker.core.WorkedTime.netSec(office + extra, duty + perm, lunch, lunchAllowanceSec(day))
+        else com.attendance.tracker.core.WorkedTime.liveNetSec(office + extra, duty + perm, lunch, lunchAllowanceSec(day), netTargetSec(day))
+    }
+
+    // ───────────── company report ─────────────
+
+    data class ReportDiff(val date: LocalDate, val status: String, val companyMin: Int, val appMin: Int?, val mark: DayMark?)
+
+    /** Day-by-day comparison of the company report with this app's own records. */
+    fun compareReport(rows: List<com.attendance.tracker.core.CompanyReport.Row>): List<ReportDiff> = rows.sortedBy { it.date }.map { r ->
+        val ev = db.events(r.date.atStartOfDay(zone()).toInstant().toEpochMilli(), r.date.plusDays(1).atStartOfDay(zone()).toInstant().toEpochMilli())
+        val app = if (ev.any { it.type == EventType.CHECK_IN }) (netWorkedSec(ev, ev.maxOf { it.timeMs }, r.date) / 60).toInt() else null
+        ReportDiff(r.date, r.status, r.totalMin, app, db.dayMark(r.date.toString()))
+    }
+
+    /** Adds the report's days that have no records in the app (IN, outside time as a break, OUT, and marks). */
+    fun importReportDays(rows: List<com.attendance.tracker.core.CompanyReport.Row>): Int {
+        val events = mutableListOf<Triple<Long, EventType, String>>()
+        val marks = mutableMapOf<String, String>()
+        val existingMarks = db.dayMarks("0000-01-01", "9999-12-31")
+        var days = 0
+        rows.filter { !it.date.isAfter(LocalDate.now().minusDays(1)) }.forEach { r ->
+            val ev = db.events(r.date.atStartOfDay(zone()).toInstant().toEpochMilli(), r.date.plusDays(1).atStartOfDay(zone()).toInstant().toEpochMilli())
+            if (ev.any { it.type == EventType.CHECK_IN || it.type == EventType.CHECK_OUT }) return@forEach
+            fun at(min: Int) = r.date.atStartOfDay(zone()).plusMinutes(min.toLong()).toInstant().toEpochMilli()
+            val src = MANUAL_PREFIX + "Imported from company report"
+            if (r.worked && r.outMin > r.inMin) {
+                events += Triple(at(r.inMin), EventType.CHECK_IN, src)
+                if (r.outsideMin > 0) {
+                    val ls = maxOf(13 * 60 + 30, r.inMin + 1).coerceAtMost(r.outMin - r.outsideMin - 1)
+                    events += Triple(at(ls), EventType.LUNCH_START, "Imported \u00b7 outside time (time of day estimated)")
+                    events += Triple(at(ls + r.outsideMin), EventType.LUNCH_END, "Imported")
+                }
+                events += Triple(at(r.outMin), EventType.CHECK_OUT, src)
+                days++
+            }
+            val mark = when (r.status) { "AA" -> DayMark.ABSENT; "HH" -> DayMark.HOLIDAY; "XA", "AX" -> DayMark.HALF_DAY; else -> null }
+            if (mark != null && r.date.toString() !in existingMarks) { marks[r.date.toString()] = mark.name; if (!r.worked) days++ }
+        }
+        if (events.isEmpty() && marks.isEmpty()) return 0
+        com.attendance.tracker.backup.BackupManager.saveLocal(app, "before-import")
+        db.importBatch(events, marks)
+        com.attendance.tracker.backup.BackupManager.backupSoon(app)
+        refresh()
+        return days
     }
 
     private fun clock(ms: Long) = clock(LocalDateTime.ofInstant(Instant.ofEpochMilli(ms), zone()))
@@ -917,6 +1045,8 @@ object AttendanceController {
 
     private const val DUTY_ASK_ID = 4110
     private const val EARLY_LEAVE_ID = 4120
+    private const val MORNING_ID = 4130
+    private const val FROZEN_ID = 4140
     private val TIMELINE_TYPES = setOf(EventType.CHECK_IN, EventType.CHECK_OUT, EventType.LUNCH_START,
         EventType.LUNCH_END, EventType.DUTY_START, EventType.DUTY_END)
 

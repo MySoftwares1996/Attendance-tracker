@@ -18,6 +18,13 @@ class WatchdogWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         if (s.trackingEnabled && PermissionsManager.trackingBlockers(ctx).isEmpty()) {
             GeofenceManager.register(ctx)
             if (!TrackingService.running) runCatching { TrackingService.start(ctx) }
+            // Battery-killer guard: no heartbeat for 20+ min during work hours → tell the user how to fix it.
+            val hb = s.lastHeartbeatMs
+            val now = System.currentTimeMillis()
+            if (hb > 0 && now - hb > 20 * 60_000 && AttendanceController.highAccuracyWanted(now)) {
+                val hour = java.time.LocalDateTime.now().let { "${it.toLocalDate()}_${it.hour}" }
+                if (s.firstTime("frozen_$hour")) AttendanceController.notifyTrackingFrozen((now - hb) / 60_000)
+            }
         }
         return Result.success()
     }

@@ -130,6 +130,8 @@ fun PermissionDialog(day: LocalDate, onDismiss: () -> Unit) {
                 Column(Modifier.fillMaxWidth().clip(Soft.tileShape).background(c.accentSoft).padding(14.dp)) {
                     Text("This month: ${hm(usedElsewhere + minutes)} used of ${hm(allowance)} · ${hm((left - minutes).coerceAtLeast(0))} left",
                         style = MaterialTheme.typography.bodyMedium, color = c.textPrimary)
+                    if (minutes > 0 && left - minutes <= 0) Text("\u26A0 This uses the last of your permission for this month.",
+                        style = MaterialTheme.typography.bodySmall, color = c.danger)
                     Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Monthly allowance", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = c.accent)
