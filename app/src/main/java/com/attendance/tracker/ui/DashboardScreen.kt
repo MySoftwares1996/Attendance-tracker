@@ -296,7 +296,7 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
             val permToday = AttendanceController.permissionMin(LocalDate.now())
             ActionChip(if (permToday > 0) "⏱  Permission ${if (permToday % 60 == 0) "${permToday / 60}h" else "${permToday / 60}h ${permToday % 60}m"}" else "⏱  Permission",
                 Color(0xFF0E8C8C), Color(0x1F0E8C8C)) { permOpen = true }
-            ActionChip("\uD83D\uDEAA  Leave by\u2026", c.warning, c.warningSoft) { planOpen = true }
+            ActionChip("\uD83D\uDEAA  Leave by\u2026", Color(0xFFB8860B), c.warningSoft) { planOpen = true }
             ActionChip("📅  ${if (plan?.dayOff != null) plan.dayOff else "Mark today"}", c.accent, c.accentSoft) { markOpen = true }
             ActionChip("✎  Missed punch", c.accent, c.accentSoft) { punchOpen = true }
             ActionChip("↪  Share today", c.success, c.successSoft) {
@@ -371,26 +371,26 @@ private fun LiveHero(status: WorkStatus, tracking: Boolean, officeName: String?,
             Text(officeName ?: "No office set", color = soft, style = MaterialTheme.typography.labelMedium)
         }
         Spacer(Modifier.height(16.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
             // Ring = progress through the working day (arrival → expected logout)
             val p by animateFloatAsState(live.dayProgress, tween(800), label = "ring")
-            Box(Modifier.size(148.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(136.dp), contentAlignment = Alignment.Center) {
                 Canvas(Modifier.fillMaxSize()) {
-                    val sw = 12.dp.toPx()
+                    val sw = 10.dp.toPx()
                     val d = size.minDimension - sw
                     val tl = Offset((size.width - d) / 2, (size.height - d) / 2)
                     drawArc(Color.White.copy(alpha = 0.22f), 0f, 360f, false, tl, Size(d, d), style = Stroke(sw, cap = StrokeCap.Round))
                     drawArc(Color.White, -90f, 360f * p, false, tl, Size(d, d), style = Stroke(sw, cap = StrokeCap.Round))
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(hms(live.workedSec), color = white, fontSize = 24.sp, fontWeight = FontWeight.Bold,
+                    Text(hms(live.workedSec), color = white, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1,
                         style = MaterialTheme.typography.titleLarge.copy(fontFeatureSettings = "tnum"))
                     Text("in office", color = soft, style = MaterialTheme.typography.labelMedium)
-                    Text("net ${fmtDuration(live.netSec)} / ${fmtDuration(live.netTargetSec)}", color = white, style = MaterialTheme.typography.labelMedium)
                 }
             }
-            Spacer(Modifier.width(16.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Spacer(Modifier.width(18.dp))
+            Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceEvenly) {
+                HeroStat("NET WORKED", fmtDuration(live.netSec), white, soft, sub = "/ ${fmtDuration(live.netTargetSec)}", inline = true)
                 HeroStat("IN", firstInMs?.let { clock12(it) } ?: "—", white, soft)
                 HeroStat(
                     "LOGOUT",
@@ -421,11 +421,15 @@ private fun LiveHero(status: WorkStatus, tracking: Boolean, officeName: String?,
 }
 
 @Composable
-private fun HeroStat(label: String, value: String, fg: Color, soft: Color, sub: String? = null) {
+private fun HeroStat(label: String, value: String, fg: Color, soft: Color, sub: String? = null, inline: Boolean = false) {
     Column {
-        Text(label, color = soft, style = MaterialTheme.typography.labelSmall)
-        Text(value, color = fg, style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"))
-        if (sub != null) Text(sub, color = soft, style = MaterialTheme.typography.labelSmall)
+        Text(label, color = soft, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(value, color = fg, style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"), maxLines = 1)
+            if (sub != null && inline) Text("  $sub", color = soft, style = MaterialTheme.typography.labelMedium, maxLines = 1,
+                modifier = Modifier.padding(bottom = 2.dp))
+        }
+        if (sub != null && !inline) Text(sub, color = soft, style = MaterialTheme.typography.labelSmall, maxLines = 1)
     }
 }
 
@@ -628,11 +632,11 @@ private fun LiveAnalysis(
 
 @Composable
 private fun ActionChip(label: String, fg: Color, bg: Color, onClick: () -> Unit) {
-    Text(
-        label,
-        Modifier.clip(Soft.pillShape).background(bg).pressScale(onClick).padding(horizontal = 14.dp, vertical = 11.dp),
-        style = MaterialTheme.typography.labelLarge, color = fg, maxLines = 1,
-    )
+    // Fixed height so emoji of different sizes don't make chips uneven.
+    Box(
+        Modifier.height(42.dp).clip(Soft.pillShape).background(bg).pressScale(onClick).padding(horizontal = 14.dp),
+        contentAlignment = Alignment.Center,
+    ) { Text(label, style = MaterialTheme.typography.labelLarge, color = fg, maxLines = 1) }
 }
 
 @Composable
