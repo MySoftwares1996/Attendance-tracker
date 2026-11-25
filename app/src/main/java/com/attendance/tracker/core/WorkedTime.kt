@@ -40,10 +40,20 @@ object WorkedTime {
      * so the number never sits at 0 for the first hour, and it lands on exactly the target
      * at logout (target + lunch allowance). After logout time the plain [netSec] applies.
      */
-    fun liveNetSec(officeSec: Long, dutySec: Long, lunchSec: Long, allowanceSec: Long, targetSec: Long): Long {
+    fun liveNetSec(officeSec: Long, dutySec: Long, lunchSec: Long, allowanceSec: Long, targetSec: Long,
+                   deductNow: Boolean = false): Long {
+        if (deductNow) return netSec(officeSec, dutySec, lunchSec, allowanceSec)
         val gross = officeSec + dutySec
         return maxOf(minOf(gross, targetSec), netSec(officeSec, dutySec, lunchSec, allowanceSec)).coerceAtLeast(0)
     }
+
+    /**
+     * When the unused part of the lunch allowance comes off during the day:
+     * as soon as a lunch break has ended (e.g. 30 min taken → the other 30 min now),
+     * or at [deductAtMin] (4 PM) if no lunch was taken at all.
+     */
+    fun deductLunchNow(lunchSec: Long, onLunch: Boolean, nowMinOfDay: Int, deductAtMin: Int): Boolean =
+        (lunchSec > 0 && !onLunch) || nowMinOfDay >= deductAtMin
 
     /** Average over days that have any worked time; null if there are none. */
     fun averageSec(dailySec: List<Long>): Long? {

@@ -95,6 +95,8 @@ object AttendanceController {
      */
     @Synchronized
     fun clearRecords(keepToday: Boolean) {
+        // Always keep an on-phone copy first, so a reset can be undone from Backup → On-phone copies.
+        com.attendance.tracker.backup.BackupManager.saveLocal(app, "before-reset")
         val today = LocalDate.now()
         if (keepToday) {
             db.clearRecords(today.atStartOfDay(zone()).toInstant().toEpochMilli(), today.toString())
@@ -659,8 +661,10 @@ object AttendanceController {
         val today = LocalDateTime.ofInstant(Instant.ofEpochMilli(System.currentTimeMillis()), zone()).toLocalDate()
         val end = if (day == today) runCatching { plan(closeMs).expectedEnd }.getOrNull() else null
         val closing = LocalDateTime.ofInstant(Instant.ofEpochMilli(closeMs), zone())
+        val deductNow = com.attendance.tracker.core.WorkedTime.deductLunchNow(lunch, settings.lunch.active,
+            closing.hour * 60 + closing.minute, settings.lunchDeductAtMin)
         return if (end != null && closing.isBefore(end))
-            com.attendance.tracker.core.WorkedTime.liveNetSec(office, duty, lunch, allowance, netTargetSec(day))
+            com.attendance.tracker.core.WorkedTime.liveNetSec(office, duty, lunch, allowance, netTargetSec(day), deductNow)
         else com.attendance.tracker.core.WorkedTime.netSec(office, duty, lunch, allowance)
     }
 

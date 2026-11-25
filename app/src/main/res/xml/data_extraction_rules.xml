@@ -2,10 +2,16 @@
 <data-extraction-rules>
     <cloud-backup>
         <include domain="sharedpref" path="attendance_settings.xml" />
+        <include domain="sharedpref" path="perm.xml" />
+        <include domain="sharedpref" path="trust.xml" />
         <include domain="database" path="attendance.db" />
+        <include domain="file" path="backups/" />
     </cloud-backup>
     <device-transfer>
         <include domain="sharedpref" path="attendance_settings.xml" />
+        <include domain="sharedpref" path="perm.xml" />
+        <include domain="sharedpref" path="trust.xml" />
         <include domain="database" path="attendance.db" />
+        <include domain="file" path="backups/" />
     </device-transfer>
 </data-extraction-rules>

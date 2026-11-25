@@ -1270,33 +1270,89 @@ private fun BackupStep() {
             SoftGhostButton("Change location", { create.launch("attendance-backup.json") })
         }
     }
+    var copies by remember { mutableStateOf(bm.localCopies(ctx)) }
+    var restoreFile by remember { mutableStateOf<java.io.File?>(null) }
     SoftCard {
-        CardHeader(painterResource(R.drawable.ic_system_update), "Restore on a new phone")
+        CardHeader(painterResource(R.drawable.ic_system_update), "Restore")
         Spacer(Modifier.height(10.dp))
-        Text("Install the app, finish the permission steps, then pick your backup file from Google Drive.",
+        Text("Pick your backup file (e.g. from Google Drive). It's fully checked first; nothing changes unless it's complete, " +
+            "and a copy of the current data is saved on the phone so you can undo.",
             style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
         Spacer(Modifier.height(12.dp))
         SoftGhostButton("Restore from backup file", { pick.launch(arrayOf("application/json", "application/octet-stream", "*/*")) })
+        bm.preRestoreCopy(ctx)?.let { f ->
+            Spacer(Modifier.height(8.dp))
+            SoftGhostButton("Undo last restore", { restoreFile = f })
+        }
     }
     SoftCard {
-        Text("Also automatic", style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
-        Text("Android's own backup also saves this app's data to your Google account (when phone backup is on in Settings \u2192 Google \u2192 Backup) and restores it when you install the app on a new phone.",
+        CardHeader(painterResource(R.drawable.ic_shield), "On-phone copies", "Daily, and before every restore or reset", c.success, c.successSoft)
+        Spacer(Modifier.height(6.dp))
+        if (copies.isEmpty()) Text("The first copy is made automatically within a minute of any change.",
+            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+        copies.take(8).forEach { f ->
+            val label = when {
+                f.name.startsWith("before-restore") -> "Before last restore"
+                f.name.startsWith("before-reset") -> "Before last reset"
+                else -> f.name.removePrefix("auto-").removeSuffix(".json")
+            }
+            Row(Modifier.fillMaxWidth().clip(Soft.tileShape).pressScale { restoreFile = f }.padding(vertical = 10.dp, horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(label, style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
+                    Text("Saved ${fmtTime(f.lastModified())} · ${java.time.Instant.ofEpochMilli(f.lastModified()).atZone(java.time.ZoneId.systemDefault()).toLocalDate()}",
+                        style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+                }
+                Text("Restore", style = MaterialTheme.typography.labelLarge, color = c.accent)
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text("On-phone copies are removed if the app is uninstalled — keep the Google Drive file too.",
+            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+    }
+    SoftCard {
+        Text("What's backed up", style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
+        Text("Everything: every IN/OUT with its GPS position, lunch, on duty, home trips, day marks and permission; " +
+            "office map, gates, home location, office Wi-Fi, hours, holidays, salary and all settings. " +
+            "Backed up a minute after every punch or change, plus nightly. Android's own Google backup also covers it.",
             style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
     }
 
-    restoreUri?.let { u ->
+    // Confirm with a preview of what the backup holds (checked before anything changes).
+    val pending: Pair<String, Result<com.attendance.tracker.backup.BackupManager.Info>>? = remember(restoreUri, restoreFile) {
+        restoreUri?.let { "file" to bm.inspect(ctx, it) } ?: restoreFile?.let { it.name to bm.inspect(it) }
+    }
+    pending?.let { (_, info) ->
+        val close = { restoreUri = null; restoreFile = null }
         AlertDialog(
-            onDismissRequest = { restoreUri = null },
-            title = { Text("Restore this backup?") },
-            text = { Text("This replaces the attendance history and settings on this phone with the backup's.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    val err = bm.restore(ctx, u)
-                    restoreUri = null
-                    Toast.makeText(ctx, err ?: "Restored", Toast.LENGTH_LONG).show()
-                }) { Text("Restore") }
+            onDismissRequest = close,
+            title = { Text(if (info.isSuccess) "Restore this backup?" else "Can't restore this file") },
+            text = {
+                info.fold({ i ->
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        InfoLine("Made on", if (i.createdAt > 0) "${fmtTime(i.createdAt)} · ${java.time.Instant.ofEpochMilli(i.createdAt).atZone(java.time.ZoneId.systemDefault()).toLocalDate()}" else "—")
+                        InfoLine("Records", "${i.events}")
+                        InfoLine("Day marks", "${i.marks}")
+                        InfoLine("Office map", if (i.hasOffice) "Yes · ${i.gates} gate${if (i.gates == 1) "" else "s"}" else "No")
+                        InfoLine("Settings", "${i.settings}")
+                        InfoLine("Checksum", if (i.verified) "Verified ✓" else "Older format (no checksum)", if (i.verified) c.success else c.warning)
+                        Spacer(Modifier.height(6.dp))
+                        Text("This replaces the data on this phone. A copy of the current data is saved first, so you can undo.",
+                            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+                    }
+                }, { e -> Text(e.message ?: "This file can't be used. Nothing was changed.") })
             },
-            dismissButton = { TextButton(onClick = { restoreUri = null }) { Text("Cancel") } },
+            confirmButton = {
+                if (info.isSuccess) TextButton(onClick = {
+                    val f = restoreFile; val u = restoreUri
+                    // Undoing a restore must not overwrite the copy it is restoring from.
+                    val err = if (f != null) bm.restore(ctx, f, saveCurrent = f.name != "before-restore.json") else if (u != null) bm.restore(ctx, u) else null
+                    close(); copies = bm.localCopies(ctx)
+                    Toast.makeText(ctx, err ?: "Restored ✓ everything verified", Toast.LENGTH_LONG).show()
+                }) { Text("Restore") }
+                else TextButton(onClick = close) { Text("OK") }
+            },
+            dismissButton = { if (info.isSuccess) TextButton(onClick = close) { Text("Cancel") } },
             shape = RoundedCornerShape(28.dp), containerColor = c.card,
         )
     }

@@ -143,8 +143,10 @@ private fun liveDay(nowMs: Long, plan: DayPlan?, timeline: List<AttendanceEvent>
     val allowance = AttendanceController.lunchAllowanceSec(today)
     val target = AttendanceController.netTargetSec(today)
     val perm = AttendanceController.permissionMin(today) * 60L
+    val deductNow = WorkedTime.deductLunchNow(lunch, AttendanceController.settings.lunch.active,
+        now.hour * 60 + now.minute, AttendanceController.settings.lunchDeductAtMin)
     val net = if (plan?.expectedEnd?.let { now.isBefore(it) } == true)
-        WorkedTime.liveNetSec(office, duty + perm, lunch, allowance, target)
+        WorkedTime.liveNetSec(office, duty + perm, lunch, allowance, target, deductNow)
     else WorkedTime.netSec(office, duty + perm, lunch, allowance)
     val start = plan?.start
     val end = plan?.expectedEnd
@@ -518,7 +520,7 @@ private fun LiveAnalysis(
                 "Net worked ${fmtDuration(live.netSec)} of ${fmtDuration(live.netTargetSec)}" +
                     (if (left > 0) " \u00b7 ${fmtDuration(left)} to go" else " \u00b7 target reached") +
                     (if (live.lunchTakenSec == 0L && live.netSec >= live.workedSec)
-                        "\n${fmtDuration(live.lunchDeductSec)} lunch comes off after ${fmtDuration(live.netTargetSec)} (even if not taken)"
+                        "\n${fmtDuration(live.lunchDeductSec)} lunch comes off at ${AttendanceController.settings.lunchDeductAtMin.let { m -> "%d:%02d %s".format(if ((m / 60) % 12 == 0) 12 else (m / 60) % 12, m % 60, if (m < 720) "AM" else "PM") }} if not taken"
                     else "\n${fmtDuration(live.lunchDeductSec)} lunch deducted" + if (live.lunchTakenSec == 0L) " (even if not taken)" else ""),
                 if (left == 0L) c.success else c.accent)
         }

@@ -2,6 +2,8 @@ package com.attendance.tracker.core
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WorkedTimeTest {
@@ -65,5 +67,18 @@ class WorkedTimeTest {
         assertEquals(WorkedTime.netSec(t + a, 0, 0, a), WorkedTime.liveNetSec(t + a, 0, 0, a, t))
         // Full lunch taken: same as the final rule all day.
         assertEquals(4 * 3600L, WorkedTime.liveNetSec(4 * 3600, 0, 3600, a, t))
+    }
+
+    @Test fun unusedLunchComesOffAfterLunchOrAt4pm() {
+        val a = 3600L; val t = 510 * 60L
+        // 3h in office, 30 min lunch finished → the other 30 min comes off now.
+        assertEquals(3 * 3600L - 1800, WorkedTime.liveNetSec(3 * 3600, 0, 1800, a, t, deductNow = true))
+        assertTrue(WorkedTime.deductLunchNow(1800, onLunch = false, nowMinOfDay = 14 * 60, deductAtMin = 16 * 60))
+        // Still on lunch: not yet.
+        assertFalse(WorkedTime.deductLunchNow(1800, onLunch = true, nowMinOfDay = 14 * 60, deductAtMin = 16 * 60))
+        // No lunch: nothing before 4 PM, the full hour at 4 PM.
+        assertFalse(WorkedTime.deductLunchNow(0, onLunch = false, nowMinOfDay = 15 * 60 + 59, deductAtMin = 16 * 60))
+        assertTrue(WorkedTime.deductLunchNow(0, onLunch = false, nowMinOfDay = 16 * 60, deductAtMin = 16 * 60))
+        assertEquals(6 * 3600L, WorkedTime.liveNetSec(7 * 3600, 0, 0, a, t, deductNow = true))
     }
 }

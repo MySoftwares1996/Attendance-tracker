@@ -32,6 +32,8 @@ data class AttendanceEvent(
 class AttendanceDb(context: Context) :
     SQLiteOpenHelper(context, "attendance.db", null, 2) {
 
+    private val appContext: Context = context.applicationContext
+
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """CREATE TABLE events(
@@ -75,6 +77,7 @@ class AttendanceDb(context: Context) :
     }
 
     fun setDayMark(day: String, mark: com.attendance.tracker.core.DayMark?) {
+        com.attendance.tracker.backup.BackupManager.backupSoon(appContext)
         if (mark == null) writableDatabase.delete("day_marks", "day=?", arrayOf(day))
         else writableDatabase.insertWithOnConflict("day_marks", null,
             ContentValues().apply { put("day", day); put("mark", mark.name) }, SQLiteDatabase.CONFLICT_REPLACE)
@@ -117,8 +120,13 @@ class AttendanceDb(context: Context) :
     fun dumpDurations(): List<List<Any?>> = readableDatabase.rawQuery("SELECT day,status,seconds FROM durations", null).use { c ->
         buildList { while (c.moveToNext()) add(listOf(c.getString(0), c.getString(1), c.getLong(2))) }
     }
-    fun dumpMarks(): List<List<Any?>> = readableDatabase.rawQuery("SELECT day,mark FROM day_marks", null).use { c ->
-        buildList { while (c.moveToNext()) add(listOf(c.getString(0), c.getString(1))) }
+    fun dumpMarks(): List<List<Any?>> = readableDatabase.rawQuery("SELECT day,mark,note FROM day_marks", null).use { c ->
+        buildList { while (c.moveToNext()) add(listOf(c.getString(0), c.getString(1), if (c.isNull(2)) null else c.getString(2))) }
+    }
+
+    /** Row counts of every table: used to verify a backup / restore is complete. */
+    fun counts(): Map<String, Int> = listOf("events", "durations", "day_marks").associateWith { t ->
+        readableDatabase.rawQuery("SELECT COUNT(*) FROM $t", null).use { if (it.moveToFirst()) it.getInt(0) else 0 }
     }
 
     fun restoreAll(events: List<org.json.JSONArray>, durations: List<org.json.JSONArray>, marks: List<org.json.JSONArray>) {
@@ -133,7 +141,15 @@ class AttendanceDb(context: Context) :
                 })
             }
             durations.forEach { r -> db.insert("durations", null, ContentValues().apply { put("day", r.getString(0)); put("status", r.getString(1)); put("seconds", r.getLong(2)) }) }
-            marks.forEach { r -> db.insert("day_marks", null, ContentValues().apply { put("day", r.getString(0)); put("mark", r.getString(1)) }) }
+            marks.forEach { r -> db.insert("day_marks", null, ContentValues().apply {
+                put("day", r.getString(0)); put("mark", r.getString(1))
+                if (r.length() > 2 && !r.isNull(2)) put("note", r.getString(2))
+            }) }
+            // All or nothing: any row that failed to insert rolls the whole restore back.
+            val got = listOf("events", "durations", "day_marks").map { t ->
+                db.rawQuery("SELECT COUNT(*) FROM $t", null).use { if (it.moveToFirst()) it.getInt(0) else 0 }
+            }
+            check(got == listOf(events.size, durations.size, marks.size)) { "row count mismatch $got" }
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
@@ -153,6 +169,7 @@ class AttendanceDb(context: Context) :
             lat?.let { put("lat", it) }; lng?.let { put("lng", it) }; acc?.let { put("acc", it) }
         }
         writableDatabase.insert("events", null, cv)
+        if (type != EventType.STATUS && type != EventType.TRACKING) com.attendance.tracker.backup.BackupManager.backupSoon(appContext)
     }
 
     fun events(fromMs: Long, toMs: Long): List<AttendanceEvent> {

@@ -173,6 +173,11 @@ class SettingsRepository(context: Context) {
     var pendingDutyOutMs: Long get() = prefs.getLong("pendingDutyOut", 0L); set(v) = prefs.edit().putLong("pendingDutyOut", v).apply()
     var askDuty: Boolean get() = flag("askDuty"); set(v) = setFlag("askDuty", v)
 
+    /** If no lunch was taken, the standard lunch is deducted at this time of day (minutes, default 4 PM). */
+    var lunchDeductAtMin: Int
+        get() = prefs.getInt("lunchDeductAt", 16 * 60)
+        set(v) = prefs.edit().putInt("lunchDeductAt", v.coerceIn(0, 24 * 60)).apply()
+
     // ---- permission (short leave that counts as worked time) ----
     /** Permission you're allowed per month, in minutes (default 2 hours). */
     var permissionMonthMin: Int

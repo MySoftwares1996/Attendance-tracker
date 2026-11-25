@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
     <include domain="sharedpref" path="attendance_settings.xml" />
+    <include domain="sharedpref" path="perm.xml" />
+    <include domain="sharedpref" path="trust.xml" />
     <include domain="database" path="attendance.db" />
+    <include domain="file" path="backups/" />
 </full-backup-content>
