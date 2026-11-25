@@ -248,22 +248,7 @@ class TrackingService : LifecycleService() {
         super.onDestroy()
     }
 
-    private fun buildNotification(): Notification {
-        val st = AttendanceController.state.value
-        val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
-        val accuracy = st.lastFix?.let { if (it.accuracyM < 1e6f) " · GPS ±${it.accuracyM.toInt()} m" else "" } ?: ""
-        val last = st.today.punches.lastOrNull()
-        val punch = last?.let { " · Last ${if (it.type == EventType.CHECK_IN) "IN" else "OUT"} ${fmt(it.timeMs)}" } ?: ""
-        return NotificationCompat.Builder(this, AttendanceApp.CHANNEL_TRACKING)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(st.status.label)
-            .setContentText("Auto attendance on$punch$accuracy")
-            .setContentIntent(open)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-            .build()
-    }
+    private fun buildNotification(): Notification = LiveNotification.build(this)
 
     private fun fmt(ms: Long) = java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.systemDefault())
         .toLocalTime().let { "%02d:%02d".format(it.hour, it.minute) }
@@ -291,6 +276,13 @@ class TrackingService : LifecycleService() {
             ContextCompat.startForegroundService(
                 ctx, Intent(ctx, TrackingService::class.java).putExtra(EXTRA_BURST, burst)
             )
+        }
+
+        /** Re-draw the live notification (e.g. after the Live Updates setting changed). */
+        fun refreshNotification(ctx: Context) {
+            if (!running) return
+            val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            runCatching { nm.notify(NOTIF_ID, LiveNotification.build(ctx)) }
         }
 
         fun stop(ctx: Context) {

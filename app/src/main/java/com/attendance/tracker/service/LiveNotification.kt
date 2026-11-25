@@ -1,0 +1,142 @@
+package com.attendance.tracker.service
+
+import android.app.Notification
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import com.attendance.tracker.AttendanceApp
+import com.attendance.tracker.AttendanceController
+import com.attendance.tracker.R
+import com.attendance.tracker.core.WorkStatus
+import com.attendance.tracker.core.WorkedTime
+import com.attendance.tracker.data.EventType
+import com.attendance.tracker.ui.MainActivity
+import java.time.Duration
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.ZoneId
+
+/**
+ * The always-on tracking notification, built as an Android 16 "Live Update":
+ * a short chip in the status bar (also shown in OPPO / OnePlus / Realme Live Alerts),
+ * a live countdown/count-up, and a day progress bar. Older Android shows the same
+ * notification without the status-bar chip.
+ */
+object LiveNotification {
+
+    private fun clock(t: LocalDateTime) = "%d:%02d %s".format(if (t.hour % 12 == 0) 12 else t.hour % 12, t.minute, if (t.hour < 12) "AM" else "PM")
+    private fun clock(ms: Long) = clock(LocalDateTime.ofInstant(Instant.ofEpochMilli(ms), ZoneId.systemDefault()))
+    private fun short(sec: Long): String {
+        val h = sec / 3600; val m = (sec % 3600) / 60
+        return if (h > 0) "${h}h ${m}m" else "${m}m"
+    }
+
+    fun build(ctx: Context): Notification {
+        val zone = ZoneId.systemDefault()
+        val nowMs = System.currentTimeMillis()
+        val now = LocalDateTime.ofInstant(Instant.ofEpochMilli(nowMs), zone)
+        val today = LocalDate.now()
+        val st = AttendanceController.state.value
+        val plan = st.plan
+        val sched = AttendanceController.settings.settings.value.schedule
+        val hasPunches = st.today.punches.isNotEmpty()
+        val (office, duty, lunch) = if (hasPunches) AttendanceController.presenceSec(st.today.timeline, nowMs) else Triple(0L, 0L, 0L)
+        val net = WorkedTime.netSec(office, duty, lunch, AttendanceController.lunchAllowanceSec(today))
+        val target = AttendanceController.netTargetSec(today)
+        val endMs = plan?.expectedEnd?.atZone(zone)?.toInstant()?.toEpochMilli()
+        val startMs = plan?.start?.atZone(zone)?.toInstant()?.toEpochMilli()
+
+        var title: String
+        var text: String
+        var chip: String? = null
+        var chronoWhen: Long? = null
+        var countDown = false
+        var progress: Int? = null
+        if (startMs != null && endMs != null && endMs > startMs) {
+            progress = (((nowMs - startMs) * 100) / (endMs - startMs)).toInt().coerceIn(0, 100)
+        }
+
+        when (st.status) {
+            WorkStatus.IN_OFFICE, WorkStatus.ON_DUTY -> {
+                title = (if (st.status == WorkStatus.ON_DUTY) "On duty" else "In office") + " · net ${short(net)} of ${short(target)}"
+                if (endMs != null && endMs > nowMs) {
+                    text = "Logout ${clock(endMs)} · ${short((endMs - nowMs) / 1000)} to go"
+                    chip = short((endMs - nowMs) / 1000)
+                    chronoWhen = endMs; countDown = true
+                } else text = "Logout time reached"
+            }
+            WorkStatus.OVERTIME -> {
+                val ot = endMs?.let { (nowMs - it) / 1000 } ?: 0
+                title = "Overtime · +${short(ot)}"
+                text = "Net ${short(net)} · logout was ${endMs?.let { clock(it) } ?: "—"}"
+                chip = "OT ${short(ot)}"
+                if (endMs != null) chronoWhen = endMs
+            }
+            WorkStatus.ON_LUNCH, WorkStatus.LUNCH_EXCEEDED -> {
+                val left = sched.maxLunchMinutes * 60L - (plan?.lunchTakenSec ?: 0)
+                title = if (left >= 0) "On lunch · ${short(left)} left" else "Lunch over by ${short(-left)}"
+                text = "Logout ${endMs?.let { clock(it) } ?: "—"}" + if (left < 0) " (moved later)" else ""
+                chip = if (left >= 0) "Lunch ${short(left)}" else "Lunch +${short(-left)}"
+                chronoWhen = nowMs + left * 1000; countDown = left >= 0
+            }
+            WorkStatus.OUTSIDE_OFFICE -> {
+                val lastOut = st.today.punches.lastOrNull()?.takeIf { it.type == EventType.CHECK_OUT }?.timeMs
+                title = "Outside office · net ${short(net)} of ${short(target)}"
+                text = lastOut?.let { "Out since ${clock(it)} · not counted as worked" } ?: "Not counted as worked"
+                chip = "Out"
+                if (lastOut != null) chronoWhen = lastOut
+            }
+            WorkStatus.NOT_STARTED -> {
+                title = "Ready · your day starts when you arrive"
+                text = "On time until ${plan?.latestStart?.let { clock(it) } ?: "—"} · ${short(target)} net + ${sched.maxLunchMinutes}m lunch"
+            }
+            WorkStatus.LATE -> {
+                title = "Running late"
+                text = "On time was until ${plan?.latestStart?.let { clock(it) } ?: "—"}"
+                chip = "Late"
+            }
+            WorkStatus.DAY_COMPLETE -> {
+                title = "Day complete · net ${short(net)}"
+                text = "Have a good evening"
+                progress = 100
+            }
+            WorkStatus.DAY_OFF -> { title = plan?.dayOff ?: "Day off"; text = "Enjoy your day"; progress = null }
+            else -> {
+                title = st.status.label
+                text = st.today.punches.lastOrNull()?.let { (if (it.type == EventType.CHECK_IN) "Last IN " else "Last OUT ") + clock(it.timeMs) } ?: "Auto attendance on"
+                progress = null
+            }
+        }
+
+        val open = PendingIntent.getActivity(ctx, 0, Intent(ctx, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        val b = Notification.Builder(ctx, AttendanceApp.CHANNEL_TRACKING)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setContentIntent(open)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setCategory(Notification.CATEGORY_STATUS)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+        progress?.let { b.setProgress(100, it, false) }
+        if (chronoWhen != null) {
+            b.setShowWhen(true).setWhen(chronoWhen).setUsesChronometer(true).setChronometerCountDown(countDown)
+        } else b.setShowWhen(false)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) b.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE)
+        if (Build.VERSION.SDK_INT >= 36 && AttendanceController.settings.liveUpdates) {
+            b.setRequestPromotedOngoing(true)
+            chip?.let { b.setShortCriticalText(it) }
+        }
+        return b.build()
+    }
+
+    /** Whether Android lets this app show Live Updates (Android 16+); null on older versions. */
+    fun liveUpdatesAllowed(ctx: Context): Boolean? {
+        if (Build.VERSION.SDK_INT < 36) return null
+        val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        return runCatching { nm.canPostPromotedNotifications() }.getOrNull()
+    }
+}

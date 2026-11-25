@@ -1102,6 +1102,32 @@ private fun AdvancedStep(s: AppSettings) {
             style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
     }
     SoftCard {
+        CardHeader(rememberVectorPainter(Icons.Filled.Notifications), "Live Updates")
+        Spacer(Modifier.height(6.dp))
+        var live by remember { mutableStateOf(AttendanceController.settings.liveUpdates) }
+        val allowed = remember { com.attendance.tracker.service.LiveNotification.liveUpdatesAllowed(ctx) }
+        SoftSwitchRow(
+            "Show Live Updates",
+            "Logout countdown, lunch time left and overtime in the status bar \u2014 and in Live Alerts on OPPO, OnePlus and Realme",
+            live,
+        ) {
+            live = it; AttendanceController.settings.liveUpdates = it
+            com.attendance.tracker.service.TrackingService.refreshNotification(ctx)
+        }
+        Text(
+            when (allowed) {
+                null -> "Your Android version shows this as a normal live notification. The status-bar chip needs Android 16."
+                true -> "Allowed by Android \u2713"
+                false -> "Android has Live Updates turned off for this app. Turn on \u201cLive updates\u201d (and \u201cShow Live Updates on Live Alerts\u201d) in the app's notification settings."
+            },
+            style = MaterialTheme.typography.bodySmall, color = if (allowed == false) c.warning else c.textSecondary,
+        )
+        Spacer(Modifier.height(8.dp))
+        SoftGhostButton("Open notification settings", {
+            runCatching { ctx.startActivity(com.attendance.tracker.permissions.PermissionsManager.notificationSettingsIntent(ctx).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        })
+    }
+    SoftCard {
         CardHeader(rememberVectorPainter(Icons.Filled.Notifications), "Punch sound")
         Spacer(Modifier.height(6.dp))
         var sound by remember { mutableStateOf(AttendanceController.settings.punchSound) }

@@ -13,12 +13,12 @@ val releaseKeystore = System.getenv("RELEASE_KEYSTORE_PATH")?.let { file(it) }?.
 
 android {
     namespace = "com.attendance.tracker"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.attendance.tracker"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = ciBuildNumber
         versionName = "1.0.$ciBuildNumber"
         buildConfigField("String", "UPDATE_MANIFEST_URL", "\"$updateManifestUrl\"")

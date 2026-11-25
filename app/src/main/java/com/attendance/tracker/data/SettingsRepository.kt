@@ -181,6 +181,9 @@ class SettingsRepository(context: Context) {
     var pendingLunchOut: Long get() = prefs.getLong("pendingLunchOut", 0L); set(v) = prefs.edit().putLong("pendingLunchOut", v).apply()
     var pendingLunchIn: Long get() = prefs.getLong("pendingLunchIn", 0L); set(v) = prefs.edit().putLong("pendingLunchIn", v).apply()
 
+    /** Show the tracking notification as an Android 16 Live Update (status-bar chip / Live Alerts). */
+    var liveUpdates: Boolean get() = flag("liveUpdates"); set(v) = setFlag("liveUpdates", v)
+
     /** Sound + vibration when IN / OUT is recorded. */
     var punchSound: Boolean
         get() = prefs.getBoolean("punchSound", true)

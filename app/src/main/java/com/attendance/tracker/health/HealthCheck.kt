@@ -49,6 +49,10 @@ object HealthCheck {
         else Check("Autostart (${Build.MANUFACTURER})", "Your phone stops background apps unless Autostart is on", Level.FAIL, Fix.AUTOSTART)
         c += if (p.notifications) Check("Notifications", "On", Level.OK)
         else Check("Notifications", "You won't hear punch chimes or alerts", Level.WARN, Fix.NOTIFICATIONS)
+        com.attendance.tracker.service.LiveNotification.liveUpdatesAllowed(ctx)?.let { ok ->
+            c += if (ok || !s.liveUpdates) Check("Live Updates", if (s.liveUpdates) "Shown in the status bar / Live Alerts" else "Turned off in the app", Level.OK)
+            else Check("Live Updates", "Allow \u201cLive updates\u201d for this app to see logout countdown in the status bar", Level.TIP, Fix.NOTIFICATIONS)
+        }
         c += if (p.keepPermissionsWhenUnused) Check("Keep permissions", "Android won't remove access", Level.OK)
         else Check("Keep permissions", "Android may remove access if the app isn't opened for months", Level.WARN, Fix.UNUSED)
 
