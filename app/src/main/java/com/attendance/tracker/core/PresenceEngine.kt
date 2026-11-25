@@ -130,7 +130,9 @@ class PresenceEngine(initial: Presence = Presence.UNKNOWN) {
             edge - s.accuracyM > 0 -> Zone.OUTSIDE
             else -> Zone.AMBIGUOUS
         }
-        if (zone == Zone.OUTSIDE && onOfficeWifi && presence != Presence.OUTSIDE &&
+        // Walked through a gate just now: strong evidence of a real crossing.
+        val viaGate = lastGate != null && s.timeMs - lastGateMs <= GATE_FAST_MS
+        if (zone == Zone.OUTSIDE && onOfficeWifi && presence != Presence.OUTSIDE && !viaGate &&
             !(edge > WIFI_OVERRIDE_EDGE_M && s.accuracyM <= WIFI_OVERRIDE_ACC_M)
         ) zone = Zone.AMBIGUOUS
 
@@ -150,7 +152,9 @@ class PresenceEngine(initial: Presence = Presence.UNKNOWN) {
                     candidate = zonePresence; candidateCount = 1; candidateSinceMs = s.timeMs
                     candidatePrevMs = prevAcceptedMs
                 }
-                if (candidateCount >= cfg.confirmSamples.coerceAtLeast(1)) {
+                // Right after a gate crossing, fewer readings are needed (punch at the gate, not later).
+                val needed = if (viaGate) minOf(cfg.confirmSamples, 2) else cfg.confirmSamples
+                if (candidateCount >= needed.coerceAtLeast(1)) {
                     val usedGate = lastGate?.takeIf { s.timeMs - lastGateMs <= GATE_WINDOW_MS }
                     var at = candidateSinceMs
                     var byGate = false
@@ -184,7 +188,9 @@ class PresenceEngine(initial: Presence = Presence.UNKNOWN) {
         /** A gate visit within this window before a transition is attributed to it. */
         const val GATE_WINDOW_MS = 10 * 60 * 1000L
         /** On office Wi-Fi, only a reading this far outside with this accuracy can punch OUT. */
-        const val WIFI_OVERRIDE_EDGE_M = 150.0
+        const val WIFI_OVERRIDE_EDGE_M = 60.0
+        /** A gate visit this recent lets a crossing confirm quickly, even on office Wi-Fi. */
+        const val GATE_FAST_MS = 90 * 1000L
         const val WIFI_OVERRIDE_ACC_M = 20f
         /** Gate time refines the punch only if the crossing was this recent. */
         const val GATE_TIME_WINDOW_MS = 3 * 60 * 1000L

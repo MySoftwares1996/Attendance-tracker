@@ -82,10 +82,11 @@ class PresenceEngineTest {
         val e = PresenceEngine(Presence.OUTSIDE)
         var t = 0L
         e.process(at(500.0, 8f, t), office, cfg, t)                       // on the road
-        t += 15_000; e.process(LocationSample(gate.lat, gate.lng, 8f, t), office, cfg, t)  // reach gate @15s
-        val gateT = t
-        t += 15_000; e.process(LocationSample(gate.lat, gate.lng, 8f, t), office, cfg, t)  // still at gate
         var tr: PresenceEngine.Transition? = null
+        fun step(r: PresenceEngine.Result) { (r as? PresenceEngine.Result.Accepted)?.transition?.let { tr = it } }
+        t += 15_000; step(e.process(LocationSample(gate.lat, gate.lng, 8f, t), office, cfg, t))  // reach gate @15s
+        val gateT = t
+        t += 15_000; step(e.process(LocationSample(gate.lat, gate.lng, 8f, t), office, cfg, t))  // still at gate
         for (i in 1..3) {
             t += 15_000
             val r = e.process(at(0.0, 8f, t), office, cfg, t) as PresenceEngine.Result.Accepted
@@ -147,6 +148,21 @@ class PresenceEngineTest {
             tr = r.transition ?: tr
         }
         assertEquals(Presence.OUTSIDE, tr?.to)
+    }
+
+    @Test fun lunchExitThroughGateIsQuickEvenOnOfficeWifi() {
+        val e = PresenceEngine(Presence.INSIDE)
+        var t = 0L
+        // Still on office Wi-Fi, walk through the gate and just outside (edge ~30 m).
+        e.process(LocationSample(gate.lat, gate.lng, 8f, t), office, cfg, t, onOfficeWifi = true)
+        var tr: PresenceEngine.Transition? = null
+        repeat(2) {
+            t += 5_000
+            val r = e.process(at(130.0, 8f, t), office, cfg, t, onOfficeWifi = true) as PresenceEngine.Result.Accepted
+            tr = r.transition ?: tr
+        }
+        assertEquals(Presence.OUTSIDE, tr?.to)   // two readings after the gate are enough
+        assertEquals(0L, tr!!.atMs)              // timed at the gate
     }
 
     @Test fun wifiCheckInWhenGpsCannotTell() {

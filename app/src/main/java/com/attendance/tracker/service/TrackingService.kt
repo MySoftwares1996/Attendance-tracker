@@ -155,6 +155,8 @@ class TrackingService : LifecycleService() {
         if (now < burstUntilMs) return Mode.NEAR
         if (!AttendanceController.highAccuracyWanted(now)) return Mode.LOW_POWER
         if (AttendanceController.pendingChange) return Mode.NEAR
+        // At or near a gate: poll every 5 s so the crossing is caught at once.
+        if (AttendanceController.state.value.nearGate != null) return Mode.NEAR
         val edge = AttendanceController.state.value.edgeDistanceM ?: return Mode.NORMAL
         val d = AttendanceController.state.value.distanceM ?: return Mode.NORMAL
         val fixAge = now - (AttendanceController.state.value.lastAcceptedMs ?: 0L)
