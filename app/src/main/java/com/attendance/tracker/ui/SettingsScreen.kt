@@ -96,7 +96,7 @@ import java.time.DayOfWeek
 import java.util.Locale
 import java.util.UUID
 
-private enum class Page { SUMMARY, OFFICE, GATES, HOURS, LUNCH, UPDATES, ADVANCED, WIFI, BACKUP, CHECK, RESET, HOLIDAYS, HOME, PAY }
+private enum class Page { SUMMARY, OFFICE, GATES, HOURS, LUNCH, UPDATES, ADVANCED, WIFI, BACKUP, CHECK, RESET, HOLIDAYS, HOME }
 
 private val WIZARD = listOf(Page.OFFICE, Page.GATES, Page.HOURS, Page.LUNCH)
 
@@ -172,8 +172,9 @@ fun SettingsScreen() {
 
     // Opened from the health notice on Today
     LaunchedEffect(UiChrome.setupPage) {
+        if (UiChrome.setupPage == "pay") { UiChrome.setupPage = null; UiChrome.requestTab = 4 }
         val target = when (UiChrome.setupPage) {
-            "check" -> Page.CHECK; "pay" -> Page.PAY; "home" -> Page.HOME; "holidays" -> Page.HOLIDAYS; else -> null
+            "check" -> Page.CHECK; "home" -> Page.HOME; "holidays" -> Page.HOLIDAYS; else -> null
         }
         if (target != null) { wizardStep = -1; page = target; UiChrome.setupPage = null }
     }
@@ -223,7 +224,6 @@ fun SettingsScreen() {
                     Page.RESET -> ResetStep(onWholeReset = { wizardStep = 0; page = Page.SUMMARY })
                     Page.HOLIDAYS -> HolidaysStep()
                     Page.HOME -> HomeStep()
-                    Page.PAY -> PayStep()
                     Page.BACKUP -> BackupStep()
                 }
                 if (inWizard) {
@@ -382,7 +382,7 @@ private fun Summary(s: AppSettings, open: (Page) -> Unit) {
             else "Save to Google Drive \u00b7 restore on a new phone",
             last > 0) { open(Page.BACKUP) }
         Divider()
-        SummaryRow(rememberVectorPainter(Icons.Filled.Settings), "Advanced", "Accuracy, overtime", true) { open(Page.ADVANCED) }
+        SummaryRow(rememberVectorPainter(Icons.Filled.Settings), "Advanced", "Reminders, alerts, appearance, accuracy", true) { open(Page.ADVANCED) }
     }
     SoftCard(padding = 8.dp) {
         SummaryRow(rememberVectorPainter(Icons.Filled.Delete), "Reset", "Delete test records or start over", true) { open(Page.RESET) }
@@ -962,42 +962,6 @@ private fun HomeStep() {
 
 // ───────────────────────────── pay ─────────────────────────────
 
-@Composable
-private fun PayStep() {
-    val c = Soft.colors
-    val st = AttendanceController.settings
-    var salary by remember { mutableStateOf(if (st.monthlySalary > 0f) "%.0f".format(st.monthlySalary) else "") }
-    var rate by remember { mutableStateOf(if (st.overtimeRate > 0f) "%.0f".format(st.overtimeRate) else "") }
-    var dedAbsent by remember { mutableStateOf(st.deductAbsent) }
-    var dedHalf by remember { mutableStateOf(st.deductHalfDay) }
-    val suggested = salary.toFloatOrNull()?.let { s -> s / 26f / (st.settings.value.schedule.netMinutes / 60f) }
-
-    StepTitle("Salary & overtime", "Used only for your estimated pay in Insights. Stays on this phone.")
-    SoftCard {
-        SoftField("Monthly salary (\u20B9)", salary) {
-            salary = it.filter { ch -> ch.isDigit() || ch == '.' }; st.monthlySalary = salary.toFloatOrNull() ?: 0f
-        }
-        Spacer(Modifier.height(12.dp))
-        SoftField("Overtime pay per hour (\u20B9)", rate) {
-            rate = it.filter { ch -> ch.isDigit() || ch == '.' }; st.overtimeRate = rate.toFloatOrNull() ?: 0f
-        }
-        if (suggested != null && rate.isBlank()) {
-            Spacer(Modifier.height(8.dp))
-            MiniAction("Use your hourly rate: \u20B9 %.0f / h".format(suggested)) {
-                rate = "%.0f".format(suggested); st.overtimeRate = suggested
-            }
-        }
-        Text("Overtime = net time beyond your daily target.", Modifier.padding(top = 8.dp),
-            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-    }
-    SoftCard {
-        CardHeader(rememberVectorPainter(Icons.Filled.Settings), "Deductions")
-        SoftSwitchRow("Deduct absent days", "A working day with no punches and no leave mark", dedAbsent) { dedAbsent = it; st.deductAbsent = it }
-        SoftSwitchRow("Deduct half for half days", null, dedHalf) { dedHalf = it; st.deductHalfDay = it }
-        Text("Leave, sick leave, WFH and holidays are treated as paid.", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-    }
-}
-
 // ───────────────────────────── reset ─────────────────────────────
 
 @Composable
@@ -1286,7 +1250,7 @@ private fun BackupStep() {
 
     StepTitle("Backup", "Keep your attendance history, office map and gates safe.")
     SoftCard {
-        CardHeader(painterResource(R.drawable.ic_shield), "Backup file on Google Drive", "Updated automatically every night", c.success, c.successSoft)
+        CardHeader(painterResource(R.drawable.ic_shield), "Backup file on Google Drive", "Updated a minute after every change", c.success, c.successSoft)
         Spacer(Modifier.height(12.dp))
         if (uri == null) {
             Text("Tap below, choose Google Drive in the file picker, pick a folder and tap Save.",
@@ -1435,7 +1399,7 @@ private fun AdvancedStep(s: AppSettings) {
         SoftSwitchRow("Detect lunch automatically", "After an afternoon break, ask \u201cWas this lunch?\u201d", a1) { a1 = it; st.autoLunch = it }
         SoftSwitchRow("15 min before logout", null, a2) { a2 = it; st.remindBeforeLogout = it }
         SoftSwitchRow("Hours complete", "\u201cYou can leave now\u201d", a3) { a3 = it; st.remindHoursDone = it }
-        SoftSwitchRow("Lunch running over", null, a4) { a4 = it; st.remindLunchOver = it }
+        SoftSwitchRow("Lunch reminders", "No lunch yet at 2 PM \u00b7 lunch running over", a4) { a4 = it; st.remindLunchOver = it }
         var a5 by remember { mutableStateOf(st.askDuty) }
         var a6 by remember { mutableStateOf(st.autoSummary) }
         var early by remember { mutableStateOf(st.earlyLeaveAlarm) }
@@ -1516,28 +1480,6 @@ private fun AdvancedStep(s: AppSettings) {
         Spacer(Modifier.height(6.dp))
         SoftSwitchRow("Block fake GPS apps", null, acc.rejectMock) { v ->
             persist(ctx, current().copy(accuracy = current().accuracy.copy(rejectMock = v)))
-        }
-    }
-    s.office?.let { o ->
-        SoftCard {
-            CardHeader(rememberVectorPainter(Icons.Filled.LocationOn), "Office coordinates")
-            Spacer(Modifier.height(12.dp))
-            var lat by remember { mutableStateOf("%.7f".format(Locale.US, o.lat)) }
-            var lng by remember { mutableStateOf("%.7f".format(Locale.US, o.lng)) }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Box(Modifier.weight(1f)) { SoftField("Latitude", lat, keyboard = KeyboardType.Decimal) { lat = it } }
-                Box(Modifier.weight(1f)) { SoftField("Longitude", lng, keyboard = KeyboardType.Decimal) { lng = it } }
-            }
-            Spacer(Modifier.height(12.dp))
-            SoftGhostButton("Use these coordinates", {
-                val la = lat.toDoubleOrNull(); val ln = lng.toDoubleOrNull()
-                if (la == null || ln == null || la !in -90.0..90.0 || ln !in -180.0..180.0) {
-                    Toast.makeText(ctx, "Invalid coordinates", Toast.LENGTH_SHORT).show()
-                } else {
-                    persist(ctx, current().copy(office = current().office?.copy(lat = la, lng = ln)), officeMoved = true)
-                    Toast.makeText(ctx, "Saved", Toast.LENGTH_SHORT).show()
-                }
-            })
         }
     }
 }
