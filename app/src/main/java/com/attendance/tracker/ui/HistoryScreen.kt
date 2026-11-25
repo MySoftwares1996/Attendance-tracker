@@ -110,11 +110,19 @@ fun HistoryScreen() {
             }
             item {
                 var pastOpen by remember { mutableStateOf(false) }
+                val importer = androidx.activity.compose.rememberLauncherForActivityResult(
+                    androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+                ) { u ->
+                    if (u != null) android.widget.Toast.makeText(ctx,
+                        com.attendance.tracker.backup.BackupManager.importRecords(ctx, u), android.widget.Toast.LENGTH_LONG).show()
+                }
                 if (pastOpen) MarkPastDaysDialog(month.atDay(1).coerceAtMost(LocalDate.now().minusDays(1))) { pastOpen = false }
                 SoftCard(onClick = { pastOpen = true }) {
                     Text("Mark past days", style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
                     Text("Days before you started using the app: set them Present or Absent in one go.",
                         style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+                    Spacer(Modifier.height(8.dp))
+                    MiniAction("⬇ Import records file") { importer.launch(arrayOf("application/json", "application/octet-stream", "text/*", "*/*")) }
                 }
             }
             item { MonthSummary(report, onPdf = { ReportExporter.sharePdf(ctx, report) }, onCsv = { ReportExporter.shareCsv(ctx, report) }) }

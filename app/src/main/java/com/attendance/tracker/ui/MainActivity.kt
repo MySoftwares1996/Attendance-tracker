@@ -122,6 +122,20 @@ class MainActivity : ComponentActivity() {
 
     /** Google Maps → Share → Attendance Tracker. */
     private fun handleShare(intent: android.content.Intent?) {
+        // An import file opened or shared into the app (e.g. from WhatsApp, Files or Drive).
+        val stream: android.net.Uri? = when (intent?.action) {
+            android.content.Intent.ACTION_VIEW -> intent.data
+            android.content.Intent.ACTION_SEND -> if (android.os.Build.VERSION.SDK_INT >= 33)
+                intent.getParcelableExtra(android.content.Intent.EXTRA_STREAM, android.net.Uri::class.java)
+            else @Suppress("DEPRECATION") intent.getParcelableExtra(android.content.Intent.EXTRA_STREAM)
+            else -> null
+        }
+        if (stream != null) {
+            val msg = com.attendance.tracker.backup.BackupManager.importRecords(this, stream)
+            android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_LONG).show()
+            UiChrome.requestTab = 1
+            return
+        }
         if (intent?.action != android.content.Intent.ACTION_SEND) return
         val text = intent.getStringExtra(android.content.Intent.EXTRA_TEXT) ?: return
         UiChrome.sharedTarget = null
