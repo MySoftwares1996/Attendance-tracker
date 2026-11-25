@@ -1396,23 +1396,16 @@ private fun AdvancedStep(s: AppSettings) {
         var a2 by remember { mutableStateOf(st.remindBeforeLogout) }
         var a3 by remember { mutableStateOf(st.remindHoursDone) }
         var a4 by remember { mutableStateOf(st.remindLunchOver) }
-        SoftSwitchRow("Detect lunch automatically", "After an afternoon break, ask \u201cWas this lunch?\u201d", a1) { a1 = it; st.autoLunch = it }
-        SoftSwitchRow("15 min before logout", null, a2) { a2 = it; st.remindBeforeLogout = it }
-        SoftSwitchRow("Hours complete", "\u201cYou can leave now\u201d", a3) { a3 = it; st.remindHoursDone = it }
-        SoftSwitchRow("Lunch reminders", "No lunch yet at 2 PM \u00b7 lunch running over", a4) { a4 = it; st.remindLunchOver = it }
+        SoftSwitchRow("Ask \u201cWas this lunch?\u201d after a break", null, a1) { a1 = it; st.autoLunch = it }
+        SoftSwitchRow("Remind 15 min before logout", null, a2) { a2 = it; st.remindBeforeLogout = it }
+        SoftSwitchRow("Tell me when hours are complete", null, a3) { a3 = it; st.remindHoursDone = it }
+        SoftSwitchRow("Lunch reminders", null, a4) { a4 = it; st.remindLunchOver = it }
         var a5 by remember { mutableStateOf(st.askDuty) }
         var a6 by remember { mutableStateOf(st.autoSummary) }
         var early by remember { mutableStateOf(st.earlyLeaveAlarm) }
-        SoftSwitchRow("Alarm if I leave early", "Rings when you go out before net hours are done (after lunch or 4 PM), with a one-tap permission fix", early) { early = it; st.earlyLeaveAlarm = it }
-        SoftSwitchRow("Ask \u201cofficial work?\u201d when I leave", "Mark outings as On duty so they count as worked time", a5) { a5 = it; st.askDuty = it }
-        SoftSwitchRow("End-of-day summary", "When your day is done, ready to share", a6) { a6 = it; st.autoSummary = it }
-        var phone by remember { mutableStateOf(st.managerPhone) }
-        Spacer(Modifier.height(6.dp))
-        SoftField("Manager's WhatsApp number (optional)", phone, keyboard = KeyboardType.Phone) {
-            phone = it.filter { ch -> ch.isDigit() || ch == '+' }; st.managerPhone = phone
-        }
-        Text("With country code, e.g. 919876543210. Adds a \u201cSend to manager\u201d button to the summary.",
-            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+        SoftSwitchRow("Alarm if I leave early", null, early) { early = it; st.earlyLeaveAlarm = it }
+        SoftSwitchRow("Ask \u201cOfficial work?\u201d when I go out", null, a5) { a5 = it; st.askDuty = it }
+        SoftSwitchRow("End-of-day summary", null, a6) { a6 = it; st.autoSummary = it }
     }
     SoftCard {
         CardHeader(rememberVectorPainter(Icons.Filled.Notifications), "Live Updates")
@@ -1421,7 +1414,7 @@ private fun AdvancedStep(s: AppSettings) {
         val allowed = remember { com.attendance.tracker.service.LiveNotification.liveUpdatesAllowed(ctx) }
         SoftSwitchRow(
             "Show Live Updates",
-            "Only at live moments, like system timers: 2 min after each IN/OUT, during lunch, the last 15 min before logout, and overtime \u2014 in the status bar and Live Alerts (OPPO, OnePlus, Realme)",
+            "Status-bar pill after each punch, on lunch, near logout and in overtime",
             live,
         ) {
             live = it; AttendanceController.settings.liveUpdates = it
@@ -1446,41 +1439,22 @@ private fun AdvancedStep(s: AppSettings) {
         var sound by remember { mutableStateOf(AttendanceController.settings.punchSound) }
         SoftSwitchRow(
             "Sound & vibration on IN / OUT",
-            "Rising chime when you arrive, falling chime when you leave",
+            null,
             sound,
         ) { v -> sound = v; AttendanceController.settings.punchSound = v }
     }
     SoftCard {
-        CardHeader(painterResource(R.drawable.ic_clock), "Overtime")
-        Spacer(Modifier.height(12.dp))
-        Row(
-            Modifier.fillMaxWidth().clip(Soft.tileShape).background(c.cardMuted)
-                .pressScale { pick(sc.overtimeUntilMin) { v -> persist(ctx, current().copy(schedule = current().schedule.copy(overtimeUntilMin = v))) } }
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Count overtime until", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = c.textPrimary)
-            Text(StatusResolver.fmt(sc.overtimeUntilMin), style = MaterialTheme.typography.titleLarge, color = c.accent)
-        }
-    }
-    SoftCard {
-        CardHeader(painterResource(R.drawable.ic_shield), "Detection accuracy")
-        Spacer(Modifier.height(12.dp))
-        Text("Ignore GPS readings worse than", style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
-        Spacer(Modifier.height(8.dp))
-        Choices(listOf("20 m" to 20f, "35 m" to 35f, "50 m" to 50f, "75 m" to 75f), acc.maxAccuracyM) { v ->
-            persist(ctx, current().copy(accuracy = current().accuracy.copy(maxAccuracyM = v)))
-        }
-        Spacer(Modifier.height(14.dp))
-        Text("Readings needed to confirm IN / OUT", style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
-        Spacer(Modifier.height(8.dp))
-        Choices(listOf("2 (faster)" to 2, "3" to 3, "4" to 4, "5 (safer)" to 5), acc.confirmSamples) { v ->
-            persist(ctx, current().copy(accuracy = current().accuracy.copy(confirmSamples = v)))
+        CardHeader(painterResource(R.drawable.ic_shield), "IN / OUT detection")
+        Spacer(Modifier.height(10.dp))
+        // One simple choice instead of raw GPS numbers. Fake-GPS apps are always blocked.
+        val level = when { acc.confirmSamples <= 2 -> 0; acc.confirmSamples >= 4 -> 2; else -> 1 }
+        Choices(listOf("Faster" to 0, "Balanced" to 1, "Safer" to 2), level) { v ->
+            val (m, n) = when (v) { 0 -> 50f to 2; 2 -> 30f to 4; else -> 35f to 3 }
+            persist(ctx, current().copy(accuracy = current().accuracy.copy(maxAccuracyM = m, confirmSamples = n, rejectMock = true)))
         }
         Spacer(Modifier.height(6.dp))
-        SoftSwitchRow("Block fake GPS apps", null, acc.rejectMock) { v ->
-            persist(ctx, current().copy(accuracy = current().accuracy.copy(rejectMock = v)))
-        }
+        Text("Balanced is recommended. Faster punches sooner at the gate; Safer waits for more GPS readings.",
+            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
     }
 }
 
