@@ -590,12 +590,32 @@ private fun GatesStep(
     var focusSeq by remember { mutableIntStateOf(0) }
     val shared = UiChrome.sharedLink.takeIf { UiChrome.sharedTarget == "gate" }
 
-    fun addGate(lat: Double, lng: Double) {
-        val off = current().office ?: return
-        val n = off.gates.size
-        val g = Gate(UUID.randomUUID().toString(), if (n == 0) "Main Gate" else "Gate ${n + 1}", lat, lng, 25.0)
+    /**
+     * Adds a gate snapped onto the office boundary. Taps further than [maxSnapM] from the boundary
+     * are ignored (returns false) unless [allowOff] — then the gate stays where it was given.
+     */
+    fun addGate(lat: Double, lng: Double, maxSnapM: Double, allowOff: Boolean = false): Boolean {
+        val off = current().office ?: return false
+        val (snap, dist) = off.nearestOnBoundary(lat, lng)
+        val at = when {
+            dist <= maxSnapM -> snap
+            allowOff -> LatLng(lat, lng)
+            else -> return false
+        }
+        val used = off.gates.map { it.name }.toSet()
+        val name = GATE_NAMES.firstOrNull { it !in used } ?: "Gate ${off.gates.size + 1}"
+        val g = Gate(UUID.randomUUID().toString(), name, at.lat, at.lng, 25.0)
         persist(ctx, current().copy(office = off.copy(gates = off.gates + g)), gatesChanged = true)
-        renaming = g // name it straight away
+        renaming = g // one-tap naming
+        return true
+    }
+
+    fun moveGate(i: Int, p: LatLng) {
+        val off = current().office ?: return
+        val g = off.gates.getOrNull(i) ?: return
+        val (snap, _) = off.nearestOnBoundary(p.lat, p.lng)
+        persist(ctx, current().copy(office = off.copy(gates = off.gates.map { if (it.id == g.id) it.copy(lat = snap.lat, lng = snap.lng) else it })),
+            gatesChanged = true)
     }
 
     if (o == null) {
@@ -621,13 +641,22 @@ private fun GatesStep(
                 editableCorners = false,
                 fullScreen = true,
                 focus = focus, focusSeq = focusSeq,
-                onTap = { p -> addGate(p.lat, p.lng) },
+                onTap = { p ->
+                    if (!addGate(p.lat, p.lng, maxSnapM = 40.0)) {
+                        Toast.makeText(ctx, "Tap on the blue boundary line where the gate is", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                editableGates = true,
+                onGateMoved = { i, p -> moveGate(i, p) },
             )
         },
     ) {
-        if (o.gates.isEmpty()) {
-            Text("Tap the map exactly where each gate is", style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
-        } else {
+        Text(
+            if (o.gates.isEmpty()) "Tap on the blue boundary line where each gate is \u2014 it snaps onto the line."
+            else "Drag a green gate to move it along the line. Tap a name to rename.",
+            style = MaterialTheme.typography.bodyMedium, color = if (o.gates.isEmpty()) c.accent else c.textSecondary,
+        )
+        if (o.gates.isNotEmpty()) {
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 o.gates.forEach { g ->
                     Row(
@@ -646,7 +675,7 @@ private fun GatesStep(
         }
         SoftGhostButton(
             "Add gate where I'm standing",
-            { capture("gate") { lat, lng, _ -> addGate(lat, lng) } },
+            { capture("gate") { lat, lng, _ -> addGate(lat, lng, maxSnapM = 50.0, allowOff = true) } },
             icon = rememberVectorPainter(Icons.Filled.LocationOn), enabled = !busy,
         )
     }
@@ -657,7 +686,7 @@ private fun GatesStep(
             initialText = shared,
             onFound = { p ->
                 focus = p; focusSeq++; linkOpen = false; UiChrome.sharedLink = null
-                addGate(p.lat, p.lng)
+                addGate(p.lat, p.lng, maxSnapM = 60.0, allowOff = true)
             },
             onDismiss = { linkOpen = false; UiChrome.sharedLink = null },
         )
@@ -665,25 +694,44 @@ private fun GatesStep(
 
     renaming?.let { g ->
         var text by remember(g.id) { mutableStateOf(g.name) }
+        fun saveName(n: String) {
+            val off = current().office
+            if (off != null && n.isNotBlank()) {
+                persist(ctx, current().copy(office = off.copy(gates = off.gates.map { if (it.id == g.id) it.copy(name = n.trim()) else it })))
+            }
+            renaming = null
+        }
         AlertDialog(
             onDismissRequest = { renaming = null },
-            title = { Text("Name this gate") },
-            text = { SoftField("Gate name", text, keyboard = KeyboardType.Text) { text = it } },
-            confirmButton = {
-                TextButton(onClick = {
-                    val off = current().office
-                    if (off != null && text.isNotBlank()) {
-                        persist(ctx, current().copy(office = off.copy(gates = off.gates.map { if (it.id == g.id) it.copy(name = text.trim()) else it })))
+            title = { Text("Which gate is this?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    GATE_NAMES.chunked(2).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            row.forEach { n ->
+                                val sel = n == g.name
+                                Box(
+                                    Modifier.weight(1f).height(46.dp).clip(Soft.pillShape).background(if (sel) c.accent else c.cardMuted)
+                                        .pressScale { saveName(n) },
+                                    contentAlignment = Alignment.Center,
+                                ) { Text(n, color = if (sel) Color.White else c.textPrimary, style = MaterialTheme.typography.labelLarge) }
+                            }
+                            if (row.size == 1) Spacer(Modifier.weight(1f))
+                        }
                     }
-                    renaming = null
-                }) { Text("Save") }
+                    Spacer(Modifier.height(4.dp))
+                    SoftField("Or type a name", text, keyboard = KeyboardType.Text) { text = it }
+                }
             },
-            dismissButton = { TextButton(onClick = { renaming = null }) { Text("Skip") } },
+            confirmButton = { TextButton(onClick = { saveName(text) }) { Text("Save") } },
+            dismissButton = { TextButton(onClick = { renaming = null }) { Text("Keep \u201c${g.name}\u201d") } },
             shape = RoundedCornerShape(28.dp),
             containerColor = c.card,
         )
     }
 }
+
+private val GATE_NAMES = listOf("Main Gate", "Back Gate", "Side Gate", "Parking Gate", "Staff Gate", "Gate 2")
 
 @Composable
 private fun RoundIcon(icon: Painter, desc: String, onClick: () -> Unit) {

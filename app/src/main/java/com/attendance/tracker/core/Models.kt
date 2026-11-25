@@ -34,6 +34,15 @@ data class OfficeConfig(
         if (hasPolygon) GeoMath.signedPolygonDistanceM(lat, lng, polygon)
         else GeoMath.distanceM(lat, lng, this.lat, this.lng) - radiusM
 
+    /** Closest point on the office boundary (drawn outline or circle) and the distance to it in metres. */
+    fun nearestOnBoundary(lat: Double, lng: Double): Pair<LatLng, Double> {
+        if (hasPolygon) return GeoMath.nearestPointOnPolygon(lat, lng, polygon)
+        val d = GeoMath.distanceM(lat, lng, this.lat, this.lng)
+        if (d < 0.01) return LatLng(this.lat + radiusM / 111_195.0, this.lng) to radiusM
+        val f = radiusM / d
+        return LatLng(this.lat + (lat - this.lat) * f, this.lng + (lng - this.lng) * f) to kotlin.math.abs(d - radiusM)
+    }
+
     companion object {
         /** Builds an office from a drawn outline. */
         fun fromPolygon(name: String, poly: List<LatLng>, gates: List<Gate>): OfficeConfig {

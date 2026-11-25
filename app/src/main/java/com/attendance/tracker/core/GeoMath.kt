@@ -50,6 +50,22 @@ object GeoMath {
         return if (inside) -minD else minD
     }
 
+    /** The closest point on the polygon's outline to (lat, lng), and how far away it is in metres. */
+    fun nearestPointOnPolygon(lat: Double, lng: Double, poly: List<LatLng>): Pair<LatLng, Double> {
+        val pts = poly.map { project(it.lat, it.lng, lat, lng) }
+        var best = Double.MAX_VALUE; var bx = 0.0; var by = 0.0
+        for (i in pts.indices) {
+            val (x1, y1) = pts[i]; val (x2, y2) = pts[(i + 1) % pts.size]
+            val dx = x2 - x1; val dy = y2 - y1
+            val len2 = dx * dx + dy * dy
+            val t = if (len2 == 0.0) 0.0 else (((-x1) * dx + (-y1) * dy) / len2).coerceIn(0.0, 1.0)
+            val px = x1 + t * dx; val py = y1 + t * dy
+            val d = sqrt(px * px + py * py)
+            if (d < best) { best = d; bx = px; by = py }
+        }
+        return unproject(bx, by, lat, lng) to best
+    }
+
     private fun segmentDistance(x1: Double, y1: Double, x2: Double, y2: Double): Double {
         val dx = x2 - x1; val dy = y2 - y1
         val len2 = dx * dx + dy * dy

@@ -32,6 +32,16 @@ class PolygonTest {
         assertTrue(GeoMath.signedPolygonDistanceM(lat0 + 0.0016, lng0 + 0.0016, l) > 0)    // in the notch
     }
 
+    @Test fun gateSnapsOntoBoundary() {
+        // Tap 10 m south of the south edge, mid-way along it → snaps onto the edge.
+        val (p, d) = office.nearestOnBoundary(lat0 - 0.00009, lng0 + 0.00046)
+        assertTrue("distance ~10 m, was $d", d in 8.0..12.0)
+        assertTrue("snapped point on edge", kotlin.math.abs(GeoMath.signedPolygonDistanceM(p.lat, p.lng, sq)) < 0.5)
+        // Tap inside near the east edge → snaps to the east edge.
+        val (q, _) = office.nearestOnBoundary(lat0 + 0.00045, lng0 + 0.0009)
+        assertTrue(kotlin.math.abs(q.lng - (lng0 + 0.000925)) < 0.000003)
+    }
+
     @Test fun engineUsesDrawnArea() {
         val e = PresenceEngine()
         val c = GeoMath.centroid(sq)

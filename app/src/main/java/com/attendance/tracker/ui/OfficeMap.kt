@@ -88,6 +88,9 @@ fun OfficeMap(
     drawMode: Boolean = false,
     boxRequest: Int = 0,
     onDrawn: (List<LatLng>) -> Unit = {},
+    /** Gates can be dragged straight away; [onGateMoved] gets the drop point. */
+    editableGates: Boolean = false,
+    onGateMoved: (Int, LatLng) -> Unit = { _, _ -> },
 ) {
     val ctx = LocalContext.current
     val c = Soft.colors
@@ -122,6 +125,8 @@ fun OfficeMap(
     val density = ctx.resources.displayMetrics.density
     val freehand = remember { FreehandOverlay(density) { drawn(it) } }
     val cornerDrag = remember { CornerDragOverlay(density) { i, p -> moved(i, p) } }
+    val gateMoved by rememberUpdatedState(onGateMoved)
+    val gateDrag = remember { CornerDragOverlay(density) { i, p -> gateMoved(i, p) } }
 
     // Quick box: a rectangle around the middle of the screen, ~40% of the visible width.
     LaunchedEffect(boxRequest) {
@@ -215,14 +220,17 @@ fun OfficeMap(
                     m.overlays.add(mk)
                 }
                 val gateIcon = ContextCompat.getDrawable(ctx, R.drawable.map_gate)
+                val gateMarkers = mutableListOf<Marker>()
                 gates.forEach { g ->
-                    m.overlays.add(Marker(m).apply {
+                    val mk = Marker(m).apply {
                         position = GeoPoint(g.lat, g.lng)
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                         icon = gateIcon
                         title = g.name
                         setOnMarkerClickListener { mk, _ -> mk.showInfoWindow(); true }
-                    })
+                    }
+                    gateMarkers += mk
+                    m.overlays.add(mk)
                 }
                 focus?.let { f ->
                     m.overlays.add(Marker(m).apply {
@@ -239,6 +247,10 @@ fun OfficeMap(
                 cornerDrag.markers = cornerMarkers
                 cornerDrag.polygon = poly
                 m.overlays.add(cornerDrag)
+                gateDrag.active = editableGates
+                gateDrag.markers = gateMarkers
+                gateDrag.polygon = null
+                m.overlays.add(gateDrag)
                 freehand.active = drawMode
                 m.overlays.add(freehand)
                 m.invalidate()
