@@ -56,10 +56,7 @@ The installed app updates itself. It checks for updates when opened and every 6 
    - use Google Play internal testing or Firebase App Distribution instead.
 3. **On the phone.** The first time you tap *Install update*, allow "Install unknown apps" for Attendance Tracker.
 
-**Release flow: test first, then confirm.**
-
-1. Every push to the default branch builds a **test build**, published as a GitHub *pre-release* (`v1.0.N`) with the APK. Install it by hand to try it. **Phones do not receive it over the air**, because the app only reads the latest *non*-pre-release.
-2. After the test build is confirmed, run *Actions → Build APK → Run workflow* with **promote_tag** = `v1.0.N`. That marks the build as the official release and phones update over the air.
+**Release flow: automatic.** Every push to the default branch that passes the unit tests, builds, and is signed with the release key is published straight away as the latest GitHub Release. Phones then update over the air. To re-publish an older build, run *Actions → Build APK → Run workflow* with **promote_tag** = `v1.0.N`.
 
 `update.json` format:
 

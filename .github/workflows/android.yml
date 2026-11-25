@@ -86,10 +86,11 @@ jobs:
           path: dist/AttendanceTracker.apk
           retention-days: 7
 
-      # Every build on the default branch becomes a TEST build (GitHub pre-release).
-      # The app's OTA check only reads the latest *non*-pre-release, so phones do
-      # NOT receive it until the owner confirms and the "promote" job is run.
-      - name: Publish test build (not sent to phones)
+      # Every successful build on the default branch is published straight to phones (OTA).
+      # It only gets here if unit tests passed, the APK built, it is signed with the release
+      # key and the OTA URL is baked in. (The "promote" job is kept for re-publishing an
+      # older build manually if ever needed.)
+      - name: Publish OTA release
         if: >-
           env.SIGNED == 'true' && (
             (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) ||
@@ -107,6 +108,5 @@ jobs:
                 '{versionCode:$code, versionName:$name, apkUrl:$url, sha256:$sha, notes:$notes}' > dist/update.json
           cat dist/update.json
           gh release create "$TAG" dist/AttendanceTracker.apk dist/update.json \
-            --title "TEST BUILD $VERSION (not sent to phones yet)" \
-            --notes "$NOTES"$'\n\n'"Test build: install manually to try it. Phones get it over the air only after it is confirmed and promoted." \
-            --target "$GITHUB_SHA" --prerelease
+            --title "Attendance Tracker $VERSION" --notes "$NOTES" \
+            --target "$GITHUB_SHA" --latest
