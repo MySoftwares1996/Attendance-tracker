@@ -67,6 +67,7 @@ class AttendanceApp : Application() {
             osmdroidTileCache = java.io.File(cacheDir, "osmdroid/tiles")
         }
         AttendanceController.init(this)
+        com.attendance.tracker.update.UpdateManager.init(this)
         // Self-healing: every 15 min make sure tracking and geofences are alive.
         com.attendance.tracker.service.WatchdogWorker.schedule(this)
         com.attendance.tracker.backup.BackupManager.schedule(this)

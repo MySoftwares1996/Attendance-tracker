@@ -293,6 +293,25 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
             }
         }
 
+        // ── what's new after an update ──
+        var whatsNew by remember { mutableStateOf(com.attendance.tracker.update.UpdateManager.whatsNewPending(ctx)) }
+        if (whatsNew > 0) {
+            val notes = remember(whatsNew) { com.attendance.tracker.update.UpdateManager.notesFor(ctx, whatsNew) }
+            var more by remember { mutableStateOf(false) }
+            SoftCard(color = c.accentSoft) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("\u2728 What's new in v${com.attendance.tracker.update.UpdateManager.currentVersionName}", Modifier.weight(1f),
+                        style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+                    Text("\u2715", Modifier.clip(CircleShape).pressScale {
+                        com.attendance.tracker.update.UpdateManager.setWhatsNewPending(ctx, 0); whatsNew = 0
+                    }.padding(6.dp), color = c.textSecondary)
+                }
+                Text(notes, Modifier.padding(top = 6.dp), style = MaterialTheme.typography.bodySmall, color = c.textPrimary,
+                    maxLines = if (more) Int.MAX_VALUE else 8, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                if (notes.lines().size > 8 || notes.length > 500) MiniAction(if (more) "Less" else "More") { more = !more }
+            }
+        }
+
         // ── missed OUT yesterday (phone off / battery dead) ──
         val missed = remember(LocalDate.now(), st.today.punches.size, punchOpen) { AttendanceController.missedOutYesterday(LocalDate.now()) }
         var missedOpen by remember { mutableStateOf(false) }

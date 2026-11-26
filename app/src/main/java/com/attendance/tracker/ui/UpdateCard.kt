@@ -62,6 +62,12 @@ fun UpdateControls(showVersion: Boolean = true) {
     Column {
         if (showVersion) {
             InfoLine("Installed", "v${UpdateManager.currentVersionName}")
+            val installedNotes = UpdateManager.notesFor(androidx.compose.ui.platform.LocalContext.current, UpdateManager.currentVersionCode)
+            if (installedNotes.isNotBlank()) {
+                var showNotes by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+                MiniAction(if (showNotes) "Hide what's new" else "What's new in this version") { showNotes = !showNotes }
+                if (showNotes) Text(installedNotes, Modifier.padding(vertical = 6.dp), style = MaterialTheme.typography.bodySmall, color = c.textPrimary)
+            }
         }
         AnimatedContent(st, transitionSpec = { fadeIn(tween(250)) togetherWith fadeOut(tween(150)) }, label = "upd",
             contentKey = { it::class }) { s ->

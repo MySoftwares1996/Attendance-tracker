@@ -37,6 +37,8 @@ object PostUpdateCheck {
             runCatching { TrackingService.start(ctx) }
         }
         val ok = !s.trackingEnabled || blockers.isEmpty()
+        val notes = com.attendance.tracker.update.UpdateManager.notesFor(ctx, BuildConfig.VERSION_CODE)
+        if (notes.isNotBlank()) com.attendance.tracker.update.UpdateManager.setWhatsNewPending(ctx, BuildConfig.VERSION_CODE)
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val open = PendingIntent.getActivity(ctx, 86, Intent(ctx, MainActivity::class.java).putExtra("openSetupPage", "check"), PendingIntent.FLAG_IMMUTABLE)
         runCatching {
@@ -45,6 +47,9 @@ object PostUpdateCheck {
                 .setContentTitle(if (ok) "Updated to v${BuildConfig.VERSION_NAME} \u00b7 auto-punch active \u2713"
                     else "After the update: ${blockers.first()}")
                 .setContentText(if (ok) "Tracking, gates and backups checked." else "Tap to fix it so punches aren't missed.")
+                .setStyle(NotificationCompat.BigTextStyle().bigText(
+                    (if (ok) "Tracking, gates and backups checked." else "Tap to fix it so punches aren't missed.") +
+                        if (notes.isNotBlank()) "\n\nWhat's new:\n$notes" else ""))
                 .setContentIntent(open).setAutoCancel(true).build())
         }
     }

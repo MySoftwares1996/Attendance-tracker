@@ -38,6 +38,9 @@ jobs:
       UPDATE_MANIFEST_URL: ${{ vars.UPDATE_MANIFEST_URL }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Full history and tags, so release notes can list every change since the last release.
+          fetch-depth: 0
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -102,7 +105,23 @@ jobs:
           TAG="v${VERSION}"
           SHA=$(sha256sum dist/AttendanceTracker.apk | cut -d' ' -f1)
           URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/AttendanceTracker.apk"
-          NOTES=$(git log -1 --pretty=%s)
+          # Release notes: every change since the previous release, in plain words
+          # (commit subject as a bullet, its details underneath; author trailers removed).
+          PREV=$(git tag --list 'v1.0.*' --sort=-v:refname | head -1)
+          if [ -n "$PREV" ] && git rev-parse -q --verify "$PREV" >/dev/null; then RANGE="$PREV..HEAD"; else RANGE="-1"; fi
+          NOTES=$(git log $RANGE --no-merges --pretty='format:%B%x1e' | python3 -c '
+          import sys
+          out = []
+          for c in sys.stdin.read().split("\x1e"):
+              lines = [l.rstrip() for l in c.strip().splitlines()
+                       if not l.startswith(("Co-Authored-By:", "Claude-Session:"))]
+              if not lines: continue
+              out.append("\u2022 " + lines[0])
+              body = "\n".join(lines[1:]).strip()
+              if body: out.append(body)
+          text = "\n\n".join(out)
+          print(text[:3500] + ("\n\u2026" if len(text) > 3500 else ""))
+          ')
           jq -n --argjson code "$BUILD_NUMBER" --arg name "$VERSION" --arg url "$URL" \
                 --arg sha "$SHA" --arg notes "$NOTES" \
                 '{versionCode:$code, versionName:$name, apkUrl:$url, sha256:$sha, notes:$notes}' > dist/update.json

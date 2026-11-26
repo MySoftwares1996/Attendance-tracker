@@ -57,6 +57,17 @@ object UpdateManager {
     private const val PREFS = "ota"
     private const val CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
 
+    private var appCtx: Context? = null
+    fun init(ctx: Context) { appCtx = ctx.applicationContext }
+
+    /** Release notes saved for a version (kept so they can be shown after the update installs). */
+    fun notesFor(ctx: Context, versionCode: Int): String =
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("notes_$versionCode", "") ?: ""
+
+    /** "What's new" waiting to be shown on Today after an update (version code, or 0). */
+    fun whatsNewPending(ctx: Context): Int = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt("whatsNew", 0)
+    fun setWhatsNewPending(ctx: Context, code: Int) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putInt("whatsNew", code).apply()
+
     val currentVersionCode: Int get() = BuildConfig.VERSION_CODE
     val currentVersionName: String get() = BuildConfig.VERSION_NAME
     val isConfigured: Boolean get() = BuildConfig.UPDATE_MANIFEST_URL.startsWith("https://")
@@ -86,6 +97,7 @@ object UpdateManager {
         return try {
             val info = withContext(Dispatchers.IO) { fetchManifest() }
             if (info.versionCode > currentVersionCode) {
+                appCtx?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)?.edit()?.putString("notes_${info.versionCode}", info.notes)?.apply()
                 _state.value = UpdateState.Available(info); info
             } else {
                 _state.value = UpdateState.UpToDate; null
@@ -231,7 +243,8 @@ object UpdateManager {
                 NotificationCompat.Builder(context, AttendanceApp.CHANNEL_ALERTS)
                     .setSmallIcon(R.drawable.ic_notification)
                     .setContentTitle("Update available: v${info.versionName}")
-                    .setContentText(info.notes.ifBlank { "Tap to install the latest version." })
+                    .setContentText(info.notes.lineSequence().firstOrNull { it.isNotBlank() }?.removePrefix("\u2022 ") ?: "Tap to install the latest version.")
+                    .setStyle(NotificationCompat.BigTextStyle().bigText("What's new:\n" + info.notes.ifBlank { "Tap to install the latest version." }))
                     .setContentIntent(pi)
                     .setAutoCancel(true)
                     .build()
