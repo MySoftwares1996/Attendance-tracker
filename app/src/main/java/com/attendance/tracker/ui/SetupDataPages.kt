@@ -96,7 +96,7 @@ import java.time.DayOfWeek
 import java.util.Locale
 import java.util.UUID
 
-// Setup pages: reset, auto-punch health, office Wi-Fi and backup.
+// Setup pages: reset, auto-punch health and backup.
 
 // ───────────────────────────── pay ─────────────────────────────
 
@@ -131,7 +131,7 @@ internal fun ResetStep(onWholeReset: () -> Unit) {
     StepTitle("Reset", "Remove test records, or start the app over.")
 
     SoftCard {
-        CardHeader(rememberVectorPainter(Icons.Filled.Delete), "Clear attendance records", "Keeps your office, gates, hours and Wi-Fi",
+        CardHeader(rememberVectorPainter(Icons.Filled.Delete), "Clear attendance records", "Keeps your office, gates and hours",
             c.warning, c.warningSoft)
         Spacer(Modifier.height(14.dp))
         Choices(listOf("All" to 0, "Before today" to 1, "Dates" to 2), mode) { mode = it }
@@ -169,7 +169,7 @@ internal fun ResetStep(onWholeReset: () -> Unit) {
     SoftCard {
         CardHeader(rememberVectorPainter(Icons.Filled.Delete), "Reset the whole app", "Records and setup", c.danger, c.dangerSoft)
         Spacer(Modifier.height(10.dp))
-        Text("Deletes all ${allStats.first} punches and your office map, gates, hours and Wi-Fi. Tracking stops and setup starts again from step 1. App permissions stay.",
+        Text("Deletes all ${allStats.first} punches and your office map, gates and hours. Tracking stops and setup starts again from step 1. App permissions stay.",
             style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
         Spacer(Modifier.height(12.dp))
         SoftGhostButton("Reset everything", { confirm = "all" }, tint = c.danger, background = c.dangerSoft)
@@ -246,7 +246,6 @@ internal fun HealthStep(open: (Page) -> Unit) {
             com.attendance.tracker.health.Fix.AUTOSTART -> { pm.openAutostartSettings(ctx); pm.setAutostartConfirmed(ctx) }
             com.attendance.tracker.health.Fix.OFFICE -> open(Page.OFFICE)
             com.attendance.tracker.health.Fix.GATES -> open(Page.GATES)
-            com.attendance.tracker.health.Fix.WIFI -> open(Page.WIFI)
             com.attendance.tracker.health.Fix.DATE_SETTINGS -> go(android.content.Intent(android.provider.Settings.ACTION_DATE_SETTINGS))
             com.attendance.tracker.health.Fix.START_TRACKING -> {
                 AttendanceController.settings.userPaused = false
@@ -307,60 +306,6 @@ internal fun HealthStep(open: (Page) -> Unit) {
     SoftButton("Share diagnostics", { scope.launch { com.attendance.tracker.health.HealthCheck.shareDiagnostics(ctx) } })
     Text("The diagnostics file lists your setup and the last 7 days of punches, so a problem can be traced. Share it only with someone you trust.",
         style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-}
-
-// ───────────────────────────── office Wi-Fi ─────────────────────────────
-
-@Composable
-internal fun WifiStep() {
-    val ctx = LocalContext.current
-    val c = Soft.colors
-    var saved by remember { mutableStateOf(AttendanceController.settings.officeWifi) }
-    var current by remember { mutableStateOf(com.attendance.tracker.service.WifiHelper.current(ctx)) }
-    StepTitle("Office Wi-Fi", "A second signal that you're inside \u2014 useful when GPS is weak deep in the building.")
-    SoftCard {
-        CardHeader(painterResource(R.drawable.ic_target), "Connected now")
-        Spacer(Modifier.height(12.dp))
-        val cur = current
-        if (cur == null) {
-            Text("Not connected to Wi-Fi. Connect to the office Wi-Fi, then tap Refresh.",
-                style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
-        } else {
-            Text(cur.ssid, style = MaterialTheme.typography.titleLarge, color = c.textPrimary)
-        }
-        Spacer(Modifier.height(12.dp))
-        val already = cur != null && saved.any { it.ssid == cur.ssid }
-        if (cur != null && !already) {
-            SoftButton("Add \u201c${cur.ssid}\u201d as office Wi-Fi", {
-                saved = saved + cur
-                AttendanceController.settings.officeWifi = saved
-                Toast.makeText(ctx, "Saved", Toast.LENGTH_SHORT).show()
-            }, icon = rememberVectorPainter(Icons.Filled.Add))
-            Spacer(Modifier.height(8.dp))
-        }
-        SoftGhostButton("Refresh", { current = com.attendance.tracker.service.WifiHelper.current(ctx) })
-    }
-    if (saved.isNotEmpty()) SoftCard {
-        Text("Saved office networks", style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
-        Spacer(Modifier.height(8.dp))
-        saved.forEach { w ->
-            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(w.ssid, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = c.textPrimary)
-                RoundIcon(rememberVectorPainter(Icons.Filled.Close), "Remove") {
-                    saved = saved.filter { it.ssid != w.ssid }
-                    AttendanceController.settings.officeWifi = saved
-                }
-            }
-        }
-    }
-    SoftCard {
-        Text("How it's used", style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
-        Text(
-            "While you're on office Wi-Fi, a weak GPS reading can't punch you OUT by mistake. Leaving is still detected by GPS and your gates. " +
-                "If tracking starts while you're deep inside and GPS can't place you, Wi-Fi marks you IN.",
-            style = MaterialTheme.typography.bodySmall, color = c.textSecondary,
-        )
-    }
 }
 
 // ───────────────────────────── backup ─────────────────────────────
@@ -473,7 +418,7 @@ internal fun BackupStep() {
     SoftCard {
         Text("What's backed up", style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
         Text("Everything: every IN/OUT with its GPS position, lunch, on duty, home trips, day marks and permission; " +
-            "office map, gates, home location, office Wi-Fi, hours, holidays, salary and all settings. " +
+            "office map, gates, home location, hours, holidays, salary and all settings. " +
             "Backed up a minute after every punch or change, plus nightly. Android's own Google backup also covers it.",
             style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
     }

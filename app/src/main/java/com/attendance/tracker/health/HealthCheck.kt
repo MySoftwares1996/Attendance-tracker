@@ -18,7 +18,7 @@ import java.time.ZoneId
 enum class Level { OK, WARN, FAIL, TIP }
 
 /** What tapping "Fix" does. */
-enum class Fix { APP_SETTINGS, BACKGROUND, LOCATION_ON, BATTERY, NOTIFICATIONS, UNUSED, AUTOSTART, OFFICE, GATES, WIFI, DATE_SETTINGS, START_TRACKING }
+enum class Fix { APP_SETTINGS, BACKGROUND, LOCATION_ON, BATTERY, NOTIFICATIONS, UNUSED, AUTOSTART, OFFICE, GATES, DATE_SETTINGS, START_TRACKING }
 
 data class Check(val title: String, val detail: String, val level: Level, val fix: Fix? = null)
 
@@ -90,8 +90,6 @@ object HealthCheck {
                 else Check("Gates", bad.joinToString("; ") + " — gates should sit on the boundary", Level.WARN, Fix.GATES)
             }
         }
-        c += if (s.officeWifi.isEmpty()) Check("Office Wi-Fi", "Optional — helps when GPS is weak indoors", Level.TIP, Fix.WIFI)
-        else Check("Office Wi-Fi", s.officeWifi.joinToString { it.ssid }, Level.OK)
 
         // GPS quality right now
         val fix = st.lastFix
@@ -100,7 +98,7 @@ object HealthCheck {
             fix == null || now - fix.timeMs > 10 * 60_000 -> Check("GPS signal", "No recent reading", Level.TIP)
             fix.accuracyM <= 20 -> Check("GPS signal", "±${fix.accuracyM.toInt()} m · excellent", Level.OK)
             fix.accuracyM <= maxAcc -> Check("GPS signal", "±${fix.accuracyM.toInt()} m · usable", Level.OK)
-            else -> Check("GPS signal", "±${fix.accuracyM.toInt()} m · too weak here (readings are skipped)", Level.WARN, Fix.WIFI)
+            else -> Check("GPS signal", "±${fix.accuracyM.toInt()} m · too weak here (readings are skipped)", Level.WARN)
         }
 
         // Tracking gaps in the last 7 days

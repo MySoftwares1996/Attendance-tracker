@@ -96,7 +96,7 @@ import java.time.DayOfWeek
 import java.util.Locale
 import java.util.UUID
 
-internal enum class Page { SUMMARY, OFFICE, GATES, HOURS, LUNCH, UPDATES, ADVANCED, WIFI, BACKUP, CHECK, RESET, HOLIDAYS, HOME }
+internal enum class Page { SUMMARY, OFFICE, GATES, HOURS, LUNCH, UPDATES, ADVANCED, BACKUP, CHECK, RESET, HOLIDAYS, HOME }
 
 internal val WIZARD = listOf(Page.OFFICE, Page.GATES, Page.HOURS, Page.LUNCH)
 
@@ -219,7 +219,6 @@ fun SettingsScreen() {
                     Page.LUNCH -> LunchStep(settings)
                     Page.UPDATES -> SoftCard { UpdateControls() }
                     Page.ADVANCED -> AdvancedStep(settings)
-                    Page.WIFI -> WifiStep()
                     Page.CHECK -> HealthStep { page = it }
                     Page.RESET -> ResetStep(onWholeReset = { wizardStep = 0; page = Page.SUMMARY })
                     Page.HOLIDAYS -> HolidaysStep()
@@ -387,10 +386,6 @@ internal fun Summary(s: AppSettings, open: (Page) -> Unit) {
         SummaryRow(painterResource(R.drawable.ic_rupee), "Salary & deductions",
             stg.salaryRules.let { r -> if (r.monthlyGross > 0) "\u20B9 %,.0f / month \u00b7 opens the Salary tab".format(r.monthlyGross) else "Optional \u00b7 opens the Salary tab" },
             stg.salaryRules.monthlyGross > 0) { UiChrome.requestTab = 4 }
-        Divider()
-        val wifi = AttendanceController.settings.officeWifi
-        SummaryRow(painterResource(R.drawable.ic_target), "Office Wi-Fi",
-            if (wifi.isEmpty()) "Optional \u00b7 improves accuracy indoors" else wifi.joinToString { it.ssid }, true) { open(Page.WIFI) }
     }
     SoftCard(padding = 8.dp) {
         SummaryRow(painterResource(R.drawable.ic_system_update), "App updates", "Version ${UpdateManager.currentVersionName}", true) { open(Page.UPDATES) }

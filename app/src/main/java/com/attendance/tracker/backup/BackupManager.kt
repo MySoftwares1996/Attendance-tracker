@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit
  * Full app backup as one JSON file:
  *  - every attendance record (punches with their GPS position and accuracy, lunch, duty, home trips),
  *  - per-day totals, day marks (leave, present, absent…),
- *  - all settings: office map, gates, home location, office Wi-Fi, hours, lunch, permission,
+ *  - all settings: office map, gates, home location, hours, lunch, permission,
  *    holidays, salary, reminders, and the permission-setup / trust state.
  *
  * Zero data loss:
@@ -278,7 +278,7 @@ object BackupManager {
     private val RUNTIME_KEYS = setOf("presence", "heartbeat", "lastAtHome", "atHome", "lunchActive", "lunchStart", "dutyStart",
         "dutyReason", "pendingDutyOut", "pendingLunchIn", "pendingLunchOut", "tracking", "userPaused")
 
-    /** Office map, gates, hours, lunch, holidays, home, Wi-Fi, salary, leave quotas… without any records. */
+    /** Office map, gates, hours, lunch, holidays, home, salary, leave quotas… without any records. */
     fun exportSettingsFile(ctx: Context): File {
         val all = prefsJson(ctx, MAIN_PREFS)
         val keep = JSONObject()

@@ -922,8 +922,6 @@ private fun LocationCard(st: com.attendance.tracker.LiveState, maxAcc: Float, no
         val edge = st.edgeDistanceM
         InfoLine("Office boundary", edge?.let { if (it <= 0) "${(-it).toInt()} m inside" else "${it.toInt()} m outside" } ?: "—",
             if (edge == null) c.textSecondary else if (edge <= 0) c.success else c.warning)
-        InfoLine("Office Wi-Fi", if (AttendanceController.onOfficeWifi) "Connected" else "Not connected",
-            if (AttendanceController.onOfficeWifi) c.success else c.textSecondary)
         val last = listOfNotNull(st.lastAcceptedMs, st.lastFix?.timeMs).maxOrNull()
         InfoLine("Last check", last?.let { "${((nowMs - it) / 1000).coerceAtLeast(0)}s ago" } ?: "—")
         st.lastGateUsed?.let { InfoLine("Last gate used", it) }

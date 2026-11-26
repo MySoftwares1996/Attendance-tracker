@@ -169,7 +169,7 @@ object AttendanceController {
     fun onLocation(sample: LocationSample, nowMs: Long = System.currentTimeMillis()) {
         val s = settings.settings.value
         trackHome(sample)
-        val res = engine.process(sample, s.office, s.accuracy, nowMs, onOfficeWifi = officeWifiSince > 0)
+        val res = engine.process(sample, s.office, s.accuracy, nowMs)
         var st = _state.value.copy(lastFix = sample)
         when (res) {
             is PresenceEngine.Result.Rejected -> {
@@ -301,37 +301,6 @@ object AttendanceController {
         tick()
         lastTickMs = 0L
         settings.lastHeartbeatMs = 0L
-    }
-
-    // ───────────── office Wi-Fi ─────────────
-    private var officeWifiSince = 0L
-    val onOfficeWifi: Boolean get() = officeWifiSince > 0
-
-    /**
-     * Called by the service with the current Wi-Fi state. Returns true when the phone just
-     * dropped off the office Wi-Fi while inside (a good moment to poll GPS fast).
-     */
-    @Synchronized
-    fun updateWifi(connected: Boolean, nowMs: Long = System.currentTimeMillis()): Boolean {
-        val wasOn = officeWifiSince > 0
-        if (connected && !wasOn) officeWifiSince = nowMs
-        if (!connected) officeWifiSince = 0L
-        // Wi-Fi for 60 s but GPS can't place you (or you're right at the edge): count as inside.
-        if (connected && engine.presence != Presence.INSIDE && nowMs - officeWifiSince >= 60_000) {
-            val st = _state.value
-            val gpsFresh = st.lastAcceptedMs?.let { nowMs - it < 3 * 60_000 } == true
-            val nearEdge = (st.edgeDistanceM ?: 0.0) < 60.0
-            if (engine.presence == Presence.UNKNOWN || !gpsFresh || nearEdge) {
-                engine.wifiCheckIn(nowMs)?.let { t ->
-                    settings.presence = Presence.INSIDE
-                    db.insertEvent(nowMs, EventType.CHECK_IN, "Entered ${settings.settings.value.office?.name} (via office Wi-Fi)${trustStamp()}")
-                    punchAlert(true, nowMs, null, false)
-                    if (t.from == Presence.OUTSIDE) onReturnInside(nowMs)
-                    refresh(nowMs)
-                }
-            }
-        }
-        return wasOn && !connected && engine.presence == Presence.INSIDE
     }
 
     // ───────────── commute (home → office) ─────────────
@@ -598,12 +567,12 @@ object AttendanceController {
             notify(4202, "Your ${req / 60}h${if (req % 60 > 0) " ${req % 60}m" else ""} net hours are complete \u2014 you can leave \uD83C\uDF89",
                 "Time in office from now counts as overtime.")
         }
-        // Morning check: near the office (or on its Wi-Fi) but no IN recorded yet.
+        // Morning check: near the office but no IN recorded yet.
         val minOfDay = now.hour * 60 + now.minute
         if (plan.workDay && plan.dayOff == null && plan.start == null && minOfDay in (10 * 60 + 30) until 13 * 60) {
             val st = _state.value
             val fresh = st.lastAcceptedMs?.let { nowMs - it < 10 * 60_000 } == true
-            val near = onOfficeWifi || (fresh && (st.edgeDistanceM ?: 9999.0) < 150.0)
+            val near = fresh && (st.edgeDistanceM ?: 9999.0) < 150.0
             if (near && settings.morningCheckOn && settings.firstTime("morning_$day")) morningCheck(nowMs)
         }
         // Healthy-break nudge: 2 hours in the office since you came in or came back from lunch.

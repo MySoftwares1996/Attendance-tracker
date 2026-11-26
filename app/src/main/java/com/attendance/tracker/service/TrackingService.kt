@@ -88,13 +88,6 @@ class TrackingService : LifecycleService() {
             IntentFilter(LocationManager.PROVIDERS_CHANGED_ACTION),
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
-        runCatching {
-            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
-            cm.registerNetworkCallback(
-                android.net.NetworkRequest.Builder().addTransportType(android.net.NetworkCapabilities.TRANSPORT_WIFI).build(),
-                netCallback,
-            )
-        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -130,7 +123,6 @@ class TrackingService : LifecycleService() {
                 while (isActive) {
                     val now = System.currentTimeMillis()
                     AttendanceController.recordHeartbeat(now, resumed = false)
-                    checkWifi()
                     AttendanceController.tick(now)
                     watchdog()
                     applyMode(force = false)
@@ -143,16 +135,6 @@ class TrackingService : LifecycleService() {
         return START_STICKY
     }
 
-    private fun checkWifi() {
-        val left = AttendanceController.updateWifi(runCatching { WifiHelper.onOfficeWifi(this) }.getOrDefault(false))
-        // Dropped off office Wi-Fi while inside: you may be walking out — watch GPS closely.
-        if (left) { burstUntilMs = System.currentTimeMillis() + BURST_MS; applyMode(force = false) }
-    }
-
-    private val netCallback = object : android.net.ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: android.net.Network) { android.os.Handler(Looper.getMainLooper()).postDelayed({ checkWifi() }, 1500) }
-        override fun onLost(network: android.net.Network) { android.os.Handler(Looper.getMainLooper()).post { checkWifi() } }
-    }
 
     private fun desiredMode(): Mode {
         val now = System.currentTimeMillis()
@@ -255,7 +237,6 @@ class TrackingService : LifecycleService() {
     override fun onDestroy() {
         running = false
         runCatching { unregisterReceiver(providerReceiver) }
-        runCatching { (getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager).unregisterNetworkCallback(netCallback) }
         fused.removeLocationUpdates(callback)
         super.onDestroy()
     }
