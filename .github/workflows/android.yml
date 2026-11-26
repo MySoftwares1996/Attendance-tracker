@@ -115,7 +115,7 @@ jobs:
           for c in sys.stdin.read().split("\x1e"):
               lines = [l.rstrip() for l in c.strip().splitlines()
                        if not l.startswith(("Co-Authored-By:", "Claude-Session:"))]
-              if not lines: continue
+              if not lines or lines[0].lower().startswith("fix build"): continue  # internal build fixes
               out.append("\u2022 " + lines[0])
               body = "\n".join(lines[1:]).strip()
               if body: out.append(body)
