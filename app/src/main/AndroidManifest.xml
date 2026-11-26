@@ -10,6 +10,11 @@
     <!-- Android 16 Live Updates (status-bar chip / Live Alerts on OPPO, OnePlus, Realme) -->
     <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Optional: put leave and holidays into your calendar -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+    <!-- Optional: fingerprint lock for Salary and Backup -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <!-- Walking detection: switch GPS to fast mode as soon as you start walking -->
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <uses-permission android:name="com.google.android.gms.permission.ACTIVITY_RECOGNITION" />
@@ -44,6 +49,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
             <!-- Google Maps → Share → Attendance Tracker -->
             <!-- Open or share an import / backup file straight into the app -->
             <intent-filter android:label="Import attendance records">

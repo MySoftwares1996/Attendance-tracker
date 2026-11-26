@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the app icon, or say "Hey Google, open start lunch on Attendance". -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <capability android:name="actions.intent.OPEN_APP_FEATURE">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetClass="com.attendance.tracker.ui.MainActivity"
+            android:targetPackage="com.attendance.tracker">
+            <parameter android:name="feature" android:key="shortcut" />
+        </intent>
+    </capability>
+
+    <shortcut android:shortcutId="lunch" android:enabled="true" android:icon="@drawable/ic_lunch"
+        android:shortcutShortLabel="@string/sc_lunch" android:shortcutLongLabel="@string/sc_lunch">
+        <intent android:action="android.intent.action.VIEW" android:targetClass="com.attendance.tracker.ui.MainActivity"
+            android:targetPackage="com.attendance.tracker">
+            <extra android:name="shortcut" android:value="lunch" />
+        </intent>
+        <capability-binding android:key="actions.intent.OPEN_APP_FEATURE">
+            <parameter-binding android:key="feature" android:value="@array/sc_lunch_names" />
+        </capability-binding>
+    </shortcut>
+    <shortcut android:shortcutId="missed" android:enabled="true" android:icon="@drawable/ic_clock"
+        android:shortcutShortLabel="@string/sc_missed" android:shortcutLongLabel="@string/sc_missed">
+        <intent android:action="android.intent.action.VIEW" android:targetClass="com.attendance.tracker.ui.MainActivity"
+            android:targetPackage="com.attendance.tracker">
+            <extra android:name="shortcut" android:value="missed" />
+        </intent>
+        <capability-binding android:key="actions.intent.OPEN_APP_FEATURE">
+            <parameter-binding android:key="feature" android:value="@array/sc_missed_names" />
+        </capability-binding>
+    </shortcut>
+    <shortcut android:shortcutId="leave" android:enabled="true" android:icon="@drawable/ic_target"
+        android:shortcutShortLabel="@string/sc_leave" android:shortcutLongLabel="@string/sc_leave">
+        <intent android:action="android.intent.action.VIEW" android:targetClass="com.attendance.tracker.ui.MainActivity"
+            android:targetPackage="com.attendance.tracker">
+            <extra android:name="shortcut" android:value="leave" />
+        </intent>
+        <capability-binding android:key="actions.intent.OPEN_APP_FEATURE">
+            <parameter-binding android:key="feature" android:value="@array/sc_leave_names" />
+        </capability-binding>
+    </shortcut>
+    <shortcut android:shortcutId="leaveby" android:enabled="true" android:icon="@drawable/ic_gate"
+        android:shortcutShortLabel="@string/sc_leaveby" android:shortcutLongLabel="@string/sc_leaveby">
+        <intent android:action="android.intent.action.VIEW" android:targetClass="com.attendance.tracker.ui.MainActivity"
+            android:targetPackage="com.attendance.tracker">
+            <extra android:name="shortcut" android:value="leaveby" />
+        </intent>
+        <capability-binding android:key="actions.intent.OPEN_APP_FEATURE">
+            <parameter-binding android:key="feature" android:value="@array/sc_leaveby_names" />
+        </capability-binding>
+    </shortcut>
+</shortcuts>

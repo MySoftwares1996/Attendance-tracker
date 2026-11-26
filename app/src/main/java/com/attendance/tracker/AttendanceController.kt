@@ -183,6 +183,8 @@ object AttendanceController {
             }
             is PresenceEngine.Result.Accepted -> {
                 trail.addLast(sample); while (trail.size > 40) trail.removeFirst()
+                trackDutyDistance(sample)
+                checkSites(sample, nowMs)
                 st = st.copy(
                     lastReject = null, lastAcceptedMs = sample.timeMs,
                     distanceM = res.distanceM, edgeDistanceM = res.edgeDistanceM, nearGate = res.nearGate?.name,
@@ -217,6 +219,43 @@ object AttendanceController {
         }
         _state.value = st
         refresh(nowMs)
+    }
+
+    // ───────────── on-duty distance (travel claims) ─────────────
+    internal var dutyLast: LocationSample? = null
+
+    /** Adds the distance between good fixes while on duty (ignores jitter under 25 m). */
+    private fun trackDutyDistance(s: LocationSample) {
+        if (settings.dutyStartMs <= 0 || s.accuracyM > 30f) return
+        val prev = dutyLast
+        if (prev == null) { dutyLast = s; return }
+        val d = com.attendance.tracker.core.GeoMath.distanceM(prev.lat, prev.lng, s.lat, s.lng)
+        if (d >= 25.0) { settings.dutyMeters = settings.dutyMeters + d.toFloat(); dutyLast = s }
+    }
+
+    // ───────────── extra work locations (client sites) ─────────────
+    private var siteHits = 0
+    private var siteAway = 0
+
+    /**
+     * At a saved client site / second office (outside the main office): starts On duty automatically
+     * so the time counts as work; leaving the site ends it.
+     */
+    private fun checkSites(s: LocationSample, nowMs: Long) {
+        val sites = settings.workSites
+        if (sites.isEmpty() || engine.presence == Presence.INSIDE || s.accuracyM > 40f) return
+        val at = sites.firstOrNull { com.attendance.tracker.core.GeoMath.distanceM(s.lat, s.lng, it.lat, it.lng) + s.accuracyM <= it.radiusM }
+        val onSiteDuty = settings.dutyStartMs > 0 && settings.dutyReason.startsWith("At ")
+        if (at != null) {
+            siteAway = 0
+            if (settings.dutyStartMs <= 0 && ++siteHits >= 2) {
+                startDuty("At ${at.name}", s.timeMs); siteHits = 0
+                notify(4103, "At ${at.name} \u00b7 on duty", "Time here counts as work until you leave.")
+            }
+        } else {
+            siteHits = 0
+            if (onSiteDuty && ++siteAway >= 2) { endDuty(s.timeMs, auto = true); siteAway = 0 }
+        }
     }
 
     // ───────────── gate-crossing trail (GPS points around each punch) ─────────────
@@ -424,6 +463,8 @@ object AttendanceController {
         SICK("SL", "Sick leave", DayMark.SICK),
         EARNED("EL", "Earned leave", DayMark.LEAVE),
         UNPAID("LOP", "Loss of pay", DayMark.ABSENT),
+        /** Earned by working on a weekly off or holiday. */
+        COMP_OFF("CO", "Comp-off", DayMark.LEAVE),
     }
 
     data class LeaveDay(val date: LocalDate, val type: LeaveType, val half: Boolean, val reason: String)
@@ -564,6 +605,15 @@ object AttendanceController {
             val fresh = st.lastAcceptedMs?.let { nowMs - it < 10 * 60_000 } == true
             val near = onOfficeWifi || (fresh && (st.edgeDistanceM ?: 9999.0) < 150.0)
             if (near && settings.morningCheckOn && settings.firstTime("morning_$day")) morningCheck(nowMs)
+        }
+        // Healthy-break nudge: 2 hours in the office since you came in or came back from lunch.
+        if (status == WorkStatus.IN_OFFICE && settings.breakNudge && !lunch.active) {
+            val since = _state.value.today.timeline.lastOrNull { it.type == EventType.CHECK_IN || it.type == EventType.LUNCH_END }?.timeMs
+            if (since != null) {
+                val blocks = (nowMs - since) / (2 * 3_600_000L)
+                if (blocks >= 1 && settings.firstTime("break_${since}_$blocks"))
+                    notify(4208, "Time for a short break \u2615", "${blocks * 2} hours at work without a break. Stretch, walk, drink some water.", snooze = true)
+            }
         }
         // Monthly summary on the 1st (from 9 AM) for last month.
         if (now.dayOfMonth == 1 && minOfDay >= 9 * 60 && settings.remindMonthly) {
@@ -985,6 +1035,7 @@ object AttendanceController {
         if (settings.dutyStartMs > 0) { setDutyReason(reason); return }
         settings.dutyStartMs = fromMs
         settings.dutyReason = reason
+        settings.dutyMeters = 0f; dutyLast = null
         db.insertEvent(fromMs, EventType.DUTY_START, "On duty \u00b7 $reason")
         dismissPendingDutySilently()
         refresh()
@@ -1000,8 +1051,11 @@ object AttendanceController {
         val start = settings.dutyStartMs
         if (start <= 0) return
         val mins = (atMs - start) / 60_000
-        db.insertEvent(atMs, EventType.DUTY_END, "Back from duty \u00b7 ${settings.dutyReason} \u00b7 $mins min counted as work")
+        val km = settings.dutyMeters / 1000.0
+        db.insertEvent(atMs, EventType.DUTY_END, "Back from duty \u00b7 ${settings.dutyReason} \u00b7 $mins min counted as work" +
+            if (km >= 0.1) " \u00b7 %.1f km".format(java.util.Locale.US, km) else "")
         settings.dutyStartMs = 0L
+        settings.dutyMeters = 0f; dutyLast = null
         if (auto) notify(4102, "Welcome back \u2014 duty ended", "$mins min of ${settings.dutyReason} counted as work.")
         refresh()
     }

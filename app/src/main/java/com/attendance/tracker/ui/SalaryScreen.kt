@@ -1,5 +1,7 @@
 package com.attendance.tracker.ui
 
+import com.attendance.tracker.travelClaims
+
 import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -100,6 +102,7 @@ fun SalaryScreen() {
                 empty = "No deductions this month")
             AttendanceBasis(report)
             CreditedCard(month, slip.net)
+            ClaimsCard(report, rules)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 SoftButton("Payslip PDF", {
                     runCatching { com.attendance.tracker.report.ReportExporter.sharePayslipPdf(ctx, report, slip) }
@@ -414,5 +417,30 @@ private fun CreditedCard(month: YearMonth, estimate: Double) {
                 style = MaterialTheme.typography.bodyMedium, color = if (kotlin.math.abs(diff) < 1) c.success else c.warning,
             )
         }
+    }
+}
+
+/** Overtime and On duty travel claims for the month, with a one-page PDF for HR. */
+@Composable
+private fun ClaimsCard(report: MonthReport, rules: SalaryRules) {
+    val ctx = LocalContext.current
+    val c = Soft.colors
+    val ot = report.days.filter { it.overtimeSec >= 60 }.map { it.date to it.overtimeSec }
+    val travel = rememberInBackground(report) { AttendanceController.travelClaims(report.month) }.orEmpty()
+    if (ot.isEmpty() && travel.isEmpty()) return
+    val kmRate = AttendanceController.settings.kmRate.toDouble()
+    val otAmt = ot.sumOf { it.second / 3600.0 * rules.overtimeRatePerHour }
+    val trKm = travel.sumOf { it.third }
+    SoftCard {
+        CardHeader(painterResource(R.drawable.ic_clock), "Claims", report.month.format(monthFmt), Color(0xFF6A4FE8), Color(0x1F6A4FE8))
+        Spacer(Modifier.height(8.dp))
+        if (ot.isNotEmpty()) InfoLine("Overtime ${ot.size} day${if (ot.size == 1) "" else "s"} \u00b7 ${fmtDuration(ot.sumOf { it.second })}",
+            if (rules.overtimeRatePerHour > 0) rs(otAmt) else "set OT rate")
+        if (travel.isNotEmpty()) InfoLine("Travel ${travel.size} trip${if (travel.size == 1) "" else "s"} \u00b7 %.1f km".format(trKm),
+            if (kmRate > 0) rs(trKm * kmRate) else "set \u20B9/km in Advanced")
+        Spacer(Modifier.height(8.dp))
+        SoftGhostButton("Claims PDF", {
+            runCatching { com.attendance.tracker.report.ReportExporter.shareClaimsPdf(ctx, report.month, ot, rules.overtimeRatePerHour, travel, kmRate) }
+        })
     }
 }

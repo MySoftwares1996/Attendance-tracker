@@ -188,7 +188,7 @@ internal fun HolidaysStep() {
     var paste by remember { mutableStateOf("") }
     var addName by remember { mutableStateOf("") }
     val custom = remember(tick) { st.customHolidays.toSortedMap() }
-    fun changed() { tick++; AttendanceController.refresh() }
+    fun changed() { tick++; AttendanceController.refresh(); com.attendance.tracker.service.CalendarSync.syncSoon(ctx) }
 
     StepTitle("Holidays", "These days count as days off \u2014 never absent.")
     SoftCard {

@@ -188,6 +188,7 @@ internal fun AdvancedStep(s: AppSettings) {
         Text("Reports with pay or permission details stay hidden on the lock screen until you unlock.",
             style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
     }
+    MoreOptionsCard()
     SoftCard {
         CardHeader(painterResource(R.drawable.ic_shield), "IN / OUT detection")
         Spacer(Modifier.height(10.dp))
@@ -200,5 +201,66 @@ internal fun AdvancedStep(s: AppSettings) {
         Spacer(Modifier.height(6.dp))
         Text("Balanced is recommended. Faster punches sooner at the gate; Safer waits for more GPS readings.",
             style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+    }
+}
+
+/** Work locations, calendar sync, fingerprint lock, break nudges and travel rate. */
+@Composable
+private fun MoreOptionsCard() {
+    val ctx = LocalContext.current
+    val c = Soft.colors
+    val st = AttendanceController.settings
+    var sites by remember { mutableStateOf(st.workSites) }
+    var siteName by remember { mutableStateOf("") }
+    var cal by remember { mutableStateOf(st.calendarSync) }
+    var lock by remember { mutableStateOf(st.appLock) }
+    var nudge by remember { mutableStateOf(st.breakNudge) }
+    var rate by remember { mutableStateOf(if (st.kmRate > 0) "%.0f".format(st.kmRate) else "") }
+    val calPerm = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) { res ->
+        cal = res.values.all { it }; st.calendarSync = cal
+        if (cal) com.attendance.tracker.service.CalendarSync.syncSoon(ctx)
+        else Toast.makeText(ctx, "Calendar permission is needed for this", Toast.LENGTH_SHORT).show()
+    }
+    SoftCard {
+        CardHeader(rememberVectorPainter(Icons.Filled.LocationOn), "Other work locations", "Client sites or a second office: time there counts as On duty")
+        Spacer(Modifier.height(8.dp))
+        sites.forEach { s ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("\uD83D\uDCCD ${s.name} \u00b7 ${s.radiusM.toInt()} m", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = c.textPrimary)
+                Text("Remove", Modifier.clip(Soft.pillShape).pressScale { sites = sites - s; st.workSites = sites }.padding(6.dp),
+                    style = MaterialTheme.typography.labelMedium, color = c.danger)
+            }
+        }
+        SoftField("Site name (e.g. Client – Hitech City)", siteName, keyboard = KeyboardType.Text) { siteName = it }
+        Spacer(Modifier.height(8.dp))
+        SoftGhostButton("Add where I am now", {
+            val fix = AttendanceController.state.value.lastFix
+            when {
+                siteName.isBlank() -> Toast.makeText(ctx, "Type a name first", Toast.LENGTH_SHORT).show()
+                fix == null || System.currentTimeMillis() - fix.timeMs > 5 * 60_000 -> Toast.makeText(ctx, "Waiting for a fresh GPS fix \u2014 try again in a moment", Toast.LENGTH_SHORT).show()
+                else -> {
+                    sites = sites + com.attendance.tracker.data.SettingsRepository.WorkSite(siteName.trim(), fix.lat, fix.lng, 150.0)
+                    st.workSites = sites; siteName = ""
+                    Toast.makeText(ctx, "Site saved", Toast.LENGTH_SHORT).show()
+                }
+            }
+        })
+    }
+    SoftCard {
+        CardHeader(rememberVectorPainter(Icons.Filled.Settings), "More")
+        Spacer(Modifier.height(6.dp))
+        SoftSwitchRow("Add leave & holidays to my calendar", null, cal) { v ->
+            if (v && !com.attendance.tracker.service.CalendarSync.permitted(ctx))
+                calPerm.launch(arrayOf(android.Manifest.permission.READ_CALENDAR, android.Manifest.permission.WRITE_CALENDAR))
+            else { cal = v; st.calendarSync = v; if (v) com.attendance.tracker.service.CalendarSync.syncSoon(ctx) }
+        }
+        SoftSwitchRow("Fingerprint lock for Salary & Backup", null, lock) { lock = it; st.appLock = it }
+        SoftSwitchRow("Remind me to take a break every 2 hours", null, nudge) { nudge = it; st.breakNudge = it }
+        Spacer(Modifier.height(6.dp))
+        SoftField("Travel claim rate (\u20B9 per km, for On duty trips)", rate) { v ->
+            rate = v.filter { it.isDigit() || it == '.' }; st.kmRate = rate.toFloatOrNull() ?: 0f
+        }
     }
 }

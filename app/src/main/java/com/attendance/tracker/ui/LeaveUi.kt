@@ -1,5 +1,9 @@
 package com.attendance.tracker.ui
 
+import com.attendance.tracker.leaveEncashment
+
+import com.attendance.tracker.compOffDays
+
 import com.attendance.tracker.leavesIn
 import com.attendance.tracker.leaveWorkingDays
 import com.attendance.tracker.leaveRequestText
@@ -170,6 +174,12 @@ fun LeavesCard() {
                 }
             }
         }
+        val enc = remember(tick) { runCatching { AttendanceController.leaveEncashment() }.getOrNull() }
+        val co = rememberInBackground(tick) { AttendanceController.compOffDays(LocalDate.now().year) }.orEmpty()
+        if (co.isNotEmpty()) Text("\uD83D\uDD04 Comp-off earned: ${days(co.sumOf { it.second })} \u00b7 last ${co.last().first.format(lFmt)} (worked on an off day)",
+            Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = c.textPrimary)
+        if (enc != null && enc.first > 0) Text("\uD83D\uDCB0 ${days(enc.first)} EL left \u2248 \u20B9 %,.0f if encashed (basic \u00f7 26 per day)".format(enc.second),
+            Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall, color = c.textPrimary)
         LongWeekendList()
         Spacer(Modifier.height(8.dp))
         Text(if (editOpen) "Hide yearly quota" else "Change yearly quota", Modifier.clip(Soft.pillShape).pressScale { editOpen = !editOpen }.padding(vertical = 4.dp),

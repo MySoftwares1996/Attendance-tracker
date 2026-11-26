@@ -122,6 +122,16 @@ class MainActivity : ComponentActivity() {
 
     /** Google Maps → Share → Attendance Tracker. */
     private fun handleShare(intent: android.content.Intent?) {
+        // App-icon shortcuts / "Hey Google, open start lunch on Attendance".
+        intent?.getStringExtra("shortcut")?.let { raw ->
+            val v = raw.lowercase()
+            UiChrome.shortcut = when {
+                "lunch" in v -> "lunch"; "missed" in v || "punch" in v -> "missed"
+                "leave by" in v || "leaveby" in v || "when" in v -> "leaveby"; "leave" in v -> "leave"; else -> null
+            }
+            UiChrome.requestTab = 0
+            intent.removeExtra("shortcut"); return
+        }
         intent?.getStringExtra("openSetupPage")?.let { UiChrome.setupPage = it; UiChrome.requestTab = 2; intent.removeExtra("openSetupPage"); return }
         // An import file opened or shared into the app (e.g. from WhatsApp, Files or Drive).
         val stream: android.net.Uri? = when (intent?.action) {
@@ -171,7 +181,7 @@ private fun MainContent() {
                 0 -> DashboardScreen(onOpenSetup = { tab = 2 })
                 1 -> HistoryScreen()
                 3 -> InsightsScreen(onOpenSetup = { page -> if (page == "salary") tab = 4 else { UiChrome.setupPage = page; tab = 2 } })
-                4 -> SalaryScreen()
+                4 -> if (AppLock.locked) androidx.compose.foundation.layout.Column(Modifier.padding(horizontal = 14.dp, vertical = 40.dp)) { LockedCard("Salary") } else SalaryScreen()
                 else -> SettingsScreen()
             }
         }
@@ -193,6 +203,8 @@ object UiChrome {
     var sharedLink by mutableStateOf<String?>(null)
     /** Ask the app to switch to a bottom tab (0 Today, 1 History, 2 Setup, 3 Insights, 4 Salary). */
     var requestTab by mutableStateOf<Int?>(null)
+    /** A pending app-shortcut action for Today: lunch, missed, leave, leaveby. */
+    var shortcut by mutableStateOf<String?>(null)
     /** Setup page to open next ("check"), e.g. from the health notice on Today. */
     var setupPage by mutableStateOf<String?>(null)
     /** "office" or "gate" once the user picked what the shared location is for. */

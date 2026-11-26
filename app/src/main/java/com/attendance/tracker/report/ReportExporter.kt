@@ -165,6 +165,44 @@ object ReportExporter {
         share(ctx, f, "application/pdf", "Salary slip ${r.month.format(monthFmt)}")
     }
 
+    /** Overtime and travel (On duty) claims for a month on one page. */
+    fun shareClaimsPdf(ctx: Context, month: java.time.YearMonth, ot: List<Pair<java.time.LocalDate, Long>>, otRate: Double,
+                       travel: List<Triple<java.time.LocalDate, String, Double>>, kmRate: Double) {
+        val doc = PdfDocument()
+        val W = 595; val H = 842; val M = 48f
+        val title = Paint().apply { textSize = 20f; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD); color = Color.rgb(28, 32, 51) }
+        val head = Paint().apply { textSize = 11f; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD); color = Color.rgb(91, 108, 255) }
+        val body = Paint().apply { textSize = 10.5f; color = Color.rgb(28, 32, 51) }
+        val bold = Paint(body).apply { typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD) }
+        val line = Paint().apply { color = Color.rgb(232, 234, 242); strokeWidth = 0.8f }
+        val page = doc.startPage(PdfDocument.PageInfo.Builder(W, H, 1).create())
+        val c = page.canvas
+        var y = M + 10
+        fun money(v: Double) = "\u20B9 %,.2f".format(v)
+        fun right(t: String, yy: Float, p: Paint) = c.drawText(t, W - M - p.measureText(t), yy, p)
+        val df = DateTimeFormatter.ofPattern("EEE, d MMM")
+        c.drawText("Claims \u2014 ${month.format(monthFmt)}", M, y, title); y += 30
+        c.drawText("OVERTIME", M, y, head); y += 8; c.drawLine(M, y, W - M, y, line); y += 16
+        ot.forEach { (d, sec) ->
+            c.drawText(d.format(df), M, y, body); c.drawText(hm(sec), M + 200, y, body); right(money(sec / 3600.0 * otRate), y, body); y += 17
+        }
+        val otTotal = ot.sumOf { it.second / 3600.0 * otRate }
+        c.drawText("Total overtime ${hm(ot.sumOf { it.second })} @ \u20B9 %.0f / h".format(otRate), M, y, bold); right(money(otTotal), y, bold); y += 32
+        c.drawText("TRAVEL (ON DUTY)", M, y, head); y += 8; c.drawLine(M, y, W - M, y, line); y += 16
+        travel.forEach { (d, why, km) ->
+            c.drawText(d.format(df), M, y, body); c.drawText(why.take(30), M + 110, y, body); c.drawText("%.1f km".format(km), M + 330, y, body)
+            right(money(km * kmRate), y, body); y += 17
+        }
+        val trTotal = travel.sumOf { it.third * kmRate }
+        c.drawText("Total %.1f km @ \u20B9 %.0f / km".format(travel.sumOf { it.third }, kmRate), M, y, bold); right(money(trTotal), y, bold); y += 32
+        c.drawText("Grand total", M, y, title); right(money(otTotal + trTotal), y, title)
+        doc.finishPage(page)
+        val f = File(dir(ctx), "claims-$month.pdf")
+        f.outputStream().use { doc.writeTo(it) }
+        doc.close()
+        share(ctx, f, "application/pdf", "Claims ${month.format(monthFmt)}")
+    }
+
     private fun share(ctx: Context, f: File, mime: String, subject: String) {
         val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.files", f)
         val send = Intent(Intent.ACTION_SEND).setType(mime)

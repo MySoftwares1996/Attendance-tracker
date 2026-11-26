@@ -367,6 +367,7 @@ internal fun WifiStep() {
 
 @Composable
 internal fun BackupStep() {
+    if (AppLock.locked) { LockedCard("Backup"); return }
     val ctx = LocalContext.current
     val c = Soft.colors
     val bm = com.attendance.tracker.backup.BackupManager

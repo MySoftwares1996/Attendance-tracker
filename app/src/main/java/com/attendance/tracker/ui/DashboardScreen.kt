@@ -208,6 +208,17 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
     var planOpen by remember { mutableStateOf(false) }
     var leaveOpen by remember { mutableStateOf(false) }
     if (leaveOpen) ApplyLeaveDialog { leaveOpen = false }
+    // App-icon shortcuts and voice actions land here.
+    LaunchedEffect(UiChrome.shortcut) {
+        when (UiChrome.shortcut) {
+            "lunch" -> if (AttendanceController.state.value.lunch.active) AttendanceController.endLunch()
+                else AttendanceController.startLunch()?.let { Toast.makeText(ctx, it, Toast.LENGTH_LONG).show() }
+            "missed" -> punchOpen = true
+            "leave" -> leaveOpen = true
+            "leaveby" -> planOpen = true
+        }
+        UiChrome.shortcut = null
+    }
     if (permOpen) PermissionDialog(LocalDate.now()) { permOpen = false }
     if (planOpen) LeaveByDialog { planOpen = false }
     if (markOpen) DayMarkDialog(LocalDate.now()) { markOpen = false }

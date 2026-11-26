@@ -142,11 +142,12 @@ fun AttendanceController.applyLeave(from: LocalDate, to: LocalDate, type: LeaveT
         val mark = if (half && type != LeaveType.UNPAID) DayMark.HALF_DAY else type.mark
         db.setDayMarkWithNote(d.toString(), mark, com.attendance.tracker.core.LeaveNote.format(type.code, half, reason))
     }
+    com.attendance.tracker.service.CalendarSync.syncSoon(app)
     refresh()
     return days.size
 }
 
-fun AttendanceController.cancelLeave(day: LocalDate) { db.setDayMark(day.toString(), null); refresh() }
+fun AttendanceController.cancelLeave(day: LocalDate) { db.setDayMark(day.toString(), null); refresh(); com.attendance.tracker.service.CalendarSync.syncSoon(app) }
 
 /** Leaves applied in [year] (from their notes). */
 fun AttendanceController.leavesIn(year: Int): List<LeaveDay> = db.marksWithNotes("$year-01-01", "$year-12-31").mapNotNull { (day, _, note) ->
@@ -159,9 +160,50 @@ fun AttendanceController.leavesIn(year: Int): List<LeaveDay> = db.marksWithNotes
 fun AttendanceController.leaveBalance(year: Int = LocalDate.now().year): Map<LeaveType, Pair<Double, Double>> {
     val used = leavesIn(year).groupBy { it.type }.mapValues { (_, l) -> l.sumOf { if (it.half) 0.5 else 1.0 } }
     val q = settings.leaveQuota
+    val compOff = compOffDays(year).sumOf { it.second }
     return LeaveType.entries.filter { it != LeaveType.UNPAID }.associateWith { t ->
         val u = used[t] ?: 0.0
-        u to ((q[t.code] ?: 0.0) - u)
+        val quota = if (t == LeaveType.COMP_OFF) compOff else (q[t.code] ?: 0.0)
+        u to (quota - u)
+    }
+}
+
+/**
+ * Comp-off earned in [year]: days you worked on a weekly off or holiday.
+ * A full day's net earns 1 comp-off, at least half of it earns 0.5.
+ */
+fun AttendanceController.compOffDays(year: Int): List<Pair<LocalDate, Double>> {
+    val wd = settings.settings.value.schedule.workDays
+    val from = LocalDate.of(year, 1, 1); val to = LocalDate.of(year + 1, 1, 1)
+    val byDay = db.events(from.atStartOfDay(zone()).toInstant().toEpochMilli(), to.atStartOfDay(zone()).toInstant().toEpochMilli())
+        .groupBy { java.time.Instant.ofEpochMilli(it.timeMs).atZone(zone()).toLocalDate() }
+    return byDay.mapNotNull { (d, ev) ->
+        val offDay = d.dayOfWeek !in wd || com.attendance.tracker.data.Holidays.name(d) != null
+        if (!offDay || d == LocalDate.now() || ev.none { it.type == EventType.CHECK_IN }) return@mapNotNull null
+        val net = netWorkedSec(ev, ev.maxOf { it.timeMs }, d)
+        val target = netTargetSec(d)
+        when { net >= target -> d to 1.0; net >= target / 2 -> d to 0.5; else -> null }
+    }.sortedBy { it.first }
+}
+
+/** Value of unused earned leave if encashed: basic per day (basic ÷ 26) × days left. */
+fun AttendanceController.leaveEncashment(): Pair<Double, Double>? {
+    val r = settings.salaryRules
+    if (r.monthlyGross <= 0) return null
+    val elLeft = (leaveBalance()[LeaveType.EARNED]?.second ?: 0.0).coerceAtLeast(0.0)
+    val perDay = r.monthlyGross * r.basicPercent / 100 / 26
+    return elLeft to elLeft * perDay
+}
+
+/** On-duty trips with distance for [month]: (date, reason, km). */
+fun AttendanceController.travelClaims(month: java.time.YearMonth): List<Triple<LocalDate, String, Double>> {
+    val from = month.atDay(1).atStartOfDay(zone()).toInstant().toEpochMilli()
+    val to = month.plusMonths(1).atDay(1).atStartOfDay(zone()).toInstant().toEpochMilli()
+    val km = Regex("""([0-9]+(?:\.[0-9]+)?) km""")
+    return db.events(from, to).filter { it.type == EventType.DUTY_END }.mapNotNull { e ->
+        val k = km.find(e.detail)?.groupValues?.get(1)?.toDoubleOrNull() ?: return@mapNotNull null
+        val reason = e.detail.removePrefix("Back from duty \u00b7 ").substringBefore(" \u00b7 ")
+        Triple(java.time.Instant.ofEpochMilli(e.timeMs).atZone(zone()).toLocalDate(), reason, k)
     }
 }
 

@@ -210,6 +210,31 @@ class SettingsRepository(context: Context) {
         }.getOrDefault(emptyMap())
         set(v) { val o = JSONObject(); v.forEach { (k, m) -> o.put(k, m) }; prefs.edit().putString("companyTotals", o.toString()).apply() }
 
+    /** Metres travelled during the current On duty (for travel claims). */
+    var dutyMeters: Float get() = prefs.getFloat("dutyMeters", 0f); set(v) = prefs.edit().putFloat("dutyMeters", v).apply()
+    /** Travel claim rate, ₹ per km. */
+    var kmRate: Float get() = prefs.getFloat("kmRate", 0f); set(v) = prefs.edit().putFloat("kmRate", v).apply()
+
+    data class WorkSite(val name: String, val lat: Double, val lng: Double, val radiusM: Double = 150.0)
+
+    /** Client sites / second offices: being there counts as On duty automatically. */
+    var workSites: List<WorkSite>
+        get() = runCatching {
+            val a = JSONArray(prefs.getString("workSites", "[]")!!)
+            (0 until a.length()).map { i -> a.getJSONObject(i).let { WorkSite(it.getString("n"), it.getDouble("lat"), it.getDouble("lng"), it.optDouble("r", 150.0)) } }
+        }.getOrDefault(emptyList())
+        set(v) {
+            val a = JSONArray(); v.forEach { a.put(JSONObject().put("n", it.name).put("lat", it.lat).put("lng", it.lng).put("r", it.radiusM)) }
+            prefs.edit().putString("workSites", a.toString()).apply()
+        }
+
+    /** Put leave and holidays into the phone's calendar. */
+    var calendarSync: Boolean get() = prefs.getBoolean("calSync", false); set(v) = prefs.edit().putBoolean("calSync", v).apply()
+    /** Ask for fingerprint / screen lock before Salary and Backup. */
+    var appLock: Boolean get() = prefs.getBoolean("appLock", false); set(v) = prefs.edit().putBoolean("appLock", v).apply()
+    /** Gentle nudge after 2 hours in the office without a break. */
+    var breakNudge: Boolean get() = prefs.getBoolean("breakNudge", false); set(v) = prefs.edit().putBoolean("breakNudge", v).apply()
+
     // ---- alert preferences ----
     /** IN / OUT alerts: shown at all (the punch is always recorded either way). */
     var punchAlertsOn: Boolean get() = flag("punchAlertsOn"); set(v) = setFlag("punchAlertsOn", v)

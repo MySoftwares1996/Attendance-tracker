@@ -2,4 +2,12 @@
     <string name="app_name">Attendance Tracker</string>
     <string name="widget_small_description">Net time today and logout time</string>
     <string name="widget_description">Status, hours worked, logout time and lunch button</string>
+    <string name="sc_lunch">Start / end lunch</string>
+    <string name="sc_missed">Missed punch</string>
+    <string name="sc_leave">Apply leave</string>
+    <string name="sc_leaveby">Leave by…</string>
+    <string-array name="sc_lunch_names"><item>start lunch</item><item>lunch</item><item>end lunch</item></string-array>
+    <string-array name="sc_missed_names"><item>missed punch</item><item>add punch</item></string-array>
+    <string-array name="sc_leave_names"><item>apply leave</item><item>leave</item></string-array>
+    <string-array name="sc_leaveby_names"><item>leave by</item><item>when can I leave</item></string-array>
 </resources>
