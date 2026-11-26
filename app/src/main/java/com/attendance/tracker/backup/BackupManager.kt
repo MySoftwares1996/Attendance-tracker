@@ -252,7 +252,9 @@ object BackupManager {
         }.toSet()
         val toAdd = parsed.filter { it.first.first !in busy }.map { (k, detail) -> Triple(k.second, k.third, detail) }
         val existingMarks = db.dayMarks("0000-01-01", "9999-12-31")
-        val newMarks = marks.filterKeys { it !in existingMarks && LocalDate.parse(it) !in busy }
+        // "replaceMarks": true sets the given marks even where a day already has a mark or punches.
+        val replaceMarks = json.optBoolean("replaceMarks", false)
+        val newMarks = if (replaceMarks) emptyMap() else marks.filterKeys { it !in existingMarks && LocalDate.parse(it) !in busy }
         check(saveLocal(ctx, "before-import")) { "Couldn't save a safety copy first, so nothing was changed." }
         // Optional salary values (only the ones present are changed).
         val sal = json.optJSONObject("salary")
@@ -263,13 +265,28 @@ object BackupManager {
             if (sal.has("insurance")) r = r.copy(insurance = sal.getDouble("insurance"))
             if (sal.has("employerPfInSalary")) r = r.copy(employerPfInSalary = sal.getBoolean("employerPfInSalary"), pfEnabled = r.pfEnabled || sal.getBoolean("employerPfInSalary"))
             if (sal.has("monthlyGross")) r = r.copy(monthlyGross = sal.getDouble("monthlyGross"))
+            if (sal.has("dayBasis")) r = r.copy(dayBasis = sal.getString("dayBasis"))
             st.saveSalaryRules(r, java.time.YearMonth.now())
         }
         db.importBatch(toAdd, newMarks)
+        if (replaceMarks) marks.forEach { (d, m) -> db.setDayMark(d, com.attendance.tracker.core.DayMark.valueOf(m)) }
+        // Optional work days, e.g. ["MONDAY", …, "SATURDAY"].
+        json.optJSONArray("workDays")?.let { a ->
+            val wd = (0 until a.length()).map { java.time.DayOfWeek.valueOf(a.getString(it)) }.toSet()
+            if (wd.isNotEmpty()) {
+                val cur = AttendanceController.settings.settings.value
+                AttendanceController.settings.save(cur.copy(schedule = cur.schedule.copy(workDays = wd)))
+            }
+        }
         AttendanceController.reload()
         backupSoon(ctx)
         val addedDays = days.size - busy.size
-        if (parsed.isEmpty() && marks.isEmpty() && sal != null) return@runCatching "Salary settings updated \u2713"
+        if (parsed.isEmpty() && (replaceMarks || marks.isEmpty()))
+            return@runCatching "Updated \u2713" + listOfNotNull(
+                if (sal != null) "salary" else null,
+                if (json.has("workDays")) "work days" else null,
+                if (marks.isNotEmpty()) "${marks.size} day marks" else null,
+            ).joinToString(", ", prefix = " ")
         "Imported $addedDays day${if (addedDays == 1) "" else "s"} (${toAdd.size} records, ${newMarks.size} marks)" +
             if (busy.isNotEmpty()) " · skipped ${busy.size} day${if (busy.size == 1) "" else "s"} already recorded" else ""
     }.getOrElse { "Import failed: ${it.message}. Nothing was changed." }
