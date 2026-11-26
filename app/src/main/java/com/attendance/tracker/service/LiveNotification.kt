@@ -135,7 +135,48 @@ object LiveNotification {
             .setOnlyAlertOnce(true)
             .setCategory(Notification.CATEGORY_STATUS)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
-        progress?.let { b.setProgress(100, it, false) }
+        // Android 16: the day as a coloured bar (office / lunch / duty / outside) with a point at each punch.
+        var styled = false
+        if (Build.VERSION.SDK_INT >= 36 && startMs != null && endMs != null && endMs > startMs && hasPunches) {
+            styled = runCatching {
+                val span = endMs.coerceAtLeast(nowMs) - startMs
+                val totalMin = (span / 60_000).toInt().coerceAtLeast(1)
+                val segs = com.attendance.tracker.core.DayTimeline.segments(AttendanceController.timelineEvents(st.today.timeline), nowMs)
+                fun col(k: com.attendance.tracker.core.DayTimeline.Kind) = when (k) {
+                    com.attendance.tracker.core.DayTimeline.Kind.OFFICE -> 0xFF12B886.toInt()
+                    com.attendance.tracker.core.DayTimeline.Kind.LUNCH -> 0xFFF59F00.toInt()
+                    com.attendance.tracker.core.DayTimeline.Kind.DUTY -> 0xFF6A4FE8.toInt()
+                    com.attendance.tracker.core.DayTimeline.Kind.OUTSIDE -> 0xFFF0506E.toInt()
+                }
+                val list = segs.mapNotNull { sg -> ((sg.endMs - sg.startMs) / 60_000).toInt().takeIf { it > 0 }?.let { Notification.ProgressStyle.Segment(it).setColor(col(sg.kind)) } }
+                    .toMutableList()
+                val used = list.sumOf { it.length }
+                if (totalMin - used > 0) list += Notification.ProgressStyle.Segment(totalMin - used).setColor(0xFFB8BCCB.toInt())
+                val points = st.today.punches.map { p ->
+                    Notification.ProgressStyle.Point((((p.timeMs - startMs) / 60_000).toInt()).coerceIn(0, totalMin))
+                        .setColor(if (p.type == EventType.CHECK_IN) 0xFF12B886.toInt() else 0xFFF0506E.toInt())
+                }
+                b.setStyle(Notification.ProgressStyle().setStyledByProgress(false).setProgressSegments(list)
+                    .setProgressPoints(points).setProgress(((nowMs - startMs) / 60_000).toInt().coerceIn(0, totalMin)))
+                true
+            }.getOrDefault(false)
+        }
+        if (!styled) progress?.let { b.setProgress(100, it, false) }
+
+        // Buttons on the notification / pill.
+        if (st.lunch.active) {
+            b.addAction(Notification.Action.Builder(android.graphics.drawable.Icon.createWithResource(ctx, R.drawable.ic_notification), "Back from lunch", PendingIntent.getBroadcast(ctx, 93,
+                Intent(ctx, com.attendance.tracker.AlertActionReceiver::class.java).setAction(com.attendance.tracker.AlertActionReceiver.END_LUNCH),
+                PendingIntent.FLAG_IMMUTABLE)).build())
+        } else if (st.status == WorkStatus.IN_OFFICE && endMs != null && endMs - nowMs in 0..NEAR_LOGOUT_MS) {
+            val short = (target - net).coerceAtLeast(0)
+            val need = (((short + 59) / 60 + 29) / 30 * 30).toInt()
+            val left = AttendanceController.permissionLeftMin(today) - AttendanceController.permissionMin(today)
+            if (short > 0 && left >= need) b.addAction(Notification.Action.Builder(android.graphics.drawable.Icon.createWithResource(ctx, R.drawable.ic_notification), "Use ${short(need * 60L)} permission & leave",
+                PendingIntent.getBroadcast(ctx, 94, Intent(ctx, com.attendance.tracker.EarlyLeaveReceiver::class.java)
+                    .setAction(com.attendance.tracker.EarlyLeaveReceiver.USE_PERMISSION).putExtra(com.attendance.tracker.EarlyLeaveReceiver.EXTRA_MIN, need),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)).build())
+        }
         if (chronoWhen != null) {
             b.setShowWhen(true).setWhen(chronoWhen).setUsesChronometer(true).setChronometerCountDown(countDown)
         } else b.setShowWhen(false)

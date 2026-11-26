@@ -36,6 +36,13 @@ class AttendanceApp : Application() {
                 description = "Logout time, hours complete, lunch running over"
             }
         )
+        // Punches while the phone is on Do Not Disturb (e.g. in a meeting): vibration only, no chime.
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_PUNCH_VIBRATE, "Punches (vibrate only)", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Used while Do Not Disturb is on"
+                setSound(null, null); enableVibration(true); vibrationPattern = longArrayOf(0, 120, 90, 120)
+            }
+        )
         // Early-leave alarm: alarm sound + strong vibration so it isn't missed at the gate.
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_EARLY_LEAVE, "Leaving early alarm", NotificationManager.IMPORTANCE_HIGH).apply {
@@ -75,5 +82,7 @@ class AttendanceApp : Application() {
         const val CHANNEL_PUNCH_SILENT = "punch_silent_v1"
         const val CHANNEL_REMINDERS = "reminders_v1"
         const val CHANNEL_EARLY_LEAVE = "early_leave_v1"
+        const val CHANNEL_PUNCH_VIBRATE = "punch_vibrate_v1"
+        const val GROUP_TODAY = "today"
     }
 }

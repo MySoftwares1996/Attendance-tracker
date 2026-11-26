@@ -227,11 +227,11 @@ fun MarkPastDaysDialog(initialFrom: LocalDate, onDismiss: () -> Unit) {
 
 /** Add an IN / OUT the phone missed, with a reason. Saved as a clearly labelled manual punch. */
 @Composable
-fun ManualPunchDialog(initialDay: LocalDate, onDismiss: () -> Unit) {
+fun ManualPunchDialog(initialDay: LocalDate, initialIn: Boolean = true, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     val c = Soft.colors
     var day by remember { mutableStateOf(initialDay) }
-    var isIn by remember { mutableStateOf(true) }
+    var isIn by remember { mutableStateOf(initialIn) }
     val nowT = LocalDateTime.now()
     var minutes by remember { mutableIntStateOf(if (day == nowT.toLocalDate()) nowT.hour * 60 + nowT.minute else 9 * 60) }
     var reason by remember { mutableStateOf("") }

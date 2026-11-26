@@ -137,6 +137,10 @@
             android:exported="false" />
 
         <receiver
+            android:name=".AlertActionReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".EarlyLeaveReceiver"
             android:exported="false" />
 

@@ -125,7 +125,7 @@ internal fun AttendanceController.weeklyReport(today: LocalDate) {
     val reg = regularisationList(java.time.YearMonth.from(today)).count { !it.date.isBefore(monday) }
     val leave = leavesIn(today.year).count { !it.date.isBefore(monday) && !it.date.isAfter(today) }
     notify(4205, "Your week: $present day${if (present == 1) "" else "s"} present \u00b7 avg ${avg / 3600}h ${"%02d".format((avg % 3600) / 60)}m",
-        "Permission this month ${perm / 60}h ${perm % 60}m \u00b7 leave this week $leave" + if (reg > 0) " \u00b7 $reg day${if (reg == 1) "" else "s"} to regularise" else " \u00b7 nothing to regularise")
+        "Permission this month ${perm / 60}h ${perm % 60}m \u00b7 leave this week $leave" + if (reg > 0) " \u00b7 $reg day${if (reg == 1) "" else "s"} to regularise" else " \u00b7 nothing to regularise", private = true)
 }
 
 /** Working days from [from] to [to] (weekends and holidays skipped). */

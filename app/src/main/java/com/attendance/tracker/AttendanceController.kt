@@ -549,7 +549,7 @@ object AttendanceController {
         if (end != null && status == WorkStatus.IN_OFFICE && settings.remindBeforeLogout) {
             val minsLeft = java.time.Duration.between(now, end).toMinutes()
             if (minsLeft in 0..15 && settings.firstTime("pre_$day")) {
-                notify(4201, "$minsLeft min to your logout \u00b7 ${clock(end)}", "Get ready to wrap up.")
+                notify(4201, "$minsLeft min to your logout \u00b7 ${clock(end)}", "Get ready to wrap up.", snooze = true)
             }
         }
         if (status == WorkStatus.OVERTIME && settings.remindHoursDone && settings.firstTime("done_$day")) {
@@ -563,24 +563,35 @@ object AttendanceController {
             val st = _state.value
             val fresh = st.lastAcceptedMs?.let { nowMs - it < 10 * 60_000 } == true
             val near = onOfficeWifi || (fresh && (st.edgeDistanceM ?: 9999.0) < 150.0)
-            if (near && settings.firstTime("morning_$day")) morningCheck(nowMs)
+            if (near && settings.morningCheckOn && settings.firstTime("morning_$day")) morningCheck(nowMs)
+        }
+        // Monthly summary on the 1st (from 9 AM) for last month.
+        if (now.dayOfMonth == 1 && minOfDay >= 9 * 60 && settings.remindMonthly) {
+            val last = java.time.YearMonth.from(now).minusMonths(1)
+            if (settings.firstTime("monthly_$last")) runCatching { monthlySummary(last) }
+        }
+        // Missed-OUT safety net: yesterday ended with an IN and no OUT.
+        if (minOfDay >= 6 * 60 && settings.missedOutCheckOn && settings.firstTime("missedout_$day")) {
+            missedOutYesterday(now.toLocalDate())?.let { (_, inMs) ->
+                notify(4207, "No OUT recorded yesterday", "Last IN was ${clock(inMs)}. Open the app and add the time you left so the day counts correctly.")
+            }
         }
         // Weekly report: Saturday evening (or Sunday if Saturday was missed).
         if ((now.dayOfWeek == java.time.DayOfWeek.SATURDAY && minOfDay >= 18 * 60) || now.dayOfWeek == java.time.DayOfWeek.SUNDAY) {
             val wk = now.toLocalDate().with(java.time.DayOfWeek.MONDAY).toString()
-            if (settings.firstTime("weekly_$wk")) runCatching { weeklyReport(now.toLocalDate()) }
+            if (settings.remindWeekly && settings.firstTime("weekly_$wk")) runCatching { weeklyReport(now.toLocalDate()) }
         }
         // Lunch reminder: in the office, no lunch yet by 2 PM (the hour comes off at 4 PM anyway).
         if (status == WorkStatus.IN_OFFICE && settings.remindLunchOver && plan.lunchTakenSec == 0L && !lunch.active &&
             minOfDay in (14 * 60) until settings.lunchDeductAtMin && settings.firstTime("lunchremind_$day")) {
             val at = settings.lunchDeductAtMin
             notify(4204, "No lunch yet \uD83C\uDF74",
-                "Take your break \u2014 the ${settings.settings.value.schedule.maxLunchMinutes} min is deducted at ${"%d:%02d %s".format(if ((at / 60) % 12 == 0) 12 else (at / 60) % 12, at % 60, if (at < 720) "AM" else "PM")} even if you skip it.")
+                "Take your break \u2014 the ${settings.settings.value.schedule.maxLunchMinutes} min is deducted at ${"%d:%02d %s".format(if ((at / 60) % 12 == 0) 12 else (at / 60) % 12, at % 60, if (at < 720) "AM" else "PM")} even if you skip it.", snooze = true)
         }
         if (lunch.active && settings.remindLunchOver) {
             val over = plan.lunchTakenSec - settings.settings.value.schedule.maxLunchMinutes * 60L
             if (over >= 5 * 60 && settings.firstTime("lunchover_$day")) {
-                notify(4203, "Lunch is ${over / 60} min over", "Logout moves to ${end?.let { clock(it) } ?: "later"}.")
+                notify(4203, "Lunch is ${over / 60} min over", "Logout moves to ${end?.let { clock(it) } ?: "later"}.", snooze = true)
             }
         }
     }
@@ -661,15 +672,23 @@ object AttendanceController {
     internal fun clock(ms: Long) = clock(LocalDateTime.ofInstant(Instant.ofEpochMilli(ms), zone()))
     internal fun clock(t: LocalDateTime) = "%d:%02d %s".format(if (t.hour % 12 == 0) 12 else t.hour % 12, t.minute, if (t.hour < 12) "AM" else "PM")
 
-    internal fun notify(id: Int, title: String, text: String) {
+    internal fun notify(id: Int, title: String, text: String, snooze: Boolean = false, private: Boolean = false) {
         val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val pi = PendingIntent.getActivity(app, 7, Intent(app, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
-        runCatching {
-            nm.notify(id, NotificationCompat.Builder(app, AttendanceApp.CHANNEL_REMINDERS)
-                .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle(title).setContentText(text)
-                .setContentIntent(pi).setAutoCancel(true).build())
-        }
+        val b = NotificationCompat.Builder(app, AttendanceApp.CHANNEL_REMINDERS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title).setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setGroup(AttendanceApp.GROUP_TODAY)
+            .setContentIntent(pi).setAutoCancel(true)
+        if (snooze) b.addAction(0, "Remind in 10 min", PendingIntent.getBroadcast(app, 1000 + id,
+            Intent(app, AlertActionReceiver::class.java).setAction(AlertActionReceiver.SNOOZE)
+                .putExtra(AlertActionReceiver.EXTRA_ID, id).putExtra(AlertActionReceiver.EXTRA_TITLE, title).putExtra(AlertActionReceiver.EXTRA_TEXT, text),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+        if (private) b.setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPublicVersion(
+            NotificationCompat.Builder(app, AttendanceApp.CHANNEL_REMINDERS).setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle("Attendance update").setContentText("Unlock to see details").build())
+        runCatching { nm.notify(id, b.build()); postGroupSummary(nm) }
     }
 
     private const val LUNCH_ASK_ID = 4100
@@ -876,6 +895,9 @@ object AttendanceController {
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(NotificationCompat.Builder(app, AttendanceApp.CHANNEL_EARLY_LEAVE).setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle("\u26A0 Leaving early?").setContentText("Unlock for options").build())
             .setContentIntent(PendingIntent.getActivity(app, 9, Intent(app, com.attendance.tracker.ui.MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE))
             .setAutoCancel(true)
         if (canCover) b.addAction(0, "Use ${fmtHm(needMin * 60L)} permission", action(EarlyLeaveReceiver.USE_PERMISSION, 81, needMin))
@@ -1130,27 +1152,35 @@ object AttendanceController {
 
     /** Chime + vibration + notification for every automatic IN / OUT. */
     private fun punchAlert(isIn: Boolean, atMs: Long, gate: String?, approximate: Boolean) {
+        if (!settings.punchAlertsOn) return
         val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val t = LocalDateTime.ofInstant(Instant.ofEpochMilli(atMs), zone())
         val time = "%d:%02d %s".format(if (t.hour % 12 == 0) 12 else t.hour % 12, t.minute, if (t.hour < 12) "AM" else "PM")
         val where = gate ?: settings.settings.value.office?.name ?: "Office"
-        val title = (if (isIn) "IN  " else "OUT  ") + (if (approximate) "~" else "") + time
+        // Short title so it reads at a glance on a watch: "IN 9:27 AM · Main Gate".
+        val title = (if (isIn) "IN " else "OUT ") + (if (approximate) "~" else "") + time + " \u00b7 " + where
         val text = if (isIn) {
             val p = plan(System.currentTimeMillis())
-            val out = p.expectedEnd?.let { " · expected out ${"%d:%02d %s".format(if (it.hour % 12 == 0) 12 else it.hour % 12, it.minute, if (it.hour < 12) "AM" else "PM")}" } ?: ""
-            "$where$out · Have a great day!"
+            p.expectedEnd?.let { "Expected out ${"%d:%02d %s".format(if (it.hour % 12 == 0) 12 else it.hour % 12, it.minute, if (it.hour < 12) "AM" else "PM")}" } ?: "Have a great day!"
         } else {
             val worked = summary(t.toLocalDate()).secondsByStatus.let {
                 (it[WorkStatus.IN_OFFICE.name] ?: 0) + (it[WorkStatus.OVERTIME.name] ?: 0)
             }
-            "$where · In office ${worked / 3600}h ${(worked % 3600) / 60}m today"
+            "In office ${worked / 3600}h ${(worked % 3600) / 60}m today"
         }
+        // Do Not Disturb on (meeting): vibrate only. Otherwise the IN / OUT chime unless sound is off.
+        val dnd = nm.currentInterruptionFilter > NotificationManager.INTERRUPTION_FILTER_ALL
         val channel = when {
             !settings.punchSound -> AttendanceApp.CHANNEL_PUNCH_SILENT
+            dnd -> AttendanceApp.CHANNEL_PUNCH_VIBRATE
             isIn -> AttendanceApp.CHANNEL_PUNCH_IN
             else -> AttendanceApp.CHANNEL_PUNCH_OUT
         }
         val pi = PendingIntent.getActivity(app, 5, Intent(app, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        val undo = PendingIntent.getBroadcast(app, if (isIn) 91 else 92,
+            Intent(app, AlertActionReceiver::class.java).setAction(AlertActionReceiver.UNDO)
+                .putExtra(AlertActionReceiver.EXTRA_TIME, atMs).putExtra(AlertActionReceiver.EXTRA_IN, isIn),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         runCatching {
             nm.notify(
                 if (isIn) 3101 else 3102,
@@ -1162,11 +1192,62 @@ object AttendanceController {
                     .setCategory(NotificationCompat.CATEGORY_STATUS)
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
                     .setContentIntent(pi)
+                    .addAction(0, "Not me \u2013 undo", undo)
+                    .setGroup(AttendanceApp.GROUP_TODAY)
+                    .setTimeoutAfter(60 * 60_000L)      // old punch alerts clear themselves after an hour
                     .setAutoCancel(true)
                     .setWhen(atMs).setShowWhen(true)
                     .build()
             )
+            postGroupSummary(nm)
         }
+    }
+
+    /** Groups today's alerts (punches, reminders, reports) into one stack. */
+    internal fun postGroupSummary(nm: NotificationManager) {
+        runCatching {
+            nm.notify(4999, NotificationCompat.Builder(app, AttendanceApp.CHANNEL_PUNCH_SILENT)
+                .setSmallIcon(R.drawable.ic_notification).setContentTitle("Attendance today")
+                .setGroup(AttendanceApp.GROUP_TODAY).setGroupSummary(true).setAutoCancel(true)
+                .setSilent(true).build())
+        }
+    }
+
+    /**
+     * "Not me – undo" on a punch alert, within 5 minutes: removes that IN / OUT and puts detection
+     * back to where it was (a GPS jump shouldn't punch you).
+     */
+    @Synchronized
+    fun undoPunch(atMs: Long, isIn: Boolean): Boolean {
+        if (System.currentTimeMillis() - atMs > 5 * 60_000L) return false
+        val type = if (isIn) EventType.CHECK_IN else EventType.CHECK_OUT
+        val ev = db.events(atMs - 1, atMs + 1).firstOrNull { it.type == type } ?: return false
+        db.deleteEvent(ev.id)
+        db.insertEvent(System.currentTimeMillis(), EventType.TRACKING, "Undid ${if (isIn) "IN" else "OUT"} at ${clock(atMs)} (not me)")
+        val back = if (isIn) Presence.OUTSIDE else Presence.INSIDE
+        engine.reset(back); settings.presence = back
+        (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(if (isIn) 3101 else 3102)
+        _state.value = _state.value.copy(presence = back)
+        refresh()
+        return true
+    }
+
+    /** On the 1st: last month in one notification (kept off the lock screen: it has pay). */
+    internal fun monthlySummary(month: java.time.YearMonth) {
+        val r = com.attendance.tracker.report.MonthReports.build(month)
+        val pay = r.payslip()?.let { " \u00b7 take-home \u20B9 %,.0f".format(it.net) } ?: ""
+        val perm = r.permissionMin
+        notify(4206, "${month.format(java.time.format.DateTimeFormatter.ofPattern("MMMM"))}: ${r.presentDays} days present",
+            "Absent ${r.absentDays} \u00b7 half days ${r.halfDays} \u00b7 permission ${perm / 60}h ${perm % 60}m$pay", private = true)
+    }
+
+    /** Morning after: a day that ended with an IN but no OUT (phone off / battery dead). */
+    internal fun missedOutYesterday(today: LocalDate): Pair<LocalDate, Long>? {
+        val y = today.minusDays(1)
+        val ev = db.events(y.atStartOfDay(zone()).toInstant().toEpochMilli(), today.atStartOfDay(zone()).toInstant().toEpochMilli())
+            .filter { it.type == EventType.CHECK_IN || it.type == EventType.CHECK_OUT }
+        val last = ev.lastOrNull() ?: return null
+        return if (last.type == EventType.CHECK_IN) y to last.timeMs else null
     }
 
     private fun alert(status: WorkStatus, plan: DayPlan) {

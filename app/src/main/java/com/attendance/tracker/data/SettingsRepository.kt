@@ -210,6 +210,14 @@ class SettingsRepository(context: Context) {
         }.getOrDefault(emptyMap())
         set(v) { val o = JSONObject(); v.forEach { (k, m) -> o.put(k, m) }; prefs.edit().putString("companyTotals", o.toString()).apply() }
 
+    // ---- alert preferences ----
+    /** IN / OUT alerts: shown at all (the punch is always recorded either way). */
+    var punchAlertsOn: Boolean get() = flag("punchAlertsOn"); set(v) = setFlag("punchAlertsOn", v)
+    var remindWeekly: Boolean get() = flag("remindWeekly"); set(v) = setFlag("remindWeekly", v)
+    var remindMonthly: Boolean get() = flag("remindMonthly"); set(v) = setFlag("remindMonthly", v)
+    var morningCheckOn: Boolean get() = flag("morningCheckOn"); set(v) = setFlag("morningCheckOn", v)
+    var missedOutCheckOn: Boolean get() = flag("missedOutOn"); set(v) = setFlag("missedOutOn", v)
+
     // ---- permission (short leave that counts as worked time) ----
     /** Permission you're allowed per month, in minutes (default 2 hours). */
     var permissionMonthMin: Int

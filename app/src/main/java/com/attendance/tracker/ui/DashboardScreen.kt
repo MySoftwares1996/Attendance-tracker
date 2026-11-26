@@ -282,6 +282,18 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
             }
         }
 
+        // ── missed OUT yesterday (phone off / battery dead) ──
+        val missed = remember(LocalDate.now(), st.today.punches.size, punchOpen) { AttendanceController.missedOutYesterday(LocalDate.now()) }
+        var missedOpen by remember { mutableStateOf(false) }
+        var missedLater by remember { mutableStateOf(false) }
+        if (missedOpen && missed != null) ManualPunchDialog(missed.first, initialIn = false) { missedOpen = false }
+        if (missed != null && !missedLater) QuestionCard(
+            title = "No OUT recorded yesterday",
+            text = "Last IN ${clock12(missed.second)}. Add the time you left so yesterday counts correctly.",
+            yes = "Add OUT time", no = "Later", tint = c.warning,
+            onYes = { missedOpen = true }, onNo = { missedLater = true },
+        )
+
         // ── questions waiting for you ──
         // Left early with hours still short: offer permission first (On duty is the other choice).
         val early = remember(st.status, st.today.punches.size, now / 60_000, AttendanceController.permissionMin(LocalDate.now())) {

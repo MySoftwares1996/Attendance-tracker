@@ -225,6 +225,22 @@ internal fun HolidaysStep() {
             shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(10.dp))
+        val holFile = androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+        ) { u ->
+            if (u != null) runCatching { ctx.contentResolver.openInputStream(u)!!.use { it.readBytes().decodeToString() } }.onSuccess { txt ->
+                // A text / CSV list, or a saved company page: tags removed, one holiday per line.
+                val list = com.attendance.tracker.core.Insights.parseHolidays(com.attendance.tracker.core.CompanyReport.plain(txt)
+                    .replace(Regex("[\\t,;]+"), " ").lines().joinToString("\n") { it.trim() })
+                if (list.isEmpty()) Toast.makeText(ctx, "No dates found in that file", Toast.LENGTH_LONG).show()
+                else {
+                    st.customHolidays = st.customHolidays + list.associate { (d, n) -> d.toString() to n.ifBlank { "Holiday" } }
+                    changed(); Toast.makeText(ctx, "${list.size} holidays added", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        SoftGhostButton("Import from a file (text, CSV or saved page)", { holFile.launch(arrayOf("text/*", "application/*", "*/*")) })
+        Spacer(Modifier.height(8.dp))
         SoftGhostButton("Import list", {
             val list = com.attendance.tracker.core.Insights.parseHolidays(paste)
             if (list.isEmpty()) Toast.makeText(ctx, "No dates found \u2014 use e.g. 14-01-2027 Pongal", Toast.LENGTH_LONG).show()

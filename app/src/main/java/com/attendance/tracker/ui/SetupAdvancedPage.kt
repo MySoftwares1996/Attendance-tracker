@@ -164,14 +164,29 @@ internal fun AdvancedStep(s: AppSettings) {
         })
     }
     SoftCard {
-        CardHeader(rememberVectorPainter(Icons.Filled.Notifications), "Punch sound")
+        CardHeader(rememberVectorPainter(Icons.Filled.Notifications), "Alerts")
         Spacer(Modifier.height(6.dp))
-        var sound by remember { mutableStateOf(AttendanceController.settings.punchSound) }
-        SoftSwitchRow(
-            "Sound & vibration on IN / OUT",
-            null,
-            sound,
-        ) { v -> sound = v; AttendanceController.settings.punchSound = v }
+        val st2 = AttendanceController.settings
+        // IN / OUT: off, silent, or with the chime (vibrate only while Do Not Disturb is on).
+        var punchMode by remember { mutableStateOf(if (!st2.punchAlertsOn) 0 else if (!st2.punchSound) 1 else 2) }
+        Text("IN / OUT alerts", style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
+        Spacer(Modifier.height(6.dp))
+        Choices(listOf("Off" to 0, "Silent" to 1, "Sound" to 2), punchMode) { v ->
+            punchMode = v; st2.punchAlertsOn = v > 0; st2.punchSound = v == 2
+        }
+        Text("Punches are always recorded. With sound, it vibrates only while Do Not Disturb is on (e.g. in a meeting).",
+            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+        Spacer(Modifier.height(6.dp))
+        var m1 by remember { mutableStateOf(st2.morningCheckOn) }
+        var m2 by remember { mutableStateOf(st2.missedOutCheckOn) }
+        var m3 by remember { mutableStateOf(st2.remindWeekly) }
+        var m4 by remember { mutableStateOf(st2.remindMonthly) }
+        SoftSwitchRow("Morning check (no IN by 10:30)", null, m1) { m1 = it; st2.morningCheckOn = it }
+        SoftSwitchRow("Missed OUT yesterday", null, m2) { m2 = it; st2.missedOutCheckOn = it }
+        SoftSwitchRow("Weekly report (Saturday)", null, m3) { m3 = it; st2.remindWeekly = it }
+        SoftSwitchRow("Monthly summary (1st)", null, m4) { m4 = it; st2.remindMonthly = it }
+        Text("Reports with pay or permission details stay hidden on the lock screen until you unlock.",
+            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
     }
     SoftCard {
         CardHeader(painterResource(R.drawable.ic_shield), "IN / OUT detection")
