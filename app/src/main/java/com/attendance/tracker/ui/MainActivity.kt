@@ -68,6 +68,8 @@ class MainActivity : ComponentActivity() {
                 var perm by remember { mutableStateOf<PermissionStatus?>(null) }
                 var refresh by remember { mutableIntStateOf(0) }
                 var onboarded by remember { mutableStateOf(AttendanceController.settings.onboarded) }
+                // Brand-new install: choose "Start fresh" or "Restore from backup" first.
+                var welcome by remember { mutableStateOf(Welcome.needed(ctx)) }
                 LifecycleResumeEffect(Unit) {
                     refresh++
                     onPauseOrDispose { }
@@ -77,6 +79,15 @@ class MainActivity : ComponentActivity() {
                     perm = p
                     autoStartTracking(p)
                 }
+                if (welcome) {
+                    Box(Modifier.fillMaxSize().statusBarsPadding()) {
+                        WelcomeScreen(onDone = {
+                            welcome = false
+                            onboarded = AttendanceController.settings.onboarded
+                            refresh++
+                        })
+                    }
+                } else {
                 val gate = perm?.let { !it.requiredOk || !onboarded } ?: true
                 AnimatedContent(
                     targetState = gate,
@@ -103,6 +114,7 @@ class MainActivity : ComponentActivity() {
                         MainContent()
                     }
                 }
+                }
             }
         }
     }
@@ -110,7 +122,7 @@ class MainActivity : ComponentActivity() {
     /** Starts tracking automatically once everything is allowed and the office is set up. */
     private fun autoStartTracking(p: PermissionStatus) {
         val s = AttendanceController.settings
-        if (p.requiredOk && s.settings.value.office != null && !s.trackingEnabled && !s.userPaused) {
+        if (p.requiredOk && s.settings.value.office != null && (!s.trackingEnabled || !TrackingService.running) && !s.userPaused) {
             runCatching { TrackingService.start(this) }
         }
     }
