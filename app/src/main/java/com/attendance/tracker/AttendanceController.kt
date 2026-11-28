@@ -1264,6 +1264,8 @@ object AttendanceController {
 
     /** Groups today's alerts (punches, reminders, reports) into one stack. */
     internal fun postGroupSummary(nm: NotificationManager) {
+        // Post the group header once; re-posting it each time also makes the shade flicker.
+        if (runCatching { nm.activeNotifications.any { it.id == 4999 } }.getOrDefault(false)) return
         runCatching {
             nm.notify(4999, NotificationCompat.Builder(app, AttendanceApp.CHANNEL_PUNCH_SILENT)
                 .setSmallIcon(R.drawable.ic_notification).setContentTitle("Attendance today")

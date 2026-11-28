@@ -247,9 +247,16 @@ class TrackingService : LifecycleService() {
     private fun fmt(ms: Long) = java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.systemDefault())
         .toLocalTime().let { "%02d:%02d".format(it.hour, it.minute) }
 
+    private var lastPostedSig = ""
+
+    /** Re-posts the tracking notification only when what it shows has changed (no blinking). */
     private fun updateNotification() {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        runCatching { nm.notify(NOTIF_ID, buildNotification()) }
+        val n = buildNotification()
+        val sig = LiveNotification.lastBuiltSig
+        if (sig == lastPostedSig) return
+        lastPostedSig = sig
+        runCatching { nm.notify(NOTIF_ID, n) }
     }
 
     companion object {

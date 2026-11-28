@@ -196,8 +196,15 @@ object LiveNotification {
             b.addExtras(android.os.Bundle().apply { putBoolean(EXTRA_REQUEST_PROMOTED_ONGOING, true) })
             chip?.let { b.setShortCriticalText(it) }
         }
+        // What the person actually sees; re-posting an identical notification makes the shade blink.
+        lastBuiltSig = listOf(title, text, chip, showPill, progress, st.lunch.active, st.status,
+            chronoWhen?.let { it / 10_000 }, countDown, st.today.punches.size, styled,
+            if (startMs != null) (nowMs - startMs) / 60_000 else null).joinToString("|")
         return b.build()
     }
+
+    /** Signature of the last notification built (see [build]). */
+    @Volatile var lastBuiltSig: String = ""
 
     /** Whether Android lets this app show Live Updates (Android 16+); null on older versions. */
     fun liveUpdatesAllowed(ctx: Context): Boolean? {
