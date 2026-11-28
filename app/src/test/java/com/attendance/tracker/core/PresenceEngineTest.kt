@@ -183,6 +183,26 @@ class PresenceEngineTest {
         assertTrue(tr!!.gateFromPath)
     }
 
+    @Test fun weakReadingsJustOutsideCannotPunchOut() {
+        // Indoors after the phone wakes: ±32 m readings that look ~40 m outside. No OUT.
+        val e = PresenceEngine(Presence.INSIDE)
+        var t = 0L
+        repeat(5) {
+            t += 15_000
+            val r = e.process(at(170.0, 32f, t), office, AccuracyConfig(maxAccuracyM = 35f, confirmSamples = 3), t) as PresenceEngine.Result.Accepted
+            assertNull(r.transition)
+        }
+        assertEquals(Presence.INSIDE, e.presence)
+        // A clear reading outside still punches OUT.
+        var tr: PresenceEngine.Transition? = null
+        repeat(3) {
+            t += 15_000
+            val r = e.process(at(170.0, 10f, t), office, AccuracyConfig(maxAccuracyM = 35f, confirmSamples = 3), t) as PresenceEngine.Result.Accepted
+            tr = r.transition ?: tr
+        }
+        assertEquals(Presence.OUTSIDE, tr?.to)
+    }
+
     @Test fun wifiCheckInWhenGpsCannotTell() {
         val e = PresenceEngine(Presence.UNKNOWN)
         assertEquals(Presence.INSIDE, e.wifiCheckIn(1000)?.to)

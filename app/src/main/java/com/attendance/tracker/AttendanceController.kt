@@ -364,7 +364,8 @@ object AttendanceController {
     }
 
     private const val GAP_NOTE_SEC = 10 * 60L
-    private const val HEARTBEAT_GAP_MS = 10 * 60_000L
+    /** A pause longer than this is logged (the deep-sleep guard wakes the app every ~5–9 min). */
+    private const val HEARTBEAT_GAP_MS = 15 * 60_000L
 
     /** First office entry on [date]. */
     private fun firstCheckIn(date: LocalDate): LocalDateTime? {
@@ -483,6 +484,28 @@ object AttendanceController {
         val base = e.detail.substringBefore(" \u00b7 Edited from ")
         val note = "$base \u00b7 Edited from ${clock(e.timeMs)}" + (if (reason.isNotBlank()) " (${reason.trim()})" else "")
         db.updateEvent(e.id, newMs, note)
+        refresh()
+    }
+
+    /**
+     * Removes a wrong IN / OUT (e.g. a false OUT from weak indoor GPS). The removal and your reason
+     * are written to the day's log. If it was today's latest punch, detection goes back to before it.
+     */
+    @Synchronized
+    fun removePunch(e: com.attendance.tracker.data.AttendanceEvent, reason: String) {
+        if (e.type != EventType.CHECK_IN && e.type != EventType.CHECK_OUT) return
+        val isIn = e.type == EventType.CHECK_IN
+        db.deleteEvent(e.id)
+        db.insertEvent(e.timeMs, EventType.TRACKING,
+            "Removed ${if (isIn) "IN" else "OUT"} at ${clock(e.timeMs)}" + if (reason.isNotBlank()) " (${reason.trim()})" else "")
+        val day = LocalDateTime.ofInstant(Instant.ofEpochMilli(e.timeMs), zone()).toLocalDate()
+        val laterPunch = db.events(e.timeMs + 1, day.plusDays(1).atStartOfDay(zone()).toInstant().toEpochMilli())
+            .any { it.type == EventType.CHECK_IN || it.type == EventType.CHECK_OUT }
+        if (day == LocalDate.now() && !laterPunch) {
+            val back = if (isIn) Presence.OUTSIDE else Presence.INSIDE
+            engine.reset(back); settings.presence = back
+            _state.value = _state.value.copy(presence = back)
+        }
         refresh()
     }
 

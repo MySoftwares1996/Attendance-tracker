@@ -16,6 +16,7 @@ class BootReceiver : BroadcastReceiver() {
         if (AttendanceController.settings.trackingEnabled && AttendanceController.hasFineLocation(context)) {
             GeofenceManager.register(context)
             runCatching { TrackingService.start(context) }
+            KeepAlive.schedule(context)
         }
         if (action == Intent.ACTION_MY_PACKAGE_REPLACED) PostUpdateCheck.run(context)
     }

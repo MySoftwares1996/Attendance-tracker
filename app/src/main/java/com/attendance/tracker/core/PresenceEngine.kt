@@ -138,6 +138,11 @@ class PresenceEngine(initial: Presence = Presence.UNKNOWN) {
         }
         // Walked through a gate just now: strong evidence of a real crossing.
         val viaGate = lastGate != null && s.timeMs - lastGateMs <= GATE_FAST_MS
+        // Leaving without passing a gate needs a clear reading: ±20 m or better, or well outside
+        // the boundary. Weak indoor GPS (e.g. ±32 m just after the phone wakes) can't punch you OUT.
+        if (zone == Zone.OUTSIDE && presence == Presence.INSIDE && !viaGate &&
+            s.accuracyM > STRICT_OUT_ACC_M && edge - s.accuracyM < STRICT_OUT_MARGIN_M
+        ) zone = Zone.AMBIGUOUS
         if (zone == Zone.OUTSIDE && onOfficeWifi && presence != Presence.OUTSIDE && !viaGate &&
             !(edge > WIFI_OVERRIDE_EDGE_M && s.accuracyM <= WIFI_OVERRIDE_ACC_M)
         ) zone = Zone.AMBIGUOUS
@@ -211,6 +216,10 @@ class PresenceEngine(initial: Presence = Presence.UNKNOWN) {
     companion object {
         /** A gate this close to your path across the boundary is taken as the one you used. */
         const val PATH_GATE_M = 60.0
+        /** OUT without a gate: reading at least this accurate… */
+        const val STRICT_OUT_ACC_M = 20f
+        /** …or its whole accuracy circle at least this far outside the boundary. */
+        const val STRICT_OUT_MARGIN_M = 40.0
         /** ~216 km/h: anything faster between two fixes is a GPS glitch. */
         const val MAX_SPEED_MPS = 60.0
         /** A gate visit within this window before a transition is attributed to it. */

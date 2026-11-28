@@ -332,7 +332,7 @@ fun EditPunchDialog(e: com.attendance.tracker.data.AttendanceEvent, onDismiss: (
     fun clk(m: Int) = "%d:%02d %s".format(if ((m / 60) % 12 == 0) 12 else (m / 60) % 12, m % 60, if (m < 720) "AM" else "PM")
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Correct ${if (e.type == com.attendance.tracker.data.EventType.CHECK_IN) "IN" else "OUT"} time") },
+        title = { Text("Fix this ${if (e.type == com.attendance.tracker.data.EventType.CHECK_IN) "IN" else "OUT"}") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Recorded at ${clk(t0.hour * 60 + t0.minute)} on ${day.format(dayTitle)}.", style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
@@ -343,7 +343,7 @@ fun EditPunchDialog(e: com.attendance.tracker.data.AttendanceEvent, onDismiss: (
                 }
                 OutlinedTextField(reason, { reason = it }, label = { Text("Reason (required)") }, modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp), maxLines = 2)
-                Text("The original time stays in the record as “Edited from …”.", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+                Text("Change the time and Save, or Remove a punch that never happened. Either way the change and your reason stay in the day's record.", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
             }
         },
         confirmButton = {
@@ -356,7 +356,15 @@ fun EditPunchDialog(e: com.attendance.tracker.data.AttendanceEvent, onDismiss: (
                 }
             }) { Text("Save") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = {
+            Row {
+                TextButton(onClick = {
+                    if (reason.isBlank()) Toast.makeText(ctx, "Please add a reason", Toast.LENGTH_SHORT).show()
+                    else { AttendanceController.removePunch(e, reason); onDismiss() }
+                }) { Text(if (e.type == com.attendance.tracker.data.EventType.CHECK_OUT) "Remove \u2014 I didn't leave" else "Remove \u2014 I wasn't in", color = c.danger) }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
         shape = RoundedCornerShape(28.dp), containerColor = c.card,
     )
 }

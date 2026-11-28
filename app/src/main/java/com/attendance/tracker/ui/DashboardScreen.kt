@@ -803,7 +803,9 @@ private fun PunchesCard(punches: List<AttendanceEvent>, nowMs: Long, onAdd: () -
             val unverified = e.detail.contains(TrustChecks.NOT_VERIFIED)
             val gate = Regex("via (.+?)( \\(|$| ·)").find(e.detail)?.groupValues?.get(1)
             val approx = e.detail.contains("approximate")
-            Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            var fixOpen by remember { mutableStateOf(false) }
+            if (fixOpen) EditPunchDialog(e) { fixOpen = false }
+            Row(Modifier.fillMaxWidth().clip(Soft.tileShape).pressScale { fixOpen = true }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     if (isIn) "IN" else "OUT",
                     Modifier.width(50.dp).clip(Soft.pillShape).background(if (isIn) c.successSoft else c.dangerSoft).padding(vertical = 5.dp),

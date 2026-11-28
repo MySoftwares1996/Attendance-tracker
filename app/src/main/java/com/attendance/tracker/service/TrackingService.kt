@@ -116,6 +116,7 @@ class TrackingService : LifecycleService() {
         if (intent?.getBooleanExtra(EXTRA_BURST, false) == true) burstUntilMs = System.currentTimeMillis() + BURST_MS
         GeofenceManager.register(this)
         MotionWatcher.register(this)
+        KeepAlive.schedule(this)
         WatchdogWorker.schedule(this)
         applyMode(force = true)
         if (ticker?.isActive != true) {
