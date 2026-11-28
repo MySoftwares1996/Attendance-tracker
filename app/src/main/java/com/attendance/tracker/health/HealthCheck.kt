@@ -102,8 +102,21 @@ object HealthCheck {
         }
 
         // Tracking gaps in the last 7 days
-        val gapEvents = AttendanceController.db.events(now - 7 * 86_400_000L, now)
-            .filter { it.type == EventType.TRACKING && it.detail.startsWith("No tracking from") && !it.detail.contains("location was turned off") }
+        val week = AttendanceController.db.events(now - 8 * 86_400_000L, now)
+        val blockedTimes = week.filter { it.type == EventType.TRACKING && it.detail.startsWith("Tracking blocked") }.map { it.timeMs }
+        val gapEvents = week.filter { it.timeMs >= now - 7 * 86_400_000L && it.type == EventType.TRACKING &&
+            it.detail.startsWith("No tracking from") && !it.detail.contains("location was turned off") }
+            .filterNot { e ->
+                // Older gaps (recorded before this was told apart): skip if you had turned location off
+                // just before or during the gap — that's not the app being stopped.
+                val from = Regex("""from (\d{2}):(\d{2}) to""").find(e.detail)?.destructured?.let { (h, m) ->
+                    val end = java.time.Instant.ofEpochMilli(e.timeMs).atZone(java.time.ZoneId.systemDefault())
+                    var start = end.withHour(h.toInt()).withMinute(m.toInt()).withSecond(0)
+                    if (start.isAfter(end)) start = start.minusDays(1)
+                    start.toInstant().toEpochMilli()
+                } ?: return@filterNot false
+                blockedTimes.any { it in (from - 10 * 60_000L)..e.timeMs }
+            }
         val gaps = gapEvents.size
         // When each gap happened, e.g. "Thu 27 Nov 18:40–19:05", so you can tell what caused it.
         val whenTxt = gapEvents.takeLast(2).joinToString(", ") { e ->
