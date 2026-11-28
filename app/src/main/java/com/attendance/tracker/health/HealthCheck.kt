@@ -102,11 +102,18 @@ object HealthCheck {
         }
 
         // Tracking gaps in the last 7 days
-        val gaps = AttendanceController.db.events(now - 7 * 86_400_000L, now)
-            .count { it.type == EventType.TRACKING && it.detail.startsWith("No tracking from") }
+        val gapEvents = AttendanceController.db.events(now - 7 * 86_400_000L, now)
+            .filter { it.type == EventType.TRACKING && it.detail.startsWith("No tracking from") }
+        val gaps = gapEvents.size
+        // When each gap happened, e.g. "Thu 27 Nov 18:40–19:05", so you can tell what caused it.
+        val whenTxt = gapEvents.takeLast(2).joinToString(", ") { e ->
+            val d = java.time.Instant.ofEpochMilli(e.timeMs).atZone(java.time.ZoneId.systemDefault())
+                .format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM"))
+            d + " " + e.detail.removePrefix("No tracking from ").substringBefore(" \u2014").replace(" to ", "\u2013")
+        }
         c += when (gaps) {
             0 -> Check("Last 7 days", "No tracking gaps", Level.OK)
-            in 1..2 -> Check("Last 7 days", "$gaps tracking gap${if (gaps > 1) "s" else ""} — the phone paused the app", Level.WARN, Fix.BATTERY)
+            in 1..2 -> Check("Last 7 days", "$gaps tracking gap${if (gaps > 1) "s" else ""} ($whenTxt) — the phone paused the app, often battery saver at low charge", Level.WARN, Fix.BATTERY)
             else -> Check("Last 7 days", "$gaps tracking gaps — battery or autostart settings are stopping the app", Level.FAIL, if (p.autostartNeeded) Fix.AUTOSTART else Fix.BATTERY)
         }
 

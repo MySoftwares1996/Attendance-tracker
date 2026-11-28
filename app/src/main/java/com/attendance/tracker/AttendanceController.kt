@@ -342,7 +342,10 @@ object AttendanceController {
     @Synchronized
     fun recordHeartbeat(nowMs: Long, resumed: Boolean) {
         val prev = settings.lastHeartbeatMs
-        if (prev > 0 && nowMs - prev > HEARTBEAT_GAP_MS && (highAccuracyWanted(prev) || highAccuracyWanted(nowMs))) {
+        // A pause is only a problem while tracking is meant to be active: not after the day is complete
+        // (GPS rests on purpose then), and not on leave / holidays / weekly offs.
+        val resting = _state.value.status == WorkStatus.DAY_COMPLETE || isRestDay(prev)
+        if (prev > 0 && nowMs - prev > HEARTBEAT_GAP_MS && !resting && (highAccuracyWanted(prev) || highAccuracyWanted(nowMs))) {
             val f = { ms: Long -> LocalDateTime.ofInstant(Instant.ofEpochMilli(ms), zone()).let { "%02d:%02d".format(it.hour, it.minute) } }
             db.insertEvent(nowMs, EventType.TRACKING,
                 "No tracking from ${f(prev)} to ${f(nowMs)}" + if (resumed) " — phone stopped the app; restarted automatically" else " — phone was asleep")
