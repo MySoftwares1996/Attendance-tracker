@@ -368,23 +368,31 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
         // ── live hero ──
         LiveHero(st.status, st.trackingOn, settings.office?.name, plan, live, st.today.punches.firstOrNull { it.type == EventType.CHECK_IN }?.timeMs)
 
-        // ── quick actions ──
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (st.lunch.active) ActionChip("✓  Back from lunch", c.success, c.successSoft) { AttendanceController.endLunch() }
-            else ActionChip("🍴  Lunch", c.warning, c.warningSoft) {
+        // ── quick actions: a grid of tiles, 4 per row, all visible at once ──
+        val permToday = AttendanceController.permissionMin(LocalDate.now())
+        val actions = listOf(
+            if (st.lunch.active) ActionTile("\u2705", "Back from\nlunch", c.success, true) { AttendanceController.endLunch() }
+            else ActionTile("\uD83C\uDF74", "Lunch", c.warning) {
                 AttendanceController.startLunch()?.let { Toast.makeText(ctx, it, Toast.LENGTH_LONG).show() }
-            }
-            if (st.duty != null) ActionChip("✓  End duty", Color(0xFF6A4FE8), Color(0x1F6A4FE8)) { AttendanceController.endDuty() }
-            else ActionChip("💼  On duty", Color(0xFF6A4FE8), Color(0x1F6A4FE8)) { dutyOpen = true }
-            val permToday = AttendanceController.permissionMin(LocalDate.now())
-            ActionChip(if (permToday > 0) "⏱  Permission ${if (permToday % 60 == 0) "${permToday / 60}h" else "${permToday / 60}h ${permToday % 60}m"}" else "⏱  Permission",
-                Color(0xFF0E8C8C), Color(0x1F0E8C8C)) { permOpen = true }
-            ActionChip("\uD83C\uDFD6  Apply leave", Color(0xFF8E63E0), Color(0x1F8E63E0)) { leaveOpen = true }
-            ActionChip("\uD83D\uDEAA  Leave by\u2026", Color(0xFFB8860B), c.warningSoft) { planOpen = true }
-            ActionChip("📅  ${if (plan?.dayOff != null) plan.dayOff else "Mark today"}", c.accent, c.accentSoft) { markOpen = true }
-            ActionChip("✎  Missed punch", c.accent, c.accentSoft) { punchOpen = true }
-            ActionChip("↪  Share today", c.success, c.successSoft) {
+            },
+            if (st.duty != null) ActionTile("\u2705", "End\nduty", Color(0xFF6A4FE8), true) { AttendanceController.endDuty() }
+            else ActionTile("\uD83D\uDCBC", "On duty", Color(0xFF6A4FE8)) { dutyOpen = true },
+            ActionTile("\u23F1", if (permToday > 0) "Permission\n${if (permToday % 60 == 0) "${permToday / 60}h" else "${permToday / 60}h ${permToday % 60}m"}" else "Permission",
+                Color(0xFF0E8C8C), permToday > 0) { permOpen = true },
+            ActionTile("\uD83C\uDFD6", "Apply\nleave", Color(0xFF8E63E0)) { leaveOpen = true },
+            ActionTile("\uD83D\uDEAA", "Leave by\u2026", Color(0xFFB8860B)) { planOpen = true },
+            ActionTile("\uD83D\uDCC5", plan?.dayOff ?: "Mark\nday", c.accent, plan?.dayOff != null) { markOpen = true },
+            ActionTile("\u270E", "Missed\npunch", c.accent) { punchOpen = true },
+            ActionTile("\u21AA", "Share\ntoday", c.success) {
                 runCatching { ctx.startActivity(AttendanceController.shareIntent(AttendanceController.summaryText(LocalDate.now()))) }
+            },
+        )
+        SoftCard(padding = 10.dp) {
+            actions.chunked(4).forEachIndexed { i, row ->
+                if (i > 0) Spacer(Modifier.height(6.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    row.forEach { a -> ActionTileView(a, Modifier.weight(1f)) }
+                }
             }
         }
 
@@ -723,15 +731,6 @@ private fun LiveAnalysis(
 // ───────────────────────────── small cards ─────────────────────────────
 
 @Composable
-private fun ActionChip(label: String, fg: Color, bg: Color, onClick: () -> Unit) {
-    // Fixed height so emoji of different sizes don't make chips uneven.
-    Box(
-        Modifier.height(42.dp).clip(Soft.pillShape).background(bg).pressScale(onClick).padding(horizontal = 14.dp),
-        contentAlignment = Alignment.Center,
-    ) { Text(label, style = MaterialTheme.typography.labelLarge, color = fg, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
-}
-
-@Composable
 private fun QuestionCard(title: String, text: String, yes: String, no: String, tint: Color, onYes: () -> Unit, onNo: () -> Unit) {
     val c = Soft.colors
     SoftCard(color = tint.copy(alpha = 0.10f), padding = 16.dp) {
@@ -1007,5 +1006,26 @@ private fun LeaveNowCard(st: com.attendance.tracker.LiveState, plan: DayPlan?, l
                 Toast.makeText(ctx, "${fmtDuration(needMin * 60L)} permission added", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+}
+
+private class ActionTile(val icon: String, val label: String, val color: Color, val active: Boolean = false, val onClick: () -> Unit)
+
+/** One quick action: icon in a soft circle with a short label underneath; filled when active. */
+@Composable
+private fun ActionTileView(a: ActionTile, modifier: Modifier) {
+    val c = Soft.colors
+    Column(
+        modifier.clip(RoundedCornerShape(18.dp)).background(if (a.active) a.color.copy(alpha = 0.14f) else Color.Transparent)
+            .pressScale(a.onClick).padding(vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(Modifier.size(46.dp).clip(CircleShape).background(a.color.copy(alpha = if (a.active) 0.28f else 0.13f)),
+            contentAlignment = Alignment.Center) {
+            Text(a.icon, fontSize = 20.sp)
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(a.label, style = MaterialTheme.typography.labelMedium, color = if (a.active) a.color else c.textPrimary,
+            textAlign = TextAlign.Center, maxLines = 2, lineHeight = 14.sp)
     }
 }
