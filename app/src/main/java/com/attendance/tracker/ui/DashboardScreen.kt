@@ -405,25 +405,16 @@ fun DashboardScreen(onOpenSetup: () -> Unit) {
         // ── smart "leave now?" (last 30 min before logout) ──
         LeaveNowCard(st, plan, live, now)
 
-        // ── one-glance mode: only the essentials until you ask for details ──
-        var compact by remember { mutableStateOf(AttendanceController.settings.todayCompact) }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            MiniAction(if (compact) "\u25BE Show details" else "\u25B4 One-glance view") {
-                compact = !compact; AttendanceController.settings.todayCompact = compact
-            }
-        }
-        if (!compact) {
-            LiveAnalysis(live, plan, st, stats, usualArrival, settings.schedule.maxLunchMinutes, settings.schedule.workDays)
+        LiveAnalysis(live, plan, st, stats, usualArrival, settings.schedule.maxLunchMinutes, settings.schedule.workDays)
 
-            // ── punches ──
-            PunchesCard(st.today.punches, now) { punchOpen = true }
+        // ── punches ──
+        PunchesCard(st.today.punches, now) { punchOpen = true }
 
-            // ── week ──
-            WeekCard(stats)
+        // ── week ──
+        WeekCard(stats)
 
-            // ── location ──
-            LocationCard(st, settings.accuracy.maxAccuracyM, now)
-        }
+        // ── location ──
+        LocationCard(st, settings.accuracy.maxAccuracyM, now)
 
         UpdateBanner()
         Spacer(Modifier.height(NavBarClearance))

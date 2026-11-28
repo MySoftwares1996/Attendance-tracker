@@ -181,9 +181,6 @@ class SettingsRepository(context: Context) {
         }.getOrDefault(mapOf("CL" to 12.0, "SL" to 6.0, "EL" to 15.0))
         set(v) { val o = JSONObject(); v.forEach { (k, d) -> o.put(k, d) }; prefs.edit().putString("leaveQuota", o.toString()).apply() }
 
-    /** Today screen shows only the essentials (ring, logout, to go) until you tap for details. */
-    var todayCompact: Boolean get() = prefs.getBoolean("todayCompact", false); set(v) = prefs.edit().putBoolean("todayCompact", v).apply()
-
     /** Goal: arrive by this time (minutes after midnight), or -1 for none. */
     var goalArrivalMin: Int get() = prefs.getInt("goalArrival", -1); set(v) = prefs.edit().putInt("goalArrival", v).apply()
     /** Goal: no short days this month. */
