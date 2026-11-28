@@ -257,10 +257,28 @@ internal fun HealthStep(open: (Page) -> Unit) {
                 AttendanceController.settings.userPaused = false
                 runCatching { TrackingService.start(ctx) }
                 tick++
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ tick++ }, 1500)
             }
         }
     }
 
+    var confirmPause by remember { mutableStateOf(false) }
+    if (confirmPause) AlertDialog(
+        onDismissRequest = { confirmPause = false },
+        title = { Text("Turn off auto-punch?") },
+        text = { Text("Nothing will be recorded \u2014 no IN, no OUT \u2014 until you turn it back on.") },
+        confirmButton = {
+            TextButton(onClick = {
+                AttendanceController.settings.userPaused = true
+                TrackingService.stop(ctx)
+                com.attendance.tracker.service.KeepAlive.cancel(ctx)
+                confirmPause = false
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ tick++ }, 800)
+            }) { Text("Turn off", color = c.danger) }
+        },
+        dismissButton = { TextButton(onClick = { confirmPause = false }) { Text("Keep on") } },
+        shape = RoundedCornerShape(28.dp), containerColor = c.card,
+    )
     StepTitle("Auto-punch health", "Everything automatic IN/OUT depends on, checked live.")
     val r = report
     SoftCard {
@@ -299,7 +317,18 @@ internal fun HealthStep(open: (Page) -> Unit) {
                         Text(ch.detail, style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
                     }
                     val f = ch.fix
-                    if (f != null && ch.level != com.attendance.tracker.health.Level.OK) {
+                    // On / off switches for the things the app itself controls.
+                    if (ch.title == "Auto-punch" || ch.title == "Live Updates") {
+                        Spacer(Modifier.width(8.dp))
+                        val on = if (ch.title == "Auto-punch") AttendanceController.settings.trackingEnabled else AttendanceController.settings.liveUpdates
+                        androidx.compose.material3.Switch(checked = on, onCheckedChange = { v ->
+                            if (ch.title == "Auto-punch") { if (v) fix(com.attendance.tracker.health.Fix.START_TRACKING) else confirmPause = true }
+                            else {
+                                AttendanceController.settings.liveUpdates = v
+                                TrackingService.refreshNotification(ctx); tick++
+                            }
+                        }, colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = c.success))
+                    } else if (f != null && ch.level != com.attendance.tracker.health.Level.OK) {
                         Spacer(Modifier.width(8.dp))
                         Text(if (f == com.attendance.tracker.health.Fix.ACK_GAPS) "Got it" else "Fix", Modifier.clip(Soft.pillShape).background(col).pressScale { fix(f) }.padding(horizontal = 14.dp, vertical = 8.dp),
                             color = Color.White, style = MaterialTheme.typography.labelMedium)
