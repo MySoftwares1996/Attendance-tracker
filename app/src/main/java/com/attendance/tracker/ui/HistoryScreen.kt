@@ -420,7 +420,7 @@ private fun TimelineRow(e: AttendanceEvent, last: Boolean) {
         Column(Modifier.weight(1f).padding(start = 8.dp, bottom = 14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(e.type.label, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
-                if (isPunch) Text("\u270E Edit", Modifier.clip(Soft.pillShape).pressScale { editOpen = true }.padding(horizontal = 8.dp, vertical = 2.dp),
+                if (isPunch) Text("\u270E Change time", Modifier.clip(Soft.pillShape).pressScale { editOpen = true }.padding(horizontal = 8.dp, vertical = 2.dp),
                     style = MaterialTheme.typography.labelMedium, color = c.accent)
             }
             val acc = e.accuracyM?.let { " · ±${it.toInt()} m" } ?: ""
