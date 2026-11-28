@@ -165,6 +165,24 @@ class PresenceEngineTest {
         assertEquals(0L, tr!!.atMs)              // timed at the gate
     }
 
+    @Test fun gateIsFoundFromThePathWhenNoReadingLandsAtIt() {
+        // Arriving by vehicle from the west: one reading 120 m west of the gate, the next 30 m inside it.
+        val e = PresenceEngine(Presence.OUTSIDE)
+        val kx = 111_195.0 * kotlin.math.cos(Math.toRadians(gate.lat))
+        fun west(m: Double, t: Long) = LocationSample(gate.lat, gate.lng - m / kx, 8f, t)
+        var t = 0L
+        e.process(west(120.0, t), office, cfg, t)
+        var tr: PresenceEngine.Transition? = null
+        repeat(3) { i ->
+            t += 15_000
+            val r = e.process(west(-(30.0 + i), t), office, cfg, t) as PresenceEngine.Result.Accepted
+            tr = r.transition ?: tr
+        }
+        assertEquals(Presence.INSIDE, tr?.to)
+        assertEquals("Main Gate", tr!!.gate?.name)
+        assertTrue(tr!!.gateFromPath)
+    }
+
     @Test fun wifiCheckInWhenGpsCannotTell() {
         val e = PresenceEngine(Presence.UNKNOWN)
         assertEquals(Presence.INSIDE, e.wifiCheckIn(1000)?.to)

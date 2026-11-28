@@ -192,7 +192,11 @@ object AttendanceController {
                 )
                 res.transition?.let { t ->
                     settings.presence = t.to
-                    val gateTxt = t.gate?.let { if (t.timedByGate) " via ${it.name} (gate time)" else " via ${it.name}" } ?: ""
+                    val gateTxt = t.gate?.let { when {
+                        t.timedByGate -> " via ${it.name} (gate time)"
+                        t.gateFromPath -> " via ${it.name} (from your path)"
+                        else -> " via ${it.name}"
+                    } } ?: ""
                     val gapTxt = if (t.gapBeforeSec >= GAP_NOTE_SEC)
                         " · detected after ${t.gapBeforeSec / 60} min without location, time approximate" else ""
                     when (t.to) {
@@ -347,8 +351,14 @@ object AttendanceController {
         val resting = _state.value.status == WorkStatus.DAY_COMPLETE || isRestDay(prev)
         if (prev > 0 && nowMs - prev > HEARTBEAT_GAP_MS && !resting && (highAccuracyWanted(prev) || highAccuracyWanted(nowMs))) {
             val f = { ms: Long -> LocalDateTime.ofInstant(Instant.ofEpochMilli(ms), zone()).let { "%02d:%02d".format(it.hour, it.minute) } }
+            // You turned phone location off during the gap: that's not the app being stopped.
+            val locationOff = db.events(prev, nowMs + 1).any { it.type == EventType.TRACKING && it.detail.startsWith("Tracking blocked") }
             db.insertEvent(nowMs, EventType.TRACKING,
-                "No tracking from ${f(prev)} to ${f(nowMs)}" + if (resumed) " — phone stopped the app; restarted automatically" else " — phone was asleep")
+                "No tracking from ${f(prev)} to ${f(nowMs)}" + when {
+                    locationOff -> " — phone location was turned off"
+                    resumed -> " — phone stopped the app; restarted automatically"
+                    else -> " — phone was asleep"
+                })
         }
         settings.lastHeartbeatMs = nowMs
     }

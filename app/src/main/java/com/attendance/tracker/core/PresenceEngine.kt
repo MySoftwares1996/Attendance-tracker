@@ -44,6 +44,8 @@ class PresenceEngine(initial: Presence = Presence.UNKNOWN) {
         val gapBeforeSec: Long = 0,
         /** True when [atMs] came from the gate crossing rather than the first confirming fix. */
         val timedByGate: Boolean = false,
+        /** No reading landed at the gate; it was worked out from the path across the boundary. */
+        val gateFromPath: Boolean = false,
     )
 
     var presence: Presence = initial
@@ -58,6 +60,9 @@ class PresenceEngine(initial: Presence = Presence.UNKNOWN) {
     private var lastGateMs = 0L
     private var gateVisitStartMs = 0L
     private var candidatePrevMs = 0L
+    /** Readings just before and at the start of a possible crossing (to find the gate from the path). */
+    private var candidatePrevSample: LocationSample? = null
+    private var candidateFirstSample: LocationSample? = null
 
     /** True while a possible in/out change is waiting for confirmation (poll faster). */
     val hasPendingChange: Boolean get() = candidate != null
@@ -110,6 +115,7 @@ class PresenceEngine(initial: Presence = Presence.UNKNOWN) {
             }
         }
         consecutiveJumpRejects = 0
+        val prevSample = lastAccepted
         val prevAcceptedMs = lastAccepted?.timeMs ?: s.timeMs
         lastAccepted = s
 
@@ -151,11 +157,16 @@ class PresenceEngine(initial: Presence = Presence.UNKNOWN) {
                 } else {
                     candidate = zonePresence; candidateCount = 1; candidateSinceMs = s.timeMs
                     candidatePrevMs = prevAcceptedMs
+                    candidatePrevSample = prevSample; candidateFirstSample = s
                 }
                 // Right after a gate crossing, fewer readings are needed (punch at the gate, not later).
                 val needed = if (viaGate) minOf(cfg.confirmSamples, 2) else cfg.confirmSamples
                 if (candidateCount >= needed.coerceAtLeast(1)) {
-                    val usedGate = lastGate?.takeIf { s.timeMs - lastGateMs <= GATE_WINDOW_MS }
+                    val seenGate = lastGate?.takeIf { s.timeMs - lastGateMs <= GATE_WINDOW_MS }
+                    // Moving fast (e.g. by vehicle) no reading may land inside the gate circle:
+                    // take the gate your path crossed, between the last reading before and the first after.
+                    val pathGate = if (seenGate == null) gateOnPath(office.gates, candidatePrevSample, candidateFirstSample) else null
+                    val usedGate = seenGate ?: pathGate
                     var at = candidateSinceMs
                     var byGate = false
                     if (usedGate != null) {
@@ -172,7 +183,7 @@ class PresenceEngine(initial: Presence = Presence.UNKNOWN) {
                         }
                     }
                     val gap = ((candidateSinceMs - candidatePrevMs) / 1000).coerceAtLeast(0)
-                    transition = Transition(presence, zonePresence, at, usedGate, gap, byGate)
+                    transition = Transition(presence, zonePresence, at, usedGate, gap, byGate, gateFromPath = pathGate != null)
                     presence = zonePresence
                     candidate = null; candidateCount = 0
                     lastGate = null
@@ -182,7 +193,24 @@ class PresenceEngine(initial: Presence = Presence.UNKNOWN) {
         return Result.Accepted(zone, d, edge, gate, transition)
     }
 
+    /** The gate closest to the straight path from [a] to [b], if within [PATH_GATE_M]. */
+    private fun gateOnPath(gates: List<Gate>, a: LocationSample?, b: LocationSample?): Gate? {
+        if (a == null || b == null || gates.isEmpty()) return null
+        return gates.map { g ->
+            // Local flat projection around the gate, in metres.
+            val k = 111_195.0; val kx = k * kotlin.math.cos(Math.toRadians(g.lat))
+            val ax = (a.lng - g.lng) * kx; val ay = (a.lat - g.lat) * k
+            val bx = (b.lng - g.lng) * kx; val by = (b.lat - g.lat) * k
+            val dx = bx - ax; val dy = by - ay
+            val len2 = dx * dx + dy * dy
+            val t = if (len2 == 0.0) 0.0 else (-(ax * dx + ay * dy) / len2).coerceIn(0.0, 1.0)
+            g to kotlin.math.hypot(ax + t * dx, ay + t * dy)
+        }.filter { (g, d) -> d <= maxOf(PATH_GATE_M, g.radiusM * 2) }.minByOrNull { it.second }?.first
+    }
+
     companion object {
+        /** A gate this close to your path across the boundary is taken as the one you used. */
+        const val PATH_GATE_M = 60.0
         /** ~216 km/h: anything faster between two fixes is a GPS glitch. */
         const val MAX_SPEED_MPS = 60.0
         /** A gate visit within this window before a transition is attributed to it. */

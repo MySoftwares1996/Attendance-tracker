@@ -103,7 +103,7 @@ object HealthCheck {
 
         // Tracking gaps in the last 7 days
         val gapEvents = AttendanceController.db.events(now - 7 * 86_400_000L, now)
-            .filter { it.type == EventType.TRACKING && it.detail.startsWith("No tracking from") }
+            .filter { it.type == EventType.TRACKING && it.detail.startsWith("No tracking from") && !it.detail.contains("location was turned off") }
         val gaps = gapEvents.size
         // When each gap happened, e.g. "Thu 27 Nov 18:40–19:05", so you can tell what caused it.
         val whenTxt = gapEvents.takeLast(2).joinToString(", ") { e ->
