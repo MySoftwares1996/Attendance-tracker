@@ -219,6 +219,9 @@ class SettingsRepository(context: Context) {
     /** Gentle nudge after 2 hours in the office without a break. */
     var breakNudge: Boolean get() = prefs.getBoolean("breakNudge", false); set(v) = prefs.edit().putBoolean("breakNudge", v).apply()
 
+    /** Tracking gaps up to this time were seen and acknowledged on the health screen. */
+    var gapsAcknowledgedMs: Long get() = prefs.getLong("gapsAck", 0L); set(v) = prefs.edit().putLong("gapsAck", v).apply()
+
     // ---- alert preferences ----
     /** IN / OUT alerts: shown at all (the punch is always recorded either way). */
     var punchAlertsOn: Boolean get() = flag("punchAlertsOn"); set(v) = setFlag("punchAlertsOn", v)

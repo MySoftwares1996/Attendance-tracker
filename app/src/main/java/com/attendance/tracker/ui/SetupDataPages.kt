@@ -247,6 +247,12 @@ internal fun HealthStep(open: (Page) -> Unit) {
             com.attendance.tracker.health.Fix.OFFICE -> open(Page.OFFICE)
             com.attendance.tracker.health.Fix.GATES -> open(Page.GATES)
             com.attendance.tracker.health.Fix.DATE_SETTINGS -> go(android.content.Intent(android.provider.Settings.ACTION_DATE_SETTINGS))
+            com.attendance.tracker.health.Fix.ACK_GAPS -> {
+                // Battery is already unrestricted: mark past gaps as seen (new ones still show up).
+                AttendanceController.settings.gapsAcknowledgedMs = System.currentTimeMillis()
+                android.widget.Toast.makeText(ctx, "Noted \u2014 new gaps will still be reported", android.widget.Toast.LENGTH_SHORT).show()
+                tick++
+            }
             com.attendance.tracker.health.Fix.START_TRACKING -> {
                 AttendanceController.settings.userPaused = false
                 runCatching { TrackingService.start(ctx) }
@@ -295,7 +301,7 @@ internal fun HealthStep(open: (Page) -> Unit) {
                     val f = ch.fix
                     if (f != null && ch.level != com.attendance.tracker.health.Level.OK) {
                         Spacer(Modifier.width(8.dp))
-                        Text("Fix", Modifier.clip(Soft.pillShape).background(col).pressScale { fix(f) }.padding(horizontal = 14.dp, vertical = 8.dp),
+                        Text(if (f == com.attendance.tracker.health.Fix.ACK_GAPS) "Got it" else "Fix", Modifier.clip(Soft.pillShape).background(col).pressScale { fix(f) }.padding(horizontal = 14.dp, vertical = 8.dp),
                             color = Color.White, style = MaterialTheme.typography.labelMedium)
                     }
                 }

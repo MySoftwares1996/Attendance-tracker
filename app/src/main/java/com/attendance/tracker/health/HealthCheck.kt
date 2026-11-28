@@ -18,7 +18,7 @@ import java.time.ZoneId
 enum class Level { OK, WARN, FAIL, TIP }
 
 /** What tapping "Fix" does. */
-enum class Fix { APP_SETTINGS, BACKGROUND, LOCATION_ON, BATTERY, NOTIFICATIONS, UNUSED, AUTOSTART, OFFICE, GATES, DATE_SETTINGS, START_TRACKING }
+enum class Fix { APP_SETTINGS, BACKGROUND, LOCATION_ON, BATTERY, NOTIFICATIONS, UNUSED, AUTOSTART, OFFICE, GATES, DATE_SETTINGS, ACK_GAPS, START_TRACKING }
 
 data class Check(val title: String, val detail: String, val level: Level, val fix: Fix? = null)
 
@@ -104,7 +104,8 @@ object HealthCheck {
         // Tracking gaps in the last 7 days
         val week = AttendanceController.db.events(now - 8 * 86_400_000L, now)
         val blockedTimes = week.filter { it.type == EventType.TRACKING && it.detail.startsWith("Tracking blocked") }.map { it.timeMs }
-        val gapEvents = week.filter { it.timeMs >= now - 7 * 86_400_000L && it.type == EventType.TRACKING &&
+        val ackMs = s.gapsAcknowledgedMs
+        val gapEvents = week.filter { it.timeMs >= now - 7 * 86_400_000L && it.timeMs > ackMs && it.type == EventType.TRACKING &&
             it.detail.startsWith("No tracking from") && !it.detail.contains("location was turned off") }
             .filterNot { e ->
                 // Older gaps (recorded before this was told apart): skip if you had turned location off
@@ -126,8 +127,10 @@ object HealthCheck {
         }
         c += when (gaps) {
             0 -> Check("Last 7 days", "No tracking gaps", Level.OK)
-            in 1..2 -> Check("Last 7 days", "$gaps tracking gap${if (gaps > 1) "s" else ""} ($whenTxt) — the phone paused the app, often battery saver at low charge", Level.WARN, Fix.BATTERY)
-            else -> Check("Last 7 days", "$gaps tracking gaps — battery or autostart settings are stopping the app", Level.FAIL, if (p.autostartNeeded) Fix.AUTOSTART else Fix.BATTERY)
+            in 1..2 -> Check("Last 7 days", "$gaps tracking gap${if (gaps > 1) "s" else ""} ($whenTxt) — the phone paused the app, often battery saver at low charge", Level.WARN,
+                if (p.batteryUnrestricted) Fix.ACK_GAPS else Fix.BATTERY)
+            else -> Check("Last 7 days", "$gaps tracking gaps — battery or autostart settings are stopping the app", Level.FAIL,
+                if (!p.batteryUnrestricted) Fix.BATTERY else if (p.autostartNeeded) Fix.AUTOSTART else Fix.ACK_GAPS)
         }
 
         // Trust
